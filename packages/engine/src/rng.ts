@@ -12,9 +12,14 @@ export function mulberry32(seed: number): () => number {
   }
 }
 
-/** FNV-1a over a string, then a final avalanche. Turns any key into a 32-bit seed. */
+/**
+ * FNV-1a over the parts, then a final avalanche. Turns any key into a 32-bit seed.
+ * Each part is length-prefixed, so ('a:1', 2) and ('a', '1:2') cannot collide.
+ * Hashes are 32-bit: callers needing exact uniqueness over many values (hands, seed groups)
+ * derive one namespace seed and add a counter to it instead of hashing each value.
+ */
 export function deriveSeed(...parts: Array<string | number>): number {
-  const text = parts.join(':')
+  const text = parts.map((p) => `${String(p).length}:${p}`).join('')
   let h = 0x811c9dc5
   for (let i = 0; i < text.length; i++) {
     h ^= text.charCodeAt(i)
