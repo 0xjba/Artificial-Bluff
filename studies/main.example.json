@@ -1,5 +1,5 @@
 {
-  "_note": "Main study. Publish `pnpm study prereg` output before running. targetHalfWidthBb100 is a research choice: set it before pre-registering.",
+  "_note": "Main study. Publish `pnpm study prereg` output before running. targetHalfWidthBb100 is a research choice: set it before pre-registering. At ~$0.025 per hand, $25 buys ~1,000 hands (~200 groups), so expect budget_cap unless the budget is raised; topping up and resuming keeps the pre-registration.",
   "id": "main-2026-09",
   "lineup": [
     { "id": "jev", "kind": "jev", "model": "jev-1.13.0" },

@@ -131,6 +131,8 @@ export async function runStudy(opts: RunStudyOptions): Promise<StudyOutcome> {
 
   async function worker(): Promise<void> {
     for (;;) {
+      // Let signal handlers (Ctrl-C) run even when every player answers instantly (mocks, bots).
+      await new Promise<void>((resolve) => setImmediate(resolve))
       if (stop) return
       if (opts.signal?.aborted) {
         stop = 'interrupted'

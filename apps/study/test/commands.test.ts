@@ -1,6 +1,6 @@
 import { EventStore } from '@ab/core'
-import { describe, expect, it } from 'vitest'
-import { mockVariant, preregCommand, runCommand, statusCommand } from '../src/commands'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { mockVariant, parseCliArgs, preregCommand, runCommand, statusCommand } from '../src/commands'
 import { parseStudyConfig } from '../src/config'
 
 const config = parseStudyConfig({
@@ -43,7 +43,10 @@ describe('study commands (mock mode: free, no network, no keys)', () => {
     expect(JSON.parse(lines[0]!)).toMatchObject({ kind: 'artificialBluff study', study: { id: 'smoke-mock' } })
   })
 
+  afterEach(() => vi.unstubAllGlobals())
+
   it('runs a mock study and reports status', async () => {
+    vi.stubGlobal('fetch', () => Promise.reject(new Error('mock mode must not use the network')))
     const store = new EventStore()
     const run = capture()
     const outcome = await runCommand(config, true, store, run.deps)
@@ -59,5 +62,32 @@ describe('study commands (mock mode: free, no network, no keys)', () => {
     const { lines, deps } = capture()
     statusCommand(config, true, new EventStore(), deps)
     expect(lines).toEqual(['study smoke-mock has not started'])
+  })
+
+  it('refuses to resume a study whose budget is spent, and says a finished study is finished', async () => {
+    const store = new EventStore()
+    const broke = { ...config, budgetUsd: 0.00001 }
+    expect((await runCommand(broke, true, store, capture().deps)).reason).toBe('budget_cap')
+    await expect(runCommand(broke, true, store, capture().deps)).rejects.toThrow(/budget already spent .* raise budgetUsd/)
+    const done = new EventStore()
+    await runCommand(config, true, done, capture().deps)
+    const again = capture()
+    await runCommand(config, true, done, again.deps)
+    expect(again.lines[0]).toBe('study smoke-mock already finished (max_groups)')
+  })
+})
+
+describe('study CLI arguments', () => {
+  it('needs an explicit --mock or --live to run, so a typo never starts a paid run', () => {
+    expect(parseCliArgs(['run', 'x.json', '--mock'])).toMatchObject({ command: 'run', mock: true, live: false, db: 'data/studies.db' })
+    expect(parseCliArgs(['run', 'x.json', '--live', '--takeover', '--db', 'd.db'])).toMatchObject({ live: true, takeover: true, db: 'd.db' })
+    expect(() => parseCliArgs(['run', 'x.json'])).toThrow(/--mock \(free rehearsal\) or --live \(spends real money/)
+    expect(() => parseCliArgs(['run', 'x.json', '--Mock'])).toThrow(/unknown argument for run: --Mock/)
+    expect(() => parseCliArgs(['run', 'x.json', '--mock', '--live'])).toThrow(/not both/)
+    expect(() => parseCliArgs(['run', 'x.json', '--mock', '--db'])).toThrow(/--db needs a path/)
+    expect(() => parseCliArgs(['run', 'x.json', '--db', '--mock'])).toThrow(/--db needs a path/)
+    expect(() => parseCliArgs(['status', 'x.json', '--live'])).toThrow(/unknown argument/)
+    expect(() => parseCliArgs(['go', 'x.json'])).toThrow(/unknown command/)
+    expect(() => parseCliArgs(['run'])).toThrow(/missing <config.json>/)
   })
 })
