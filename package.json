@@ -8,7 +8,8 @@
     "test": "pnpm -r test",
     "typecheck": "pnpm -r typecheck",
     "demo": "tsx packages/core/scripts/demo.ts",
-    "smoke": "tsx --env-file=.env packages/core/scripts/smoke.ts"
+    "smoke": "tsx --env-file=.env packages/core/scripts/smoke.ts",
+    "study": "tsx apps/study/src/cli.ts"
   },
   "devDependencies": {
     "typescript": "^5.6.0",

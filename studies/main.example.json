@@ -1,0 +1,18 @@
+{
+  "_note": "Main study. Publish `pnpm study prereg` output before running. targetHalfWidthBb100 is a research choice: set it before pre-registering.",
+  "id": "main-2026-09",
+  "lineup": [
+    { "id": "jev", "kind": "jev", "model": "jev-1.13.0" },
+    { "id": "pill", "kind": "llm", "model": "anthropic/claude-fable-5.1" },
+    { "id": "block", "kind": "llm", "model": "openai/gpt-6-astra" },
+    { "id": "drip", "kind": "llm", "model": "google/gemini-3.8-flash" },
+    { "id": "nimbus", "kind": "llm", "model": "meta-llama/llama-4-maverick" }
+  ],
+  "masterSeed": "artificialbluff-main-2026-09",
+  "budgetUsd": 25,
+  "targetHalfWidthBb100": 10,
+  "minGroups": 40,
+  "maxGroups": 2000,
+  "checkEvery": 20,
+  "concurrency": 2
+}
