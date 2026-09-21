@@ -178,7 +178,10 @@ Budget and concurrency are not part of the pre-registration (they only decide ho
 - **Stopping:** every `checkEvery` groups (a multiple of the neighbour block), over the completed prefix of groups in
   whole blocks, compute each player's 95% **Student t** CI (df = blocks − 1) of bb/100; stop when all half-widths ≤ target.
   Never before `minGroups`, which must be ≥ 10 blocks (40 groups for 5 players) unless the study has a fixed size.
-  Every check is logged (`study_checkpoint`). The budget cap stops a run; cut-off hands are replayed on resume.
+  Every check is logged (`study_checkpoint`). Checks run at every boundary in order, so the stopping point depends
+  only on the data (not concurrency or interruptions); results use the stopping boundary (`analysedGroups`). A met
+  rule wins over a budget cap. The budget cap stops a run (overshoot ≤ decisions in flight); cut-off hands are
+  replayed on resume. Only one process may run a study (`claimGame`; `--takeover` after a crash).
   (A statistics review found percentile-bootstrap CIs cover only ~84–90% at 5–10 fat-tailed blocks, and ~70% after
   width-based stopping; t CIs stay near 95%.)
 - **CI unit:** neighbour blocks (4 groups for 5 players; `neighbourBlockSize`). The published CI is the t interval;
