@@ -147,8 +147,9 @@ function chipLeader(t: TournamentState): string {
 /** Applies a finished hand's stacks, eliminates busted players, rotates the button, checks for the end. */
 export function recordHand(prev: TournamentState, result: HandResult): TournamentState {
   if (prev.complete) throw new Error('tournament is complete')
+  // Every tournament result must come from the hand nextHandConfig dealt (its id), never a stale one.
   const expectedId = tournamentHandId(prev.handNumber)
-  if (result.handId !== null && result.handId !== expectedId) {
+  if (result.handId !== expectedId) {
     throw new Error(`hand result ${result.handId} is not for the current hand ${expectedId}`)
   }
   // The result must come from the hand nextHandConfig dealt: exactly the live players, chips conserved.
