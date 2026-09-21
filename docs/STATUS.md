@@ -49,7 +49,7 @@ Last updated: 2026-09-21
 - [x] Task 7: Player factory and exports (32909dc + d1d6a09; spec ✅ quality ✅ — live-catalog preflight clean for both line-ups)
 - [x] Task 8: Core package, events, SQLite store (8284e8b + a35aa52 + tsx dep; spec ✅ quality ✅ fixes (opus): no lost events with concurrent writers, strict canonical JSON, schema migrations, hash in game_started)
 - [x] Task 9: Table runner (929c010 + f5c874b + usage-check follow-up; spec ✅ quality ✅ (opus, 3k-hand replay from events clean) — timeout latency = limit, misbehaving-player guards, empty-error auto count, currentBet)
-- [ ] Task 10: Live tournament driver (0f6bc7b; spec ✅; quality: mid-game throw left game 'running', meta could override recorded settings — fix in progress)
+- [x] Task 10: Live tournament driver (0f6bc7b + d62a4c3; spec ✅ quality ✅ — mid-game errors end game as interrupted, validated before writing, meta can't override recorded settings)
 - [ ] Task 11: pnpm demo / pnpm smoke (expect engine 104, players 43, core 31)
 
 ## Key decisions (summary; spec is authoritative)
