@@ -412,7 +412,7 @@ export interface Usage {
   retries: number
 }
 
-export const NO_USAGE: Usage = { inputTokens: 0, outputTokens: 0, reasoningTokens: 0, costUsd: 0, retries: 0 }
+export const NO_USAGE: Readonly<Usage> = Object.freeze({ inputTokens: 0, outputTokens: 0, reasoningTokens: 0, costUsd: 0, retries: 0 })
 
 /**
  * Why a decision failed: the model answered badly ('model': invalid, truncated or empty output) or
@@ -1623,6 +1623,15 @@ describe('JevPlayer', () => {
     expect(res.model).toBe('jev-1.13.1')
   })
 
+  it('returns a failure (not a throw) on a malformed 200 response', async () => {
+    const html = async () => new Response('<html>gateway</html>', { status: 200, headers: { 'content-type': 'text/html' } })
+    const errorBody = async () => new Response(JSON.stringify({ error: 'overloaded' }), { status: 200, headers: { 'content-type': 'application/json' } })
+    for (const fetchImpl of [html, errorBody]) {
+      const res = await new JevPlayer({ id: 'jev', model: 'jev-1.13.0', client: { ...quiet, fetch: fetchImpl } }).decide(obs, signal)
+      expect(res).toMatchObject({ ok: false, kind: 'infra' })
+    }
+  })
+
   it('stops when the runner aborts', async () => {
     const hang = async (_url: string, init?: RequestInit) =>
       new Promise<Response>((_resolve, reject) => init!.signal!.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError'))))
@@ -1677,6 +1686,7 @@ export interface JevPlayerOptions {
   model: string
   /** Passed to TypeSafeClient (apiKey, fetch for tests, etc.). */
   client?: TypeSafeClientConfig
+  /** USD per 1M input tokens (default JEV_INPUT_PRICE_PER_MTOK); output is free. */
   inputPricePerMTok?: number
   /**
    * SDK per-attempt timeout (ms). Kept above the table's decision timeout so the same runner timeout
@@ -1721,6 +1731,9 @@ export class JevPlayer implements Player {
     } catch (e) {
       return { ok: false, error: (e as Error).message, kind: 'infra', usage: NO_USAGE, model: this.model }
     }
+    if (!res || typeof res !== 'object' || !res.usage || !res.answers) {
+      return { ok: false, error: 'malformed API response', kind: 'infra', usage: NO_USAGE, model: this.model }
+    }
     const usage = {
       inputTokens: res.usage.input_tokens,
       outputTokens: res.usage.output_tokens,
@@ -1764,7 +1777,7 @@ The two instruction strings are part of the experiment: changing them changes wh
 - [ ] **Step 4: Run tests and typecheck**
 
 Run: `pnpm --filter @ab/players exec vitest run && pnpm --filter @ab/players typecheck`
-Expected: PASS (36 tests); typecheck clean.
+Expected: PASS (37 tests); typecheck clean.
 
 - [ ] **Step 5: Commit**
 
@@ -2003,7 +2016,7 @@ export * from './factory'
 - [ ] **Step 4: Run tests and typecheck**
 
 Run: `pnpm --filter @ab/players exec vitest run && pnpm --filter @ab/players typecheck`
-Expected: PASS (40 tests); typecheck clean.
+Expected: PASS (41 tests); typecheck clean.
 
 - [ ] **Step 5: Commit**
 
@@ -3243,7 +3256,7 @@ Expected: prints one line like `game demo-…: 67 hands, 393 decisions, 1161 eve
 - [ ] **Step 3: Full verification**
 
 Run: `pnpm test && pnpm typecheck`
-Expected: engine 104, players 40, core 19 tests pass; typecheck clean across all three packages.
+Expected: engine 104, players 41, core 19 tests pass; typecheck clean across all three packages.
 
 - [ ] **Step 4: Commit**
 
@@ -3277,7 +3290,7 @@ User decision (2026-09-21): the research line-up is used for the study and recor
 
 ## Done when
 
-- `pnpm test` passes (engine 104, players 40, core 19) and `pnpm typecheck` is clean.
+- `pnpm test` passes (engine 104, players 41, core 19) and `pnpm typecheck` is clean.
 - `pnpm demo` plays a full mock tournament into `data/demo.db` with no errors.
 - `@ab/players` exports `buildObservation`, the bots, `MockLlm`, `LlmPlayer`, `JevPlayer`, `createPlayers`; `@ab/core` exports the event types, `EventStore`, `playHand`, `runTournamentGame`.
 - Next: Plan 3 (study runner: duplicate groups, budget cap, resume, CI stop, report) builds on `playHand`, `EventStore` and `duplicateGroup`.
