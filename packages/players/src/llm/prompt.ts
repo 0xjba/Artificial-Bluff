@@ -1,0 +1,44 @@
+import type { Observation } from '../types'
+
+/**
+ * System prompt for every LLM seat. Derived from the original House of TEN prompt, fixing its
+ * known defects: options and raise semantics are explicit, amounts are precomputed, and the
+ * model states a win probability for calibration.
+ */
+export const SYSTEM_PROMPT = `You are playing No-Limit Texas Hold'em. On each turn you receive the game state as JSON and choose exactly one of the offered options.
+
+The state contains: your hole cards ("hole"), the board, your position, every seat's position, chips behind ("stack"), chips bet this street ("bet") and status (the seat with "you": true is you), this hand's action history, and computed facts: pot, amount to call, pot odds, effective stack in big blinds, and stack-to-pot ratio. Opponents are identified only by position.
+
+Every option offered is legal. "Call X" adds X chips; "Bet X", "Raise to X" and "All-in X" mean your total bet this street becomes X. In the history, "posts" and "calls X" show chips added, while "bets X" and "raises to X" show that player's street total.
+
+Your goal is to maximise your expected chips.
+
+Reply with only a JSON object, no other text:
+{"action": "<one option id>", "win_probability": <number 0 to 1: the probability you win this hand>, "confidence": <number 0 to 1: how sure you are this is the best action>, "reasoning": "<at most 120 characters>"}`
+
+/** The user message: the observation as compact JSON. */
+export function userMessage(obs: Observation): string {
+  return JSON.stringify(obs)
+}
+
+/** JSON schema for structured output, restricted to this turn's option ids. */
+export function responseFormat(obs: Observation): unknown {
+  return {
+    type: 'json_schema',
+    json_schema: {
+      name: 'poker_decision',
+      strict: true,
+      schema: {
+        type: 'object',
+        properties: {
+          action: { type: 'string', enum: obs.options.map((o) => o.id) },
+          win_probability: { type: 'number' },
+          confidence: { type: 'number' },
+          reasoning: { type: 'string' },
+        },
+        required: ['action', 'win_probability', 'confidence', 'reasoning'],
+        additionalProperties: false,
+      },
+    },
+  }
+}
