@@ -38,6 +38,25 @@ describe('buildPots', () => {
     expect(pots.reduce((s, p) => s + p.amount, 0)).toBe(700)
   })
 
+  it('gives chips a folded player put in above every live player to the top live pot', () => {
+    expect(
+      buildPots([
+        { id: 'a', amount: 100, folded: false },
+        { id: 'b', amount: 100, folded: false },
+        { id: 'f', amount: 500, folded: true },
+      ]),
+    ).toEqual([{ amount: 700, eligible: ['a', 'b'] }])
+  })
+
+  it('does not crash when live players contributed nothing but a folded player did', () => {
+    expect(
+      buildPots([
+        { id: 'a', amount: 0, folded: false },
+        { id: 'f', amount: 500, folded: true },
+      ]),
+    ).toEqual([{ amount: 500, eligible: ['a'] }])
+  })
+
   it('returns an uncalled bet as a single-eligible pot', () => {
     expect(
       buildPots([
