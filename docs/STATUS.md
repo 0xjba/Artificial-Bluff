@@ -1,7 +1,7 @@
 # artificialBluff — Status & Tracker
 
 Living document. Update it whenever a task finishes, a decision is made, or a todo appears.
-Last updated: 2026-09-21
+Last updated: 2026-09-22
 
 ## Where things are
 
@@ -23,7 +23,7 @@ Last updated: 2026-09-21
 |---|---|---|
 | 1 | Monorepo + game engine (`packages/engine`) | ✅ Merged to master (9de0579), 99 tests |
 | 2 | Players (Jev, LLM, bots, mock), table runner, SQLite event log | ✅ Merged to master (b94a7be), 181 tests |
-| 3 | Study runner (duplicate, budget cap, resume, CI stop) + report/charts | 3a study runner: plan written & verified in scratch (201 tests), executing on `feat/plan-3a-study`; 3b analysis + report: not written |
+| 3 | Study runner (duplicate, budget cap, resume, CI stop) + report/charts | 3a study runner: ✅ built and reviewed on `feat/plan-3a-study` (220 tests), ready to merge; 3b analysis + report: not written |
 | 4 | Live server (WebSocket, replays, admin start) + web (Broadcast UI) + mascots (bloub) | Not written yet |
 
 ### Plan 1 task progress
