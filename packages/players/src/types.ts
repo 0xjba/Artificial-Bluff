@@ -75,7 +75,7 @@ export interface Usage {
   retries: number
 }
 
-export const NO_USAGE: Usage = { inputTokens: 0, outputTokens: 0, reasoningTokens: 0, costUsd: 0, retries: 0 }
+export const NO_USAGE: Readonly<Usage> = Object.freeze({ inputTokens: 0, outputTokens: 0, reasoningTokens: 0, costUsd: 0, retries: 0 })
 
 /**
  * Why a decision failed: the model answered badly ('model': invalid, truncated or empty output) or
