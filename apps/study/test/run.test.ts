@@ -202,6 +202,9 @@ describe('runStudy', () => {
     expect(out.reason).toBe('ci_target')
     expect(eventsOf(crashed, 'hand_started')).toHaveLength(hands)
     expect(crashed.events('pilot').at(-1)).toMatchObject({ type: 'study_ended', reason: 'ci_target', analysedGroups: 16 })
+    const rerun = await run(config({ targetHalfWidthBb100: 0.001 }), tags(), crashed) // finished: reads, plays nothing
+    expect(rerun).toMatchObject({ reason: 'ci_target', summary: { groups: 16 } })
+    expect(crashed.game('pilot')!.status).toBe('ended')
     // Crash after the last hand, before its check was logged: the check is caught up on resume.
     const early = crashCopy(done, (e, i, all) => e.type === 'study_ended' || (e.type === 'study_checkpoint' && i === all.length - 2))
     const again = await run(config({ targetHalfWidthBb100: 0.001 }), tags(), early, undefined, true)

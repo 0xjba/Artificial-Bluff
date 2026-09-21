@@ -30,6 +30,7 @@ describe('parseStudyConfig', () => {
   it('requires at least 10 blocks before the CI rule may stop, unless the study has a fixed size', () => {
     expect(() => parseStudyConfig({ ...base, minGroups: 8 })).toThrow(/at least 10 neighbour blocks \(40 groups for 5 players\)/)
     expect(parseStudyConfig({ ...base, minGroups: 8, maxGroups: 8 }).minGroups).toBe(8)
+    expect(() => parseStudyConfig({ ...base, minGroups: 40, checkEvery: 12 })).toThrow(/multiple of "checkEvery"/)
   })
 
   it('validates every line-up seat', () => {

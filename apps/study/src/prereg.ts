@@ -24,7 +24,7 @@ export function preregistration(config: StudyConfig, adaptedLineup: PlayerSpec[]
     stopping:
       'every checkEvery groups: over the completed prefix of groups in whole neighbour blocks, stop when every ' +
       "player's 95% Student t CI (df = blocks - 1) half-width of bb/100 is at most targetHalfWidthBb100; never " +
-      'before minGroups (at least 10 blocks unless the study has a fixed size); at most maxGroups; every check is ' +
+      'before minGroups (at least 10 blocks and a check boundary, unless the study has a fixed size); at most maxGroups; every check is ' +
       'logged as a study_checkpoint event; hands cut short by the budget cap are excluded and replayed on resume',
     intervals:
       'per-player 95% t CIs over neighbour blocks are marginal, not simultaneous; pairwise claims use paired ' +

@@ -3,7 +3,7 @@ import { cashHandConfig, duplicateGroup, type DuplicateHand } from '@ab/engine'
 import type { Player } from '@ab/players'
 import type { StudyConfig } from './config'
 import { assertPreregMatches } from './prereg'
-import { completedPrefix, emptyProgress, handKeyOf, readStoreProgress } from './progress'
+import { completedPrefix, handKeyOf, readStoreProgress, type StudyProgress } from './progress'
 import { summarize, type StudySummary } from './results'
 
 export interface RunStudyOptions {
@@ -55,13 +55,24 @@ export async function runStudy(opts: RunStudyOptions): Promise<StudyOutcome> {
     if (existing.kind !== 'study') throw new Error(`${config.id} is not a study`)
     if (existing.configHash !== hash) throw new Error(`study ${config.id} was pre-registered with a different config (hash ${existing.configHash.slice(0, 12)}…); use a new id`)
   }
-  const p = existing ? readStoreProgress(store, config.id) : emptyProgress()
-  if (p.lastEnd === 'ci_target' || p.lastEnd === 'max_groups') {
-    const analysed = p.lastEnd === 'ci_target' ? p.lastCheckpoint!.groups : config.maxGroups
-    return { reason: p.lastEnd, groupsCompleted: completedPrefix(p, n, config.maxGroups), summary: summarize(p, config, analysed), costUsd: store.gameCost(config.id), configHash: hash }
+  const finished = (q: StudyProgress): StudyOutcome | null =>
+    q.lastEnd === 'ci_target' || q.lastEnd === 'max_groups'
+      ? { reason: q.lastEnd, groupsCompleted: completedPrefix(q, n, config.maxGroups), summary: summarize(q, config, q.analysedGroups!), costUsd: store.gameCost(config.id), configHash: hash }
+      : null
+  if (existing) {
+    const done = finished(readStoreProgress(store, config.id))
+    if (done) return done
+    store.claimGame(config.id, opts.takeover)
+  } else {
+    store.createGame(config.id, 'study', opts.prereg)
   }
-  if (existing) store.claimGame(config.id, opts.takeover)
-  else store.createGame(config.id, 'study', opts.prereg)
+  // Read progress only once we hold the study, so it can't be stale (another run may have just ended).
+  const p = readStoreProgress(store, config.id)
+  const done = finished(p)
+  if (done) {
+    store.setStatus(config.id, 'ended')
+    return done
+  }
   const sink = store.sink(config.id)
   sink.append({ type: 'game_started', kind: 'study', configHash: hash, players: ids.map((id) => players.get(id)!).map((pl) => ({ id: pl.id, kind: pl.kind, model: pl.model })) })
 
