@@ -2,7 +2,7 @@ import { configHash, EventStore } from '@ab/core'
 import { adaptLineup, createPlayers, fetchModelCatalog, type PlayerEnv, type PlayerSpec } from '@ab/players'
 import { readFileSync } from 'node:fs'
 import { parseStudyConfig, type StudyConfig } from './config'
-import { preregistration } from './prereg'
+import { assertPreregMatches, preregistration } from './prereg'
 import { completedPrefix, readStoreProgress } from './progress'
 import { summarize, type StudySummary } from './results'
 import { runStudy, type StudyOutcome } from './run'
@@ -58,10 +58,27 @@ export async function preregCommand(config: StudyConfig, mock: boolean, deps: Co
 
 export async function runCommand(config: StudyConfig, mock: boolean, store: EventStore, deps: CommandDeps): Promise<StudyOutcome> {
   const c = mock ? mockVariant(config) : config
-  const lineup = await resolveLineup(c, mock, deps.log)
+  const game = store.game(c.id)
+  let lineup: PlayerSpec[]
+  if (game) {
+    // Resume with the pre-registered line-up: re-adapting it to today's model catalog could change
+    // its request flags, and so the hash, and lock the study out.
+    const record = game.config as Record<string, unknown>
+    assertPreregMatches(record, c)
+    lineup = (record.study as { lineup: PlayerSpec[] }).lineup
+    const progress = readStoreProgress(store, c.id)
+    if (progress.lastEnd === 'ci_target' || progress.lastEnd === 'max_groups') deps.log(`study ${c.id} already finished (${progress.lastEnd})`)
+    const spent = store.gameCost(c.id)
+    if (progress.lastEnd === 'budget_cap' && spent >= c.budgetUsd) {
+      throw new Error(`study ${c.id}: budget already spent ($${spent.toFixed(4)} of $${c.budgetUsd}); raise budgetUsd to resume`)
+    }
+  } else {
+    lineup = await resolveLineup(c, mock, deps.log)
+  }
   const players = createPlayers(lineup, deps.env)
   const prereg = preregistration(c, lineup)
   if (mock) deps.log('mock mode: no API calls are made; costs shown are simulated')
+  else deps.log(`REAL RUN: this spends real money, up to $${c.budgetUsd} for the whole study`)
   deps.log(`study ${c.id}: ${players.map((p) => `${p.id}=${p.model}`).join(', ')}`)
   deps.log(`pre-registration hash ${configHash(prereg)}; budget $${c.budgetUsd}; ${c.concurrency} table(s)`)
   if (c.concurrency > 1) deps.log(`note: up to ${c.concurrency} decisions already in flight can finish after the budget is reached`)
@@ -86,8 +103,51 @@ export function statusCommand(config: StudyConfig, mock: boolean, store: EventSt
     deps.log(`study ${c.id} has not started`)
     return
   }
+  assertPreregMatches(game.config as Record<string, unknown>, c)
   const progress = readStoreProgress(store, c.id)
-  const prefix = completedPrefix(progress, c.lineup.length, c.maxGroups)
+  const finished = game.status === 'ended' && progress.analysedGroups !== null
+  const groups = finished ? progress.analysedGroups! : completedPrefix(progress, c.lineup.length, c.maxGroups)
   deps.log(`study ${c.id}: ${game.status}${progress.lastEnd ? ` (${progress.lastEnd})` : ''}, ${progress.handsPlayed} hands played, hash ${game.configHash.slice(0, 12)}…`)
-  formatSummary(summarize(progress, c, prefix), store.gameCost(c.id)).forEach(deps.log)
+  formatSummary(summarize(progress, c, groups), store.gameCost(c.id)).forEach(deps.log)
+}
+
+export interface CliArgs {
+  command: 'prereg' | 'run' | 'status'
+  configPath: string
+  mock: boolean
+  live: boolean
+  takeover: boolean
+  db: string
+}
+
+export const USAGE =
+  'usage: pnpm study prereg <config.json> [--mock]\n' +
+  '       pnpm study run    <config.json> (--mock | --live) [--takeover] [--db path]\n' +
+  '       pnpm study status <config.json> [--mock] [--db path]'
+
+/**
+ * Strict argument parsing: unknown arguments are errors, and `run` needs an explicit --mock (free)
+ * or --live (real money), so a typo can never start a paid run.
+ */
+export function parseCliArgs(argv: readonly string[]): CliArgs {
+  const [command, configPath, ...rest] = argv
+  if (command !== 'prereg' && command !== 'run' && command !== 'status') throw new Error(`unknown command: ${command ?? '(none)'}`)
+  if (!configPath || configPath.startsWith('-')) throw new Error('missing <config.json>')
+  const args: CliArgs = { command, configPath, mock: false, live: false, takeover: false, db: 'data/studies.db' }
+  for (let i = 0; i < rest.length; i++) {
+    const a = rest[i]!
+    if (a === '--mock') args.mock = true
+    else if (a === '--live' && command === 'run') args.live = true
+    else if (a === '--takeover' && command === 'run') args.takeover = true
+    else if (a === '--db' && command !== 'prereg') {
+      const path = rest[++i]
+      if (!path || path.startsWith('-')) throw new Error('--db needs a path')
+      args.db = path
+    } else throw new Error(`unknown argument for ${command}: ${a}`)
+  }
+  if (args.mock && args.live) throw new Error('use --mock or --live, not both')
+  if (command === 'run' && !args.mock && !args.live) {
+    throw new Error('run needs --mock (free rehearsal) or --live (spends real money, up to the study budget)')
+  }
+  return args
 }

@@ -3,7 +3,7 @@
   "private": true,
   "type": "module",
   "packageManager": "pnpm@10.12.1",
-  "engines": { "node": ">=20" },
+  "engines": { "node": ">=20.12" },
   "scripts": {
     "test": "pnpm -r test",
     "typecheck": "pnpm -r typecheck",
