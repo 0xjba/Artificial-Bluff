@@ -124,11 +124,24 @@ the ablation. No personality/style text in the study; live characters are displa
   choice confidence, win probability.
 
 **LLM adapter** (OpenRouter):
-- Cached system prompt: rules summary, option semantics, output schema. Baseline wording derived from the salvaged
-  prompt (`SALVAGE.md` §3), fixing its known defects.
+- System prompt: rules summary, option semantics, output schema. Baseline wording derived from the salvaged
+  prompt (`SALVAGE.md` §3), fixing its known defects. (At ~270 tokens it is below providers' prompt-caching minimums,
+  so no caching.)
 - Output: `{"action":"<option id>","win_probability":0-1,"confidence":0-1,"reasoning":"≤120 chars"}`; JSON-schema
-  mode where supported; temperature 0.3; reasoning/thinking disabled; max ~150 output tokens.
-- Invalid output → one retry including the specific error → fallback check/fold flagged `fallback:true`.
+  mode where supported; temperature 0.3; reasoning off (`effort: none`) and max 150 output tokens, or for models that
+  always reason `effort: low` (hidden) with 1,500. Reasoning tokens are recorded per decision as evidence.
+- Invalid, empty or refused output → one retry quoting the specific error (Jev cannot produce invalid output; the
+  retry's cost and latency count against the LLM). A reply truncated at max_tokens fails without retry. Then fallback
+  check/fold flagged `fallback:true` with a kind: model / infra / timeout / auto, so provider outages aren't blamed on
+  models. Probabilities outside 0-1 are rejected, never rescaled.
+- A free pre-flight against OpenRouter's model catalog rejects unknown models and sets per-model request flags
+  (structured output, reasoning parameter, temperature).
+- On timeout the runner aborts the call but still records what it had already cost (short grace period).
+
+**Same questions for both:** Jev's win Noul and the LLMs' `win_probability` use one shared condition ("win this hand,
+either at showdown or because every opponent folds"), and both get the same option semantics. Calibration outcome
+for split pots: decided in Plan 3 and applied identically to all players. Note for the write-up: Jev's `confidence`
+is derived from its option probabilities, the LLMs' is self-reported — report them separately, not as one metric.
 
 **Bots:** Random, CallingStation, simple rule-based TAG, MockLLM (deterministic, free) for tests and $0 runs.
 

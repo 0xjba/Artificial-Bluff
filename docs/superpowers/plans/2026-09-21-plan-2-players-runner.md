@@ -41,6 +41,7 @@
 | `packages/players/src/llm/llm-player.ts` | LlmPlayer (one retry with the specific error) |
 | `packages/players/src/jev/jev-player.ts` | JevPlayer (Choice over options + win Noul) |
 | `packages/players/src/factory.ts` | `createPlayers(lineup, env)` |
+| `packages/players/src/llm/preflight.ts` | Model catalog check: unknown models, request flags per model |
 | `packages/core/src/events.ts` | Event types, EventSink |
 | `packages/core/src/store.ts` | EventStore (SQLite): games, events, decisions, cost |
 | `packages/core/src/runner.ts` | `playHand` |
@@ -398,18 +399,27 @@ export interface Decision {
 
 export interface Usage {
   inputTokens: number
+  /** Billed output tokens, including any reasoning tokens. */
   outputTokens: number
+  /** Hidden reasoning ("thinking") tokens among outputTokens; 0 when the model didn't reason. */
+  reasoningTokens: number
   costUsd: number
   /** Extra attempts made after the first (e.g. an invalid-output retry). */
   retries: number
 }
 
-export const NO_USAGE: Usage = { inputTokens: 0, outputTokens: 0, costUsd: 0, retries: 0 }
+export const NO_USAGE: Usage = { inputTokens: 0, outputTokens: 0, reasoningTokens: 0, costUsd: 0, retries: 0 }
+
+/**
+ * Why a decision failed: the model answered badly ('model': invalid, truncated or empty output) or
+ * the call itself failed ('infra': HTTP, network, provider or configuration errors).
+ */
+export type FailureKind = 'model' | 'infra'
 
 /** A failed decision still reports what it cost: failed calls are billed too. */
 export type DecideResult =
   | { ok: true; decision: Decision; usage: Usage; model: string }
-  | { ok: false; error: string; usage: Usage; model: string }
+  | { ok: false; error: string; kind: FailureKind; usage: Usage; model: string }
 
 export type PlayerKind = 'jev' | 'llm' | 'bot' | 'mock'
 
@@ -926,12 +936,13 @@ export class MockLlm implements Player {
     const usage = {
       inputTokens,
       outputTokens: 40,
+      reasoningTokens: 0,
       costUsd: (inputTokens * (this.options.inputPricePerMTok ?? 1)) / 1_000_000,
       retries: 0,
     }
     if (this.options.latencyMs) await delay(this.options.latencyMs, signal)
     if (this.options.failEvery && this.calls % this.options.failEvery === 0) {
-      return { ok: false, error: 'mock failure', usage, model: this.model }
+      return { ok: false, error: 'mock failure', kind: 'infra', usage, model: this.model }
     }
     const { optionId, winProbability } = tagChoice(obs)
     const invalid = this.options.invalidEvery && this.calls % this.options.invalidEvery === 0
@@ -991,10 +1002,10 @@ git -c user.email=jobinb6444@gmail.com -c user.name=0xjba commit -m "feat(player
 ```ts
 import { createHand } from '@ab/engine'
 import { describe, expect, it } from 'vitest'
-import { LlmPlayer } from '../src/llm/llm-player'
+import { LlmPlayer, type LlmPlayerOptions } from '../src/llm/llm-player'
 import { OpenRouterError, chatCompletion } from '../src/llm/openrouter'
 import { parseDecision } from '../src/llm/parse'
-import { SYSTEM_PROMPT, responseFormat } from '../src/llm/prompt'
+import { SYSTEM_PROMPT, WIN_CONDITION, responseFormat } from '../src/llm/prompt'
 import { buildObservation } from '../src/observation'
 
 const obs = buildObservation(
@@ -1002,8 +1013,18 @@ const obs = buildObservation(
 )
 const signal = new AbortController().signal
 
+interface Reply {
+  status?: number
+  content?: string | null
+  cost?: number
+  finish?: string
+  refusal?: string
+  reasoningTokens?: number
+  body?: string
+}
+
 /** A fake fetch that returns queued chat replies and records requests. */
-function fakeFetch(replies: Array<{ status?: number; content?: string; cost?: number; body?: string }>) {
+function fakeFetch(replies: Reply[]) {
   const requests: Array<{ url: string; body: Record<string, unknown>; headers: Record<string, string> }> = []
   const fn = async (url: string, init?: RequestInit) => {
     requests.push({ url, body: JSON.parse(String(init!.body)), headers: init!.headers as Record<string, string> })
@@ -1012,8 +1033,13 @@ function fakeFetch(replies: Array<{ status?: number; content?: string; cost?: nu
       r.body ??
       JSON.stringify({
         model: 'vendor/model-2026',
-        choices: [{ message: { content: r.content } }],
-        usage: { prompt_tokens: 400, completion_tokens: 50, cost: r.cost ?? 0.001 },
+        choices: [{ finish_reason: r.finish ?? 'stop', message: { content: r.content ?? null, refusal: r.refusal ?? null } }],
+        usage: {
+          prompt_tokens: 400,
+          completion_tokens: 50,
+          cost: r.cost ?? 0.001,
+          completion_tokens_details: { reasoning_tokens: r.reasoningTokens ?? 0 },
+        },
       })
     return new Response(body, { status: r.status ?? 200 })
   }
@@ -1023,32 +1049,46 @@ function fakeFetch(replies: Array<{ status?: number; content?: string; cost?: nu
 const valid = JSON.stringify({ action: 'call', win_probability: 0.55, confidence: 0.7, reasoning: 'Decent hand, cheap price.' })
 
 describe('parseDecision', () => {
-  it('accepts a valid reply, including one wrapped in a code fence', () => {
-    const r = parseDecision('```json\n' + valid + '\n```', obs)
-    expect(r).toEqual({
+  it('accepts a valid reply, including one in a code fence or with text around it', () => {
+    const expected = {
       ok: true,
       decision: { optionId: 'call', winProbability: 0.55, confidence: 0.7, optionProbabilities: null, reasoning: 'Decent hand, cheap price.' },
-    })
+    }
+    expect(parseDecision('```json\n' + valid + '\n```', obs)).toEqual(expected)
+    expect(parseDecision('<think>hmm</think> Here you go: ' + valid + ' Good luck!', obs)).toEqual(expected)
   })
 
-  it('rejects unknown options, bad JSON and out-of-range probabilities with a specific error', () => {
-    expect(parseDecision('nope', obs)).toEqual({ ok: false, error: 'reply was not valid JSON' })
+  it('normalises the action’s case and whitespace', () => {
+    const r = parseDecision(JSON.stringify({ action: ' Call ', win_probability: 0.5, confidence: 0.5 }), obs)
+    expect(r.ok && r.decision.optionId).toBe('call')
+  })
+
+  it('rejects unknown options, non-JSON and out-of-range probabilities with a specific error', () => {
+    expect(parseDecision('nope', obs)).toEqual({ ok: false, error: 'reply did not contain a JSON object' })
+    expect(parseDecision('{"action": }', obs)).toEqual({ ok: false, error: 'reply was not valid JSON' })
     expect(parseDecision('{"action":"raise","win_probability":0.5,"confidence":0.5}', obs)).toMatchObject({ ok: false, error: expect.stringMatching(/must be one of: fold, call/) })
-    expect(parseDecision('{"action":"call","win_probability":1.5e3,"confidence":0.5}', obs)).toMatchObject({ ok: false, error: expect.stringMatching(/between 0 and 1/) })
   })
 
-  it('scales percentages and truncates long reasoning', () => {
-    const r = parseDecision(JSON.stringify({ action: 'fold', win_probability: 70, confidence: 0.2, reasoning: 'x'.repeat(300) }), obs)
-    expect(r.ok && r.decision.winProbability).toBe(0.7)
+  it('rejects percentages instead of guessing a scale (calibration data must not be rescaled)', () => {
+    for (const bad of [55, 1.5, -0.1, Number.NaN]) {
+      const r = parseDecision(JSON.stringify({ action: 'call', win_probability: bad, confidence: 0.5 }), obs)
+      expect(r).toMatchObject({ ok: false, error: '"win_probability" must be a number from 0 to 1' })
+    }
+    expect(parseDecision(JSON.stringify({ action: 'call', win_probability: 1, confidence: 0 }), obs).ok).toBe(true)
+  })
+
+  it('truncates long reasoning', () => {
+    const r = parseDecision(JSON.stringify({ action: 'fold', win_probability: 0.3, confidence: 0.2, reasoning: 'x'.repeat(300) }), obs)
     expect(r.ok && r.decision.reasoning).toHaveLength(120)
   })
 })
 
 describe('prompt', () => {
-  it('restricts the schema to this turn’s options and explains raise semantics', () => {
+  it('restricts the schema to this turn’s options and defines win and option semantics', () => {
     const schema = responseFormat(obs) as { json_schema: { schema: { properties: { action: { enum: string[] } } } } }
     expect(schema.json_schema.schema.properties.action.enum).toEqual(obs.options.map((o) => o.id))
     expect(SYSTEM_PROMPT).toContain('"Bet X", "Raise to X" and "All-in X" mean your total bet this street becomes X')
+    expect(SYSTEM_PROMPT).toContain(`the probability that you ${WIN_CONDITION}`)
   })
 })
 
@@ -1057,21 +1097,39 @@ describe('chatCompletion', () => {
     const { fn } = fakeFetch([{ status: 402, body: '{"error":"insufficient credits"}' }])
     await expect(chatCompletion({ apiKey: 'k', fetch: fn }, { model: 'm', messages: [] })).rejects.toBeInstanceOf(OpenRouterError)
   })
+
+  it('reads finish reason, refusal and reasoning tokens', async () => {
+    const { fn } = fakeFetch([{ content: 'x', finish: 'length', reasoningTokens: 120, refusal: 'no' }])
+    const r = await chatCompletion({ apiKey: 'k', fetch: fn }, { model: 'm', messages: [] })
+    expect(r).toMatchObject({ finishReason: 'length', refused: true, reasoningTokens: 120, completionTokens: 50 })
+  })
 })
 
 describe('LlmPlayer', () => {
-  const make = (fn: ReturnType<typeof fakeFetch>['fn']) =>
-    new LlmPlayer({ id: 'pill', model: 'vendor/model', openrouter: { apiKey: 'test-key', fetch: fn } })
+  const make = (fn: ReturnType<typeof fakeFetch>['fn'], extra: Partial<LlmPlayerOptions> = {}) =>
+    new LlmPlayer({ id: 'pill', model: 'vendor/model', openrouter: { apiKey: 'test-key', fetch: fn }, ...extra })
 
   it('sends the prompt with structured output, low temperature and reasoning off, and reports cost', async () => {
     const fake = fakeFetch([{ content: valid, cost: 0.0021 }])
     const res = await make(fake.fn).decide(obs, signal)
-    expect(res).toMatchObject({ ok: true, model: 'vendor/model-2026', usage: { inputTokens: 400, outputTokens: 50, costUsd: 0.0021, retries: 0 } })
+    expect(res).toMatchObject({ ok: true, model: 'vendor/model-2026', usage: { inputTokens: 400, outputTokens: 50, reasoningTokens: 0, costUsd: 0.0021, retries: 0 } })
     const req = fake.requests[0]!
     expect(req.url).toBe('https://openrouter.ai/api/v1/chat/completions')
     expect(req.headers.Authorization).toBe('Bearer test-key')
     expect(req.body).toMatchObject({ model: 'vendor/model', temperature: 0.3, max_tokens: 150, reasoning: { effort: 'none' }, provider: { require_parameters: true } })
     expect((req.body.messages as Array<{ role: string }>).map((m) => m.role)).toEqual(['system', 'user'])
+  })
+
+  it('sends reasoning and temperature only as configured', async () => {
+    const low = fakeFetch([{ content: valid }])
+    await make(low.fn, { reasoning: 'low', sendTemperature: false }).decide(obs, signal)
+    expect(low.requests[0]!.body).toMatchObject({ reasoning: { effort: 'low', exclude: true }, max_tokens: 1500 })
+    expect(low.requests[0]!.body).not.toHaveProperty('temperature')
+    const omit = fakeFetch([{ content: valid }])
+    await make(omit.fn, { reasoning: 'omit', structuredOutput: false }).decide(obs, signal)
+    expect(omit.requests[0]!.body).not.toHaveProperty('reasoning')
+    expect(omit.requests[0]!.body).not.toHaveProperty('response_format')
+    expect(omit.requests[0]!.body).not.toHaveProperty('provider')
   })
 
   it('retries once with the specific error, summing usage', async () => {
@@ -1082,16 +1140,32 @@ describe('LlmPlayer', () => {
     expect(retryMessages.at(-1)!.content).toMatch(/invalid: "action" must be one of/)
   })
 
-  it('gives up after a second invalid reply, still reporting what it cost', async () => {
+  it('gives up after a second invalid reply as a model failure, still reporting what it cost', async () => {
     const fake = fakeFetch([{ content: 'hmm' }, { content: 'still no' }])
     const res = await make(fake.fn).decide(obs, signal)
-    expect(res).toMatchObject({ ok: false, error: expect.stringMatching(/^invalid output/), usage: { costUsd: 0.002, retries: 1 } })
+    expect(res).toMatchObject({ ok: false, kind: 'model', error: expect.stringMatching(/^invalid output/), usage: { costUsd: 0.002, retries: 1 } })
   })
 
-  it('returns a failure (not a throw) on HTTP errors', async () => {
+  it('does not retry a reply cut off by max_tokens, and records reasoning tokens', async () => {
+    const fake = fakeFetch([{ content: '{"action":"ca', finish: 'length', reasoningTokens: 140, cost: 0.02 }])
+    const res = await make(fake.fn).decide(obs, signal)
+    expect(res).toMatchObject({ ok: false, kind: 'model', error: 'truncated: reply hit max_tokens', usage: { reasoningTokens: 140, costUsd: 0.02, retries: 0 } })
+    expect(fake.requests).toHaveLength(1)
+  })
+
+  it('retries a refusal or empty reply without echoing an empty assistant turn', async () => {
+    const fake = fakeFetch([{ content: null, refusal: 'I cannot help with gambling.' }, { content: valid }])
+    const res = await make(fake.fn).decide(obs, signal)
+    expect(res.ok).toBe(true)
+    const retry = fake.requests[1]!.body.messages as Array<{ role: string; content: string }>
+    expect(retry.map((m) => m.role)).toEqual(['system', 'user', 'user'])
+    expect(retry.at(-1)!.content).toMatch(/the reply was a refusal/)
+  })
+
+  it('returns an infrastructure failure (not a throw) on HTTP errors', async () => {
     const fake = fakeFetch([{ status: 500, body: 'upstream down' }])
     const res = await make(fake.fn).decide(obs, signal)
-    expect(res).toMatchObject({ ok: false, error: expect.stringMatching(/OpenRouter 500/) })
+    expect(res).toMatchObject({ ok: false, kind: 'infra', error: expect.stringMatching(/OpenRouter 500/) })
   })
 })
 ```
@@ -1119,16 +1193,22 @@ export interface ChatRequest {
   temperature?: number
   max_tokens?: number
   response_format?: unknown
-  reasoning?: { effort?: 'none' | 'minimal' | 'low'; enabled?: boolean }
+  reasoning?: { effort?: 'none' | 'minimal' | 'low'; exclude?: boolean }
   provider?: { require_parameters?: boolean }
 }
 
 export interface ChatResult {
   content: string
+  /** "stop", "length" (hit max_tokens), "tool_calls", ... or null if absent. */
+  finishReason: string | null
+  /** True when the model refused (non-empty `refusal` field). */
+  refused: boolean
   /** Model that actually served the request. */
   model: string
   promptTokens: number
+  /** Billed completion tokens, including reasoning tokens. */
   completionTokens: number
+  reasoningTokens: number
   /** Cost in OpenRouter credits (USD), as reported in `usage.cost`; 0 if absent. */
   cost: number
 }
@@ -1171,16 +1251,26 @@ export async function chatCompletion(
   })
   const text = await res.text()
   if (!res.ok) throw new OpenRouterError(res.status, text)
+  // A 200 whose body isn't JSON (e.g. a gateway page) may still have been billed; cost is unknown then.
   const body = JSON.parse(text) as {
     model?: string
-    choices?: Array<{ message?: { content?: string | null } }>
-    usage?: { prompt_tokens?: number; completion_tokens?: number; cost?: number }
+    choices?: Array<{ finish_reason?: string | null; message?: { content?: string | null; refusal?: string | null } }>
+    usage?: {
+      prompt_tokens?: number
+      completion_tokens?: number
+      cost?: number
+      completion_tokens_details?: { reasoning_tokens?: number }
+    }
   }
+  const choice = body.choices?.[0]
   return {
-    content: body.choices?.[0]?.message?.content ?? '',
+    content: choice?.message?.content ?? '',
+    finishReason: choice?.finish_reason ?? null,
+    refused: Boolean(choice?.message?.refusal),
     model: body.model ?? request.model,
     promptTokens: body.usage?.prompt_tokens ?? 0,
     completionTokens: body.usage?.completion_tokens ?? 0,
+    reasoningTokens: body.usage?.completion_tokens_details?.reasoning_tokens ?? 0,
     cost: body.usage?.cost ?? 0,
   }
 }
@@ -1191,6 +1281,13 @@ export async function chatCompletion(
 ```ts
 import type { Observation } from '../types'
 
+/** What "win" means for calibration. Jev's win question uses exactly the same condition. */
+export const WIN_CONDITION = 'win this hand, either at showdown or because every opponent folds'
+
+/** How option labels read; shared with Jev's action question. */
+export const OPTION_SEMANTICS =
+  '"Call X" adds X chips; "Bet X", "Raise to X" and "All-in X" mean your total bet this street becomes X.'
+
 /**
  * System prompt for every LLM seat. Derived from the original House of TEN prompt, fixing its
  * known defects: options and raise semantics are explicit, amounts are precomputed, and the
@@ -1200,12 +1297,12 @@ export const SYSTEM_PROMPT = `You are playing No-Limit Texas Hold'em. On each tu
 
 The state contains: your hole cards ("hole"), the board, your position, every seat's position, chips behind ("stack"), chips bet this street ("bet") and status (the seat with "you": true is you), this hand's action history, and computed facts: pot, amount to call, pot odds, effective stack in big blinds, and stack-to-pot ratio. Opponents are identified only by position.
 
-Every option offered is legal. "Call X" adds X chips; "Bet X", "Raise to X" and "All-in X" mean your total bet this street becomes X. In the history, "posts" and "calls X" show chips added, while "bets X" and "raises to X" show that player's street total.
+Every option offered is legal. ${OPTION_SEMANTICS} In the history, "posts" and "calls X" show chips added, while "bets X" and "raises to X" show that player's street total.
 
 Your goal is to maximise your expected chips.
 
 Reply with only a JSON object, no other text:
-{"action": "<one option id>", "win_probability": <number 0 to 1: the probability you win this hand>, "confidence": <number 0 to 1: how sure you are this is the best action>, "reasoning": "<at most 120 characters>"}`
+{"action": "<one option id>", "win_probability": <number from 0 to 1: the probability that you ${WIN_CONDITION}>, "confidence": <number from 0 to 1: how sure you are this is the best action>, "reasoning": "<at most 120 characters>"}`
 
 /** The user message: the observation as compact JSON. */
 export function userMessage(obs: Observation): string {
@@ -1246,23 +1343,25 @@ export const MAX_REASONING = 120
 export type ParseResult = { ok: true; decision: Decision } | { ok: false; error: string }
 
 function probability(value: unknown, name: string): number | string {
-  if (typeof value !== 'number' || !Number.isFinite(value)) return `"${name}" must be a number between 0 and 1`
-  // Accept percentages (e.g. 70) by scaling, a common model slip.
-  const p = value > 1 && value <= 100 ? value / 100 : value
-  if (p < 0 || p > 1) return `"${name}" must be between 0 and 1`
-  return p
+  // No rescaling of values above 1 (e.g. 55 meaning 55%): a guess would corrupt calibration data.
+  // Out-of-range values are rejected and the model is asked again.
+  if (typeof value !== 'number' || !Number.isFinite(value) || value < 0 || value > 1) {
+    return `"${name}" must be a number from 0 to 1`
+  }
+  return value
 }
 
-/** Parses and validates an LLM reply against the offered options. */
+/**
+ * Parses and validates an LLM reply against the offered options. Tolerates code fences and
+ * text around the JSON object (the first "{" to the last "}"), and case/whitespace in the action.
+ */
 export function parseDecision(content: string, obs: Observation): ParseResult {
-  const text = content
-    .trim()
-    .replace(/^```(?:json)?\s*/i, '')
-    .replace(/```$/, '')
-    .trim()
+  const start = content.indexOf('{')
+  const end = content.lastIndexOf('}')
+  if (start < 0 || end < start) return { ok: false, error: 'reply did not contain a JSON object' }
   let raw: unknown
   try {
-    raw = JSON.parse(text)
+    raw = JSON.parse(content.slice(start, end + 1))
   } catch {
     return { ok: false, error: 'reply was not valid JSON' }
   }
@@ -1271,7 +1370,8 @@ export function parseDecision(content: string, obs: Observation): ParseResult {
   }
   const r = raw as Record<string, unknown>
   const ids = obs.options.map((o) => o.id)
-  if (typeof r.action !== 'string' || !ids.includes(r.action as OptionId)) {
+  const action = typeof r.action === 'string' ? r.action.trim().toLowerCase() : null
+  if (action === null || !ids.includes(action as OptionId)) {
     return { ok: false, error: `"action" must be one of: ${ids.join(', ')}` }
   }
   const win = probability(r.win_probability, 'win_probability')
@@ -1281,13 +1381,7 @@ export function parseDecision(content: string, obs: Observation): ParseResult {
   const reasoning = typeof r.reasoning === 'string' ? r.reasoning.trim().slice(0, MAX_REASONING) : null
   return {
     ok: true,
-    decision: {
-      optionId: r.action as OptionId,
-      winProbability: win,
-      confidence,
-      optionProbabilities: null,
-      reasoning,
-    },
+    decision: { optionId: action as OptionId, winProbability: win, confidence, optionProbabilities: null, reasoning },
   }
 }
 ```
@@ -1298,7 +1392,15 @@ export function parseDecision(content: string, obs: Observation): ParseResult {
 import type { DecideResult, Observation, Player, Usage } from '../types'
 import { parseDecision } from './parse'
 import { SYSTEM_PROMPT, responseFormat, userMessage } from './prompt'
-import { chatCompletion, type ChatMessage, type OpenRouterConfig } from './openrouter'
+import { chatCompletion, type ChatMessage, type ChatRequest, type OpenRouterConfig } from './openrouter'
+
+/**
+ * How to handle a model's reasoning ("thinking"):
+ * - 'off': send reasoning {effort: 'none'} (default; reasoning-capable models that allow turning it off)
+ * - 'low': models that always reason: {effort: 'low', exclude: true} and a larger token allowance
+ * - 'omit': models without a reasoning parameter: send nothing
+ */
+export type ReasoningMode = 'off' | 'low' | 'omit'
 
 export interface LlmPlayerOptions {
   id: string
@@ -1306,14 +1408,20 @@ export interface LlmPlayerOptions {
   model: string
   openrouter: OpenRouterConfig
   temperature?: number
+  /** Send `temperature` (some reasoning models reject it). Default true. */
+  sendTemperature?: boolean
+  /** Default 150 with reasoning 'off'/'omit', 1500 with 'low'. */
   maxTokens?: number
-  /** Send reasoning: {effort: 'none'}. Disable for models that always reason (they reject it). */
-  disableReasoning?: boolean
-  /** Use JSON-schema structured output and route only to endpoints that support it. */
+  reasoning?: ReasoningMode
+  /** Use JSON-schema structured output and route only to endpoints that support it. Default true. */
   structuredOutput?: boolean
 }
 
-/** An LLM seat via OpenRouter. One retry with the specific error on invalid output. */
+/**
+ * An LLM seat via OpenRouter. An invalid or empty reply gets one retry quoting the problem
+ * (Jev cannot produce invalid output, so this is the LLMs' equivalent; its cost and latency count).
+ * A reply cut off by max_tokens fails without a retry, since the same limit would cut it again.
+ */
 export class LlmPlayer implements Player {
   readonly kind = 'llm' as const
   readonly id: string
@@ -1324,46 +1432,54 @@ export class LlmPlayer implements Player {
     this.model = options.model
   }
 
-  async decide(obs: Observation, signal: AbortSignal): Promise<DecideResult> {
+  private request(messages: ChatMessage[], obs: Observation): ChatRequest {
     const o = this.options
-    const structured = o.structuredOutput ?? true
+    const reasoning = o.reasoning ?? 'off'
+    return {
+      model: o.model,
+      messages,
+      max_tokens: o.maxTokens ?? (reasoning === 'low' ? 1500 : 150),
+      ...((o.sendTemperature ?? true) ? { temperature: o.temperature ?? 0.3 } : {}),
+      ...((o.structuredOutput ?? true) ? { response_format: responseFormat(obs), provider: { require_parameters: true } } : {}),
+      ...(reasoning === 'off' ? { reasoning: { effort: 'none' as const } } : {}),
+      ...(reasoning === 'low' ? { reasoning: { effort: 'low' as const, exclude: true } } : {}),
+    }
+  }
+
+  async decide(obs: Observation, signal: AbortSignal): Promise<DecideResult> {
     const messages: ChatMessage[] = [
       { role: 'system', content: SYSTEM_PROMPT },
       { role: 'user', content: userMessage(obs) },
     ]
-    const usage: Usage = { inputTokens: 0, outputTokens: 0, costUsd: 0, retries: 0 }
-    let servedBy = o.model
+    const usage: Usage = { inputTokens: 0, outputTokens: 0, reasoningTokens: 0, costUsd: 0, retries: 0 }
+    let servedBy = this.model
     for (let attempt = 0; attempt < 2; attempt++) {
       if (attempt > 0) usage.retries++
-      let content: string
+      let res
       try {
-        const res = await chatCompletion(
-          o.openrouter,
-          {
-            model: o.model,
-            messages,
-            temperature: o.temperature ?? 0.3,
-            max_tokens: o.maxTokens ?? 150,
-            ...(structured ? { response_format: responseFormat(obs), provider: { require_parameters: true } } : {}),
-            ...((o.disableReasoning ?? true) ? { reasoning: { effort: 'none' as const } } : {}),
-          },
-          signal,
-        )
-        usage.inputTokens += res.promptTokens
-        usage.outputTokens += res.completionTokens
-        usage.costUsd += res.cost
-        servedBy = res.model
-        content = res.content
+        res = await chatCompletion(this.options.openrouter, this.request(messages, obs), signal)
       } catch (e) {
-        return { ok: false, error: (e as Error).message, usage, model: servedBy }
+        return { ok: false, error: (e as Error).message, kind: 'infra', usage, model: servedBy }
       }
-      const parsed = parseDecision(content, obs)
+      usage.inputTokens += res.promptTokens
+      usage.outputTokens += res.completionTokens
+      usage.reasoningTokens += res.reasoningTokens
+      usage.costUsd += res.cost
+      servedBy = res.model
+      if (res.finishReason === 'length') {
+        return { ok: false, error: 'truncated: reply hit max_tokens', kind: 'model', usage, model: servedBy }
+      }
+      const problem = res.refused
+        ? 'the reply was a refusal'
+        : res.content.trim() === ''
+          ? 'the reply was empty'
+          : null
+      const parsed = problem === null ? parseDecision(res.content, obs) : ({ ok: false, error: problem } as const)
       if (parsed.ok) return { ok: true, decision: parsed.decision, usage, model: servedBy }
-      if (attempt === 1) return { ok: false, error: `invalid output: ${parsed.error}`, usage, model: servedBy }
-      messages.push(
-        { role: 'assistant', content },
-        { role: 'user', content: `That reply was invalid: ${parsed.error}. Reply again with only the JSON object.` },
-      )
+      if (attempt === 1) return { ok: false, error: `invalid output: ${parsed.error}`, kind: 'model', usage, model: servedBy }
+      // Don't echo an empty assistant turn back: some providers reject it.
+      if (res.content.trim() !== '') messages.push({ role: 'assistant', content: res.content })
+      messages.push({ role: 'user', content: `That reply was invalid: ${parsed.error}. Reply again with only the JSON object.` })
     }
     throw new Error('unreachable')
   }
@@ -1373,7 +1489,7 @@ export class LlmPlayer implements Player {
 - [ ] **Step 4: Run tests and typecheck**
 
 Run: `pnpm --filter @ab/players exec vitest run && pnpm --filter @ab/players typecheck`
-Expected: PASS (24 tests); typecheck clean.
+Expected: PASS (30 tests); typecheck clean.
 
 - [ ] **Step 5: Commit**
 
@@ -1440,7 +1556,7 @@ describe('JevPlayer', () => {
         optionProbabilities: { fold: 0.1, call: 0.6, all_in: 0.3 },
         reasoning: null,
       },
-      usage: { inputTokens: 500, outputTokens: 3, costUsd: (500 * 0.042) / 1e6, retries: 0 },
+      usage: { inputTokens: 500, outputTokens: 3, reasoningTokens: 0, costUsd: (500 * 0.042) / 1e6, retries: 0 },
       model: 'jev-1.13.0',
     })
     const req = fake.requests[0]!
@@ -1461,7 +1577,7 @@ describe('JevPlayer', () => {
     const fake = fakeFetch([{ status: 401, body: { error: 'bad key' } }])
     const jev = new JevPlayer({ id: 'jev', model: 'jev-1.13.0', client: { apiKey: 'test', fetch: fake.fn }, maxRetries: 0 })
     const res = await jev.decide(obs, signal)
-    expect(res.ok).toBe(false)
+    expect(res).toMatchObject({ ok: false, kind: 'infra' })
   })
 })
 ```
@@ -1478,16 +1594,19 @@ Expected: FAIL, cannot resolve `../src/jev/jev-player`.
 ```ts
 import { choice, noul, TypeSafeClient, type TypeSafeClientConfig } from '@typesafe-ai/sdk'
 import type { OptionId } from '@ab/engine'
+import { OPTION_SEMANTICS, WIN_CONDITION } from '../llm/prompt'
 import type { DecideResult, Observation, Player } from '../types'
 
 /**
  * Question wording. Jev answers the question as literally written, so keep these exact and
- * change them only with a new pre-registration.
+ * change them only with a new pre-registration. The win definition and option semantics are the
+ * same text the LLMs get, so both kinds of player answer the same questions.
  */
 export const ACTION_INSTRUCTIONS =
-  'You are the player marked "you": true in this No-Limit Texas Hold\'em hand. Which action maximises your expected chips?'
-export const WIN_INSTRUCTIONS =
-  'The player marked "you": true wins this hand, either at showdown or because every opponent folds.'
+  `You are the player marked "you": true in this No-Limit Texas Hold'em hand ("stack" is chips behind, ` +
+  `"bet" is chips bet this street, "facts" are precomputed). ${OPTION_SEMANTICS} ` +
+  'Which action maximises your expected chips?'
+export const WIN_INSTRUCTIONS = `The player marked "you": true will ${WIN_CONDITION}.`
 
 export const JEV_INPUT_PRICE_PER_MTOK = 0.042
 
@@ -1499,7 +1618,7 @@ export interface JevPlayerOptions {
   client?: TypeSafeClientConfig
   /** USD per 1M input tokens; output is free. */
   inputPricePerMTok?: number
-  /** Retries inside the SDK after the first attempt. */
+  /** Retries inside the SDK after the first attempt (HTTP 408/429/5xx and connection errors). */
   maxRetries?: number
 }
 
@@ -1534,6 +1653,7 @@ export class JevPlayer implements Player {
       const usage = {
         inputTokens: res.usage.input_tokens,
         outputTokens: res.usage.output_tokens,
+        reasoningTokens: 0,
         costUsd: (res.usage.input_tokens * (this.options.inputPricePerMTok ?? JEV_INPUT_PRICE_PER_MTOK)) / 1_000_000,
         retries: 0,
       }
@@ -1551,7 +1671,13 @@ export class JevPlayer implements Player {
         model: res.model,
       }
     } catch (e) {
-      return { ok: false, error: (e as Error).message, usage: { inputTokens: 0, outputTokens: 0, costUsd: 0, retries: 0 }, model: this.model }
+      return {
+        ok: false,
+        error: (e as Error).message,
+        kind: 'infra',
+        usage: { inputTokens: 0, outputTokens: 0, reasoningTokens: 0, costUsd: 0, retries: 0 },
+        model: this.model,
+      }
     }
   }
 }
@@ -1562,7 +1688,7 @@ The two instruction strings are part of the experiment: changing them changes wh
 - [ ] **Step 4: Run tests and typecheck**
 
 Run: `pnpm --filter @ab/players exec vitest run && pnpm --filter @ab/players typecheck`
-Expected: PASS (26 tests); typecheck clean.
+Expected: PASS (32 tests); typecheck clean.
 
 - [ ] **Step 5: Commit**
 
@@ -1578,7 +1704,7 @@ git -c user.email=jobinb6444@gmail.com -c user.name=0xjba commit -m "feat(player
 ### Task 7: Player factory and package exports
 
 **Files:**
-- Create: `packages/players/src/factory.ts`, `packages/players/src/index.ts`
+- Create: `packages/players/src/factory.ts`, `packages/players/src/llm/preflight.ts`, `packages/players/src/index.ts`
 - Test: `packages/players/test/factory.test.ts`
 
 - [ ] **Step 1: Write the failing test**
@@ -1588,6 +1714,7 @@ git -c user.email=jobinb6444@gmail.com -c user.name=0xjba commit -m "feat(player
 ```ts
 import { describe, expect, it } from 'vitest'
 import { createPlayers } from '../src/factory'
+import { adaptLineup, fetchModelCatalog } from '../src/llm/preflight'
 
 describe('createPlayers', () => {
   it('builds each kind from a line-up spec', () => {
@@ -1614,6 +1741,54 @@ describe('createPlayers', () => {
     expect(() => createPlayers([{ id: 'a', kind: 'mock' }, { id: 'a', kind: 'mock' }], {})).toThrow(/unique/)
   })
 })
+
+describe('preflight', () => {
+  const catalogFetch = async () =>
+    new Response(
+      JSON.stringify({
+        data: [
+          { id: 'vendor/reasoner', supported_parameters: ['reasoning', 'structured_outputs', 'temperature'] },
+          { id: 'vendor/plain', supported_parameters: ['response_format', 'temperature'] },
+          { id: 'vendor/bare', supported_parameters: [] },
+        ],
+      }),
+    )
+
+  it('fills in request flags from what each model supports, keeping explicit settings', async () => {
+    const catalog = await fetchModelCatalog(catalogFetch)
+    const { specs, problems } = adaptLineup(
+      [
+        { id: 'jev', kind: 'jev', model: 'jev-1.13.0' },
+        { id: 'a', kind: 'llm', model: 'vendor/reasoner' },
+        { id: 'b', kind: 'llm', model: 'vendor/plain' },
+        { id: 'c', kind: 'llm', model: 'vendor/reasoner', reasoning: 'low' },
+      ],
+      catalog,
+    )
+    expect(problems).toEqual([])
+    expect(specs).toEqual([
+      { id: 'jev', kind: 'jev', model: 'jev-1.13.0' },
+      { id: 'a', kind: 'llm', model: 'vendor/reasoner', structuredOutput: true, reasoning: 'off', sendTemperature: true },
+      { id: 'b', kind: 'llm', model: 'vendor/plain', structuredOutput: true, reasoning: 'omit', sendTemperature: true },
+      { id: 'c', kind: 'llm', model: 'vendor/reasoner', structuredOutput: true, reasoning: 'low', sendTemperature: true },
+    ])
+  })
+
+  it('reports unknown models and models without structured output', async () => {
+    const catalog = await fetchModelCatalog(catalogFetch)
+    const { problems } = adaptLineup(
+      [
+        { id: 'x', kind: 'llm', model: 'vendor/typo' },
+        { id: 'y', kind: 'llm', model: 'vendor/bare' },
+      ],
+      catalog,
+    )
+    expect(problems).toEqual([
+      'x: model "vendor/typo" is not in the OpenRouter catalog',
+      'y: "vendor/bare" has no structured output; using plain JSON replies',
+    ])
+  })
+})
 ```
 
 - [ ] **Step 2: Run it to verify it fails**
@@ -1628,7 +1803,7 @@ Expected: FAIL, cannot resolve `../src/factory`.
 ```ts
 import { CallingStation, RandomBot, TagBot } from './bots'
 import { JevPlayer } from './jev/jev-player'
-import { LlmPlayer } from './llm/llm-player'
+import { LlmPlayer, type ReasoningMode } from './llm/llm-player'
 import type { Fetch } from './llm/openrouter'
 import { MockLlm } from './mock'
 import type { Player } from './types'
@@ -1636,7 +1811,7 @@ import type { Player } from './types'
 /** One seat in a line-up config. `id` is the character name (e.g. "jev", "pill"). */
 export type PlayerSpec =
   | { id: string; kind: 'jev'; model: string }
-  | { id: string; kind: 'llm'; model: string; disableReasoning?: boolean; structuredOutput?: boolean }
+  | { id: string; kind: 'llm'; model: string; reasoning?: ReasoningMode; structuredOutput?: boolean; sendTemperature?: boolean }
   | { id: string; kind: 'bot'; bot: 'random' | 'calling-station' | 'tag'; seed?: number }
   | { id: string; kind: 'mock'; model?: string; inputPricePerMTok?: number }
 
@@ -1658,8 +1833,9 @@ export function createPlayer(spec: PlayerSpec, env: PlayerEnv, fetchImpl?: Fetch
         id: spec.id,
         model: spec.model,
         openrouter: { apiKey: env.OPENROUTER_API_KEY, ...(fetchImpl ? { fetch: fetchImpl } : {}) },
-        ...(spec.disableReasoning !== undefined ? { disableReasoning: spec.disableReasoning } : {}),
+        ...(spec.reasoning !== undefined ? { reasoning: spec.reasoning } : {}),
         ...(spec.structuredOutput !== undefined ? { structuredOutput: spec.structuredOutput } : {}),
+        ...(spec.sendTemperature !== undefined ? { sendTemperature: spec.sendTemperature } : {}),
       })
     }
     case 'bot':
@@ -1689,6 +1865,7 @@ export * from './llm/openrouter'
 export * from './llm/prompt'
 export * from './llm/parse'
 export * from './llm/llm-player'
+export * from './llm/preflight'
 export * from './jev/jev-player'
 export * from './factory'
 ```
@@ -1696,14 +1873,14 @@ export * from './factory'
 - [ ] **Step 4: Run tests and typecheck**
 
 Run: `pnpm --filter @ab/players exec vitest run && pnpm --filter @ab/players typecheck`
-Expected: PASS (28 tests); typecheck clean.
+Expected: PASS (36 tests); typecheck clean.
 
 - [ ] **Step 5: Commit**
 
 
 ```bash
-git add packages/players/src/factory.ts packages/players/src/index.ts packages/players/test/factory.test.ts
-git -c user.email=jobinb6444@gmail.com -c user.name=0xjba commit -m "feat(players): line-up factory and exports" -m "Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
+git add packages/players/src/factory.ts packages/players/src/llm/preflight.ts packages/players/src/index.ts packages/players/test/factory.test.ts
+git -c user.email=jobinb6444@gmail.com -c user.name=0xjba commit -m "feat(players): line-up factory, model catalog preflight and exports" -m "Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
 ```
 
 
@@ -1801,13 +1978,23 @@ export interface DecisionEvent {
   latencyMs: number
   inputTokens: number
   outputTokens: number
+  /** Hidden reasoning tokens among outputTokens (evidence that reasoning was really off). */
+  reasoningTokens: number
   costUsd: number
   retries: number
   /** True when the runner substituted check-or-fold for the player's answer. */
   fallback: boolean
-  /** Why it fell back: the player's error, "timeout", "invalid option: x", or "auto: too many failures". */
+  /**
+   * Who is to blame, so provider outages aren't counted against a model:
+   * 'model' (invalid/truncated/empty output or an option not offered), 'infra' (HTTP, network,
+   * provider, config), 'timeout', or 'auto' (skipped after repeated failures).
+   */
+  fallbackKind: FallbackKind | null
+  /** The player's error, "timeout", "invalid option: x", or "auto: too many failures". */
   fallbackReason: string | null
 }
+
+export type FallbackKind = 'model' | 'infra' | 'timeout' | 'auto'
 
 export type EventBody =
   | { type: 'game_started'; kind: GameKind; players: PlayerInfo[] }
@@ -1863,7 +2050,8 @@ const decision = (over: Partial<DecisionEvent> = {}): DecisionEvent => ({
   type: 'decision', handId: 'hand-0', street: 'preflop', playerId: 'jev', position: 'BTN', model: 'jev-1.13.0',
   optionId: 'call', label: 'Call 100', action: { type: 'call' }, chipsIn: 100, pot: 150, toCall: 100,
   winProbability: 0.5, confidence: 0.4, optionProbabilities: { call: 0.6, fold: 0.4 }, reasoning: null,
-  latencyMs: 120, inputTokens: 500, outputTokens: 2, costUsd: 0.000021, retries: 0, fallback: false, fallbackReason: null,
+  latencyMs: 120, inputTokens: 500, outputTokens: 2, reasoningTokens: 0, costUsd: 0.000021, retries: 0,
+  fallback: false, fallbackKind: null, fallbackReason: null,
   ...over,
 })
 
@@ -1892,12 +2080,12 @@ describe('EventStore', () => {
     const store = new EventStore()
     store.createGame('g1', 'live', {})
     store.append('g1', decision({ costUsd: 0.01 }))
-    store.append('g1', decision({ costUsd: 0.02, playerId: 'pill', fallback: true, fallbackReason: 'timeout' }))
+    store.append('g1', decision({ costUsd: 0.02, playerId: 'pill', fallback: true, fallbackKind: 'timeout', fallbackReason: 'timeout' }))
     expect(store.gameCost('g1')).toBeCloseTo(0.03)
-    const rows = store.db.prepare('SELECT player_id, fallback, action_type FROM decisions ORDER BY seq').all()
+    const rows = store.db.prepare('SELECT player_id, fallback, fallback_kind, action_type FROM decisions ORDER BY seq').all()
     expect(rows).toEqual([
-      { player_id: 'jev', fallback: 0, action_type: 'call' },
-      { player_id: 'pill', fallback: 1, action_type: 'call' },
+      { player_id: 'jev', fallback: 0, fallback_kind: null, action_type: 'call' },
+      { player_id: 'pill', fallback: 1, fallback_kind: 'timeout', action_type: 'call' },
     ])
   })
 
@@ -2006,9 +2194,11 @@ CREATE TABLE IF NOT EXISTS decisions (
   latency_ms REAL NOT NULL,
   input_tokens INTEGER NOT NULL,
   output_tokens INTEGER NOT NULL,
+  reasoning_tokens INTEGER NOT NULL,
   cost_usd REAL NOT NULL,
   retries INTEGER NOT NULL,
   fallback INTEGER NOT NULL,
+  fallback_kind TEXT,
   PRIMARY KEY (game_id, seq)
 );
 CREATE INDEX IF NOT EXISTS decisions_player ON decisions(player_id);
@@ -2079,13 +2269,15 @@ export class EventStore {
         this.db
           .prepare(
             `INSERT INTO decisions (game_id, seq, hand_id, player_id, model, street, position, option_id, action_type, chips_in, pot, to_call,
-             win_probability, confidence, latency_ms, input_tokens, output_tokens, cost_usd, retries, fallback)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+             win_probability, confidence, latency_ms, input_tokens, output_tokens, reasoning_tokens, cost_usd, retries,
+             fallback, fallback_kind)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           )
           .run(
             gameId, next, body.handId, body.playerId, body.model, body.street, body.position, body.optionId, body.action.type,
             body.chipsIn, body.pot, body.toCall, body.winProbability, body.confidence, body.latencyMs,
-            body.inputTokens, body.outputTokens, body.costUsd, body.retries, body.fallback ? 1 : 0,
+            body.inputTokens, body.outputTokens, body.reasoningTokens, body.costUsd, body.retries,
+            body.fallback ? 1 : 0, body.fallbackKind,
           )
       }
       return event
@@ -2224,38 +2416,65 @@ describe('playHand', () => {
     expect(Object.values(result.stacks).reduce((x, y) => x + y, 0)).toBe(30_000)
   })
 
-  it('falls back to check-or-fold on timeout, invalid option and thrown errors', async () => {
-    const cases: Array<[Player, RegExp]> = [
-      [new Scripted('x', () => new Promise(() => {})), /^timeout$/],
-      [new Scripted('x', () => ({ ok: true, decision: { optionId: 'bogus' as never, winProbability: null, confidence: null, optionProbabilities: null, reasoning: null }, usage: NO_USAGE, model: 'scripted' })), /^invalid option: bogus$/],
-      [new Scripted('x', () => Promise.reject(new Error('boom'))), /^boom$/],
+  it('falls back to check-or-fold on timeout, invalid option, errors and bad output, labelling who is to blame', async () => {
+    const cases: Array<[Player, RegExp, string]> = [
+      [new Scripted('x', () => new Promise(() => {})), /^timeout$/, 'timeout'],
+      [new Scripted('x', () => ({ ok: true, decision: { optionId: 'bogus' as never, winProbability: null, confidence: null, optionProbabilities: null, reasoning: null }, usage: NO_USAGE, model: 'scripted' })), /^invalid option: bogus$/, 'model'],
+      [new Scripted('x', () => Promise.reject(new Error('boom'))), /^boom$/, 'infra'],
+      [new Scripted('x', () => ({ ok: false, error: 'invalid output: nope', kind: 'model', usage: NO_USAGE, model: 'scripted' })), /^invalid output/, 'model'],
+      [new Scripted('x', () => ({ ok: false, error: 'OpenRouter 503: busy', kind: 'infra', usage: NO_USAGE, model: 'scripted' })), /^OpenRouter 503/, 'infra'],
     ]
-    for (const [bad, reason] of cases) {
+    for (const [bad, reason, kind] of cases) {
       const sink = memorySink()
       // x is UTG facing the big blind: fallback must be a fold.
-      await playHand({ config: config(['b', 's', 'bb', 'x']), players: byId([new CallingStation('b'), new CallingStation('s'), new CallingStation('bb'), bad]), sink, decisionTimeoutMs: 20 })
+      await playHand({ config: config(['b', 's', 'bb', 'x']), players: byId([new CallingStation('b'), new CallingStation('s'), new CallingStation('bb'), bad]), sink, decisionTimeoutMs: 20, timeoutGraceMs: 10 })
       const d = decisions(sink.events).find((e) => e.playerId === 'x')!
-      expect(d).toMatchObject({ optionId: 'fold', fallback: true, winProbability: null })
+      expect(d).toMatchObject({ optionId: 'fold', fallback: true, fallbackKind: kind, winProbability: null })
       expect(d.fallbackReason).toMatch(reason)
     }
   })
 
+  it('records what a timed-out player had already spent', async () => {
+    // Resolves with its spend only when aborted (like an LLM whose first attempt was billed).
+    const slow: Player = {
+      id: 'x',
+      kind: 'llm',
+      model: 'vendor/slow',
+      decide: (_obs, signal) =>
+        new Promise((resolve) =>
+          signal.addEventListener('abort', () =>
+            resolve({ ok: false, error: 'aborted', kind: 'infra', usage: { inputTokens: 400, outputTokens: 50, reasoningTokens: 0, costUsd: 0.003, retries: 1 }, model: 'vendor/slow-2026' }),
+          ),
+        ),
+    }
+    const sink = memorySink()
+    await playHand({ config: config(['b', 's', 'bb', 'x']), players: byId([new CallingStation('b'), new CallingStation('s'), new CallingStation('bb'), slow]), sink, decisionTimeoutMs: 20, timeoutGraceMs: 100 })
+    expect(decisions(sink.events).find((e) => e.playerId === 'x')).toMatchObject({
+      fallbackKind: 'timeout',
+      fallbackReason: 'timeout',
+      costUsd: 0.003,
+      retries: 1,
+      model: 'vendor/slow-2026',
+    })
+  })
+
   it('stops asking a player after 3 consecutive failures in a hand', async () => {
-    const failing = new Scripted('f', () => ({ ok: false, error: 'provider down', usage: NO_USAGE, model: 'scripted' }))
+    const failing = new Scripted('f', () => ({ ok: false, error: 'provider down', kind: 'infra', usage: NO_USAGE, model: 'scripted' }))
     const sink = memorySink()
     // f is the big blind; the others only check/call, so f is asked preflop, flop, turn and river.
     await playHand({ config: config(['b', 's', 'f']), players: byId([new CallingStation('b'), new CallingStation('s'), failing]), sink, decisionTimeoutMs: 100 })
     const mine = decisions(sink.events).filter((e) => e.playerId === 'f')
     expect(mine.map((d) => d.fallbackReason)).toEqual(['provider down', 'provider down', 'provider down', 'auto: too many failures'])
+    expect(mine.map((d) => d.fallbackKind)).toEqual(['infra', 'infra', 'infra', 'auto'])
     expect(mine.every((d) => d.optionId === 'check')).toBe(true)
     expect(failing.calls).toBe(3)
   })
 
   it('records cost and usage from failed decisions too', async () => {
-    const costly = new Scripted('x', () => ({ ok: false, error: 'invalid output: bad', usage: { inputTokens: 900, outputTokens: 80, costUsd: 0.004, retries: 1 }, model: 'vendor/m' }))
+    const costly = new Scripted('x', () => ({ ok: false, error: 'invalid output: bad', kind: 'model', usage: { inputTokens: 900, outputTokens: 80, reasoningTokens: 30, costUsd: 0.004, retries: 1 }, model: 'vendor/m' }))
     const sink = memorySink()
     await playHand({ config: config(['b', 's', 'bb', 'x']), players: byId([new CallingStation('b'), new CallingStation('s'), new CallingStation('bb'), costly]), sink, decisionTimeoutMs: 100 })
-    expect(decisions(sink.events).find((e) => e.playerId === 'x')).toMatchObject({ costUsd: 0.004, retries: 1, inputTokens: 900, model: 'vendor/m', fallback: true })
+    expect(decisions(sink.events).find((e) => e.playerId === 'x')).toMatchObject({ costUsd: 0.004, retries: 1, inputTokens: 900, reasoningTokens: 30, model: 'vendor/m', fallback: true, fallbackKind: 'model' })
   })
 
   it('emits each street dealt during an all-in run-out, then showdown and pots', async () => {
@@ -2337,7 +2556,7 @@ import {
   type Street,
 } from '@ab/engine'
 import { buildObservation, checkOrFold, NO_USAGE, type DecideResult, type Player } from '@ab/players'
-import type { EventSink } from './events'
+import type { EventSink, FallbackKind } from './events'
 
 export interface PlayHandOptions {
   config: HandConfig
@@ -2350,6 +2569,8 @@ export interface PlayHandOptions {
   paceMs?: number
   /** Consecutive fallbacks after which a player auto check/folds for the rest of the hand. */
   maxConsecutiveFallbacks?: number
+  /** After a timeout, how long to wait for the aborted player to report what it spent. Default 250 ms. */
+  timeoutGraceMs?: number
   menu?: Partial<MenuConfig>
   now?: () => number
   sleep?: (ms: number) => Promise<void>
@@ -2359,25 +2580,32 @@ const STREET_AT: Record<number, Street> = { 3: 'flop', 4: 'turn', 5: 'river' }
 
 const defaultSleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms))
 
-/** Calls the player under a timeout. Never throws: rejections and timeouts become failures. */
-async function ask(player: Player, obs: Parameters<Player['decide']>[0], timeoutMs: number): Promise<DecideResult> {
+type Asked = { result: DecideResult; timedOut: boolean }
+
+/**
+ * Calls the player under a timeout. Never throws: rejections and timeouts become failures.
+ * On timeout the player is aborted and given `graceMs` to resolve, so money it already spent
+ * (e.g. a billed first attempt) is still recorded.
+ */
+async function ask(player: Player, obs: Parameters<Player['decide']>[0], timeoutMs: number, graceMs: number): Promise<Asked> {
   const ac = new AbortController()
+  const pending = player
+    .decide(obs, ac.signal)
+    .catch((e: unknown): DecideResult => ({ ok: false, error: (e as Error).message ?? String(e), kind: 'infra', usage: NO_USAGE, model: player.model }))
   let timer: ReturnType<typeof setTimeout> | undefined
-  const timeout = new Promise<DecideResult>((resolve) => {
-    timer = setTimeout(() => {
-      ac.abort()
-      resolve({ ok: false, error: 'timeout', usage: NO_USAGE, model: player.model })
-    }, timeoutMs)
+  const timeout = new Promise<'timeout'>((resolve) => {
+    timer = setTimeout(() => resolve('timeout'), timeoutMs)
   })
-  try {
-    return await Promise.race([
-      player.decide(obs, ac.signal).catch(
-        (e: unknown): DecideResult => ({ ok: false, error: (e as Error).message ?? String(e), usage: NO_USAGE, model: player.model }),
-      ),
-      timeout,
-    ])
-  } finally {
-    clearTimeout(timer)
+  const first = await Promise.race([pending, timeout])
+  clearTimeout(timer)
+  if (first !== 'timeout') return { result: first, timedOut: false }
+  ac.abort()
+  let graceTimer: ReturnType<typeof setTimeout> | undefined
+  const late = await Promise.race([pending, new Promise<null>((r) => (graceTimer = setTimeout(() => r(null), graceMs)))])
+  clearTimeout(graceTimer)
+  return {
+    result: { ok: false, error: 'timeout', kind: 'infra', usage: late?.usage ?? NO_USAGE, model: late?.model ?? player.model },
+    timedOut: true,
   }
 }
 
@@ -2434,15 +2662,22 @@ export async function playHand(opts: PlayHandOptions): Promise<HandResult> {
 
     const started = now()
     const auto = (consecutiveFallbacks.get(seat.id) ?? 0) >= maxFallbacks
-    const res: DecideResult = auto
-      ? { ok: false, error: 'auto: too many failures', usage: NO_USAGE, model: player.model }
-      : await ask(player, obs, opts.decisionTimeoutMs)
+    const asked: Asked = auto
+      ? { result: { ok: false, error: 'auto: too many failures', kind: 'infra', usage: NO_USAGE, model: player.model }, timedOut: false }
+      : await ask(player, obs, opts.decisionTimeoutMs, opts.timeoutGraceMs ?? 250)
+    const res = asked.result
     const latencyMs = auto ? 0 : now() - started
 
     let chosen = res.ok ? menu.find((o) => o.id === res.decision.optionId) : undefined
     let fallbackReason: string | null = null
-    if (!res.ok) fallbackReason = res.error
-    else if (!chosen) fallbackReason = `invalid option: ${res.decision.optionId}`
+    let fallbackKind: FallbackKind | null = null
+    if (!res.ok) {
+      fallbackReason = res.error
+      fallbackKind = auto ? 'auto' : asked.timedOut ? 'timeout' : res.kind
+    } else if (!chosen) {
+      fallbackReason = `invalid option: ${res.decision.optionId}`
+      fallbackKind = 'model'
+    }
     if (!chosen) chosen = menu.find((o) => o.id === checkOrFold(obs))!
     consecutiveFallbacks.set(seat.id, fallbackReason ? (consecutiveFallbacks.get(seat.id) ?? 0) + 1 : 0)
 
@@ -2469,9 +2704,11 @@ export async function playHand(opts: PlayHandOptions): Promise<HandResult> {
       latencyMs,
       inputTokens: res.usage.inputTokens,
       outputTokens: res.usage.outputTokens,
+      reasoningTokens: res.usage.reasoningTokens,
       costUsd: res.usage.costUsd,
       retries: res.usage.retries,
       fallback: fallbackReason !== null,
+      fallbackKind,
       fallbackReason,
     })
 
@@ -2510,7 +2747,7 @@ Key points:
 - [ ] **Step 4: Run tests**
 
 Run: `pnpm --filter @ab/core exec vitest run`
-Expected: PASS (13 tests).
+Expected: PASS (14 tests).
 
 - [ ] **Step 5: Commit**
 
@@ -2704,7 +2941,7 @@ export * from './game'
 - [ ] **Step 4: Run tests**
 
 Run: `pnpm --filter @ab/core exec vitest run`
-Expected: PASS (18 tests).
+Expected: PASS (19 tests).
 
 - [ ] **Step 5: Commit**
 
@@ -2772,7 +3009,7 @@ store.close()
  * Line-ups: copy lineups/live.example.json or lineups/research.example.json and edit.
  */
 import { liveTurboConfig } from '@ab/engine'
-import { createPlayers, type PlayerSpec } from '@ab/players'
+import { adaptLineup, createPlayers, fetchModelCatalog, type PlayerSpec } from '@ab/players'
 import { mkdirSync, readFileSync } from 'node:fs'
 import { runTournamentGame } from '../src/game'
 import { EventStore } from '../src/store'
@@ -2787,7 +3024,11 @@ const hands = flag('hands', 5)
 const budgetUsd = flag('budget', 0.25)
 
 const lineup = JSON.parse(readFileSync(lineupPath, 'utf8')) as { players: PlayerSpec[] }
-const players = createPlayers(lineup.players, process.env)
+// Free pre-flight: check models exist and set request flags from what each supports.
+const { specs, problems } = adaptLineup(lineup.players, await fetchModelCatalog())
+for (const p of problems) console.warn(`preflight: ${p}`)
+if (problems.some((p) => p.includes('not in the OpenRouter catalog'))) process.exit(1)
+const players = createPlayers(specs, process.env)
 mkdirSync('data', { recursive: true })
 const store = new EventStore('data/smoke.db')
 const gameId = `smoke-${Date.now()}`
@@ -2800,7 +3041,7 @@ const t = await runTournamentGame({
   store,
   decisionTimeoutMs: 20_000,
   budgetUsd,
-  meta: { lineup: lineup.players },
+  meta: { lineup: specs },
 })
 for (const e of store.events(gameId)) {
   if (e.type !== 'decision') continue
@@ -2824,7 +3065,7 @@ Two line-ups (model ids current on OpenRouter as of 2026-09-21; see the cost not
     { "id": "pill", "kind": "llm", "model": "anthropic/claude-fable-5.1" },
     { "id": "block", "kind": "llm", "model": "openai/gpt-6-astra" },
     { "id": "drip", "kind": "llm", "model": "google/gemini-3.8-flash" },
-    { "id": "nimbus", "kind": "llm", "model": "meta-llama/llama-4-maverick", "disableReasoning": false }
+    { "id": "nimbus", "kind": "llm", "model": "meta-llama/llama-4-maverick", "reasoning": "omit" }
   ]
 }
 ```
@@ -2838,7 +3079,7 @@ Two line-ups (model ids current on OpenRouter as of 2026-09-21; see the cost not
     { "id": "pill", "kind": "llm", "model": "anthropic/claude-sonnet-5" },
     { "id": "block", "kind": "llm", "model": "openai/gpt-5.6-sol" },
     { "id": "drip", "kind": "llm", "model": "google/gemini-3.8-flash" },
-    { "id": "nimbus", "kind": "llm", "model": "meta-llama/llama-4-maverick", "disableReasoning": false }
+    { "id": "nimbus", "kind": "llm", "model": "meta-llama/llama-4-maverick", "reasoning": "omit" }
   ]
 }
 ```
@@ -2872,7 +3113,7 @@ Expected: prints one line like `game demo-…: 67 hands, 393 decisions, 1161 eve
 - [ ] **Step 3: Full verification**
 
 Run: `pnpm test && pnpm typecheck`
-Expected: engine 104, players 28, core 18 tests pass; typecheck clean across all three packages.
+Expected: engine 104, players 36, core 19 tests pass; typecheck clean across all three packages.
 
 - [ ] **Step 4: Commit**
 
@@ -2906,7 +3147,7 @@ User decision (2026-09-21): the research line-up is used for the study and recor
 
 ## Done when
 
-- `pnpm test` passes (engine 104, players 28, core 18) and `pnpm typecheck` is clean.
+- `pnpm test` passes (engine 104, players 36, core 19) and `pnpm typecheck` is clean.
 - `pnpm demo` plays a full mock tournament into `data/demo.db` with no errors.
 - `@ab/players` exports `buildObservation`, the bots, `MockLlm`, `LlmPlayer`, `JevPlayer`, `createPlayers`; `@ab/core` exports the event types, `EventStore`, `playHand`, `runTournamentGame`.
 - Next: Plan 3 (study runner: duplicate groups, budget cap, resume, CI stop, report) builds on `playHand`, `EventStore` and `duplicateGroup`.
