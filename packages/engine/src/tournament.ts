@@ -1,0 +1,154 @@
+import { deriveSeed } from './rng'
+import type { HandConfig, HandResult } from './types'
+
+export interface BlindLevel {
+  smallBlind: number
+  bigBlind: number
+}
+
+export const TURBO_LEVELS: BlindLevel[] = [
+  { smallBlind: 25, bigBlind: 50 },
+  { smallBlind: 50, bigBlind: 100 },
+  { smallBlind: 75, bigBlind: 150 },
+  { smallBlind: 100, bigBlind: 200 },
+  { smallBlind: 150, bigBlind: 300 },
+  { smallBlind: 200, bigBlind: 400 },
+  { smallBlind: 300, bigBlind: 600 },
+  { smallBlind: 400, bigBlind: 800 },
+  { smallBlind: 600, bigBlind: 1200 },
+  { smallBlind: 800, bigBlind: 1600 },
+  { smallBlind: 1000, bigBlind: 2000 },
+  { smallBlind: 1500, bigBlind: 3000 },
+  { smallBlind: 2000, bigBlind: 4000 },
+]
+
+export interface TournamentConfig {
+  startingStack: number
+  levels: BlindLevel[]
+  handsPerLevel: number
+  /** Hard stop: after this many hands the chip leader wins. */
+  maxHands: number
+  /** Master seed; each hand's deck seed is derived from it. */
+  seed: string
+}
+
+/** The live spectator format from the spec: 3,000 chips, blinds up every 8 hands, stop at hand 120. */
+export function liveTurboConfig(seed: string): TournamentConfig {
+  return { startingStack: 3000, levels: TURBO_LEVELS, handsPerLevel: 8, maxHands: 120, seed }
+}
+
+export type EndReason = 'last_player' | 'hand_cap' | 'budget_cap' | 'interrupted'
+
+export interface TournamentPlayer {
+  id: string
+  stack: number
+  eliminatedAtHand: number | null
+}
+
+export interface TournamentState {
+  config: TournamentConfig
+  /** Clockwise seat order; eliminated players stay in place with stack 0. */
+  players: TournamentPlayer[]
+  /** Hands completed so far. */
+  handNumber: number
+  /** Index into `players` of the button for the next hand. */
+  buttonSeat: number
+  complete: boolean
+  winner: string | null
+  endReason: EndReason | null
+  /** Player ids in elimination order (first out first). */
+  eliminated: string[]
+}
+
+export function createTournament(playerIds: string[], config: TournamentConfig): TournamentState {
+  if (playerIds.length < 2) throw new Error('a tournament needs at least 2 players')
+  if (new Set(playerIds).size !== playerIds.length) throw new Error('player ids must be unique')
+  return {
+    config,
+    players: playerIds.map((id) => ({ id, stack: config.startingStack, eliminatedAtHand: null })),
+    handNumber: 0,
+    buttonSeat: 0,
+    complete: false,
+    winner: null,
+    endReason: null,
+    eliminated: [],
+  }
+}
+
+export function currentLevel(t: TournamentState): BlindLevel {
+  const idx = Math.min(Math.floor(t.handNumber / t.config.handsPerLevel), t.config.levels.length - 1)
+  return t.config.levels[idx]!
+}
+
+export function levelIndex(t: TournamentState): number {
+  return Math.min(Math.floor(t.handNumber / t.config.handsPerLevel), t.config.levels.length - 1)
+}
+
+export function nextHandConfig(t: TournamentState): HandConfig {
+  if (t.complete) throw new Error('tournament is complete')
+  const alive = t.players.filter((p) => p.stack > 0)
+  const buttonId = t.players[t.buttonSeat]!.id
+  const level = currentLevel(t)
+  return {
+    seats: alive.map((p) => ({ id: p.id, stack: p.stack })),
+    buttonIndex: alive.findIndex((p) => p.id === buttonId),
+    smallBlind: level.smallBlind,
+    bigBlind: level.bigBlind,
+    // Namespace hash + hand counter: every hand in a tournament gets a distinct deck seed.
+    seed: (deriveSeed(t.config.seed, 'hands') + t.handNumber) >>> 0,
+  }
+}
+
+function nextAliveSeat(t: TournamentState, from: number): number {
+  const n = t.players.length
+  for (let k = 1; k <= n; k++) {
+    const i = (from + k) % n
+    if (t.players[i]!.stack > 0) return i
+  }
+  return from
+}
+
+function chipLeader(t: TournamentState): string {
+  let best = t.players[0]!
+  for (const p of t.players) if (p.stack > best.stack) best = p
+  return best.id
+}
+
+/** Applies a finished hand's stacks, eliminates busted players, rotates the button, checks for the end. */
+export function recordHand(prev: TournamentState, result: HandResult): TournamentState {
+  if (prev.complete) throw new Error('tournament is complete')
+  const t = structuredClone(prev)
+  const startStacks = new Map(t.players.map((p) => [p.id, p.stack]))
+  for (const p of t.players) if (p.id in result.stacks) p.stack = result.stacks[p.id]!
+
+  // Busted in the same hand: the one who started the hand with fewer chips finishes lower (goes out first).
+  const busted = t.players
+    .filter((p) => p.stack === 0 && p.eliminatedAtHand === null)
+    .sort((a, b) => startStacks.get(a.id)! - startStacks.get(b.id)!)
+  for (const p of busted) {
+    p.eliminatedAtHand = t.handNumber
+    t.eliminated.push(p.id)
+  }
+
+  t.handNumber += 1
+  t.buttonSeat = nextAliveSeat(t, t.buttonSeat)
+
+  const alive = t.players.filter((p) => p.stack > 0)
+  if (alive.length <= 1) {
+    t.complete = true
+    t.winner = alive[0]?.id ?? chipLeader(t)
+    t.endReason = 'last_player'
+  } else if (t.handNumber >= t.config.maxHands) {
+    return endTournament(t, 'hand_cap')
+  }
+  return t
+}
+
+/** Ends the tournament now; the chip leader (earliest seat on ties) wins. */
+export function endTournament(prev: TournamentState, reason: Exclude<EndReason, 'last_player'>): TournamentState {
+  const t = structuredClone(prev)
+  t.complete = true
+  t.winner = chipLeader(t)
+  t.endReason = reason
+  return t
+}
