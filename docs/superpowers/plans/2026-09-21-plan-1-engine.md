@@ -1654,6 +1654,28 @@ describe('buildMenu', () => {
     expect(amounts).not.toContain(725)
   })
 
+  it('drops sizes within 5% of all-in', () => {
+    // Heads-up 75/150: raise to 600 and call, so the flop pot is 1,200 with 1,865 behind.
+    // pot_150 would be Bet 1,800, within 5% of All-in 1,865, so it must be dropped.
+    let s = createHand({
+      seats: [
+        { id: 'a', stack: 2465 },
+        { id: 'b', stack: 2465 },
+      ],
+      buttonIndex: 0,
+      smallBlind: 75,
+      bigBlind: 150,
+      seed: 1,
+    })
+    s = play(s, { type: 'raise', to: 600 }, { type: 'call' })
+    const menu = buildMenu(s)
+    expect(menu.map((o) => o.label)).not.toContain('Bet 1,800')
+    const allIn = (menu.find((o) => o.id === 'all_in')!.action as { to: number }).to
+    for (const o of menu) {
+      if (o.action.type === 'raise' && o.id !== 'all_in') expect(allIn - o.action.to).toBeGreaterThan(0.05 * o.action.to)
+    }
+  })
+
   it('rejects a bad chipUnit', () => {
     expect(() => buildMenu(start([1000, 1000]), { chipUnit: 0 })).toThrow(/chipUnit/)
   })
@@ -1838,7 +1860,8 @@ export function buildMenu(state: HandState, config: Partial<MenuConfig> = {}): M
     }
 
     const kept: number[] = []
-    const tooClose = (to: number) => kept.some((k) => Math.abs(to - k) <= minGap * k)
+    // Also drop sizes within minGap of all-in: the all-in option covers them.
+    const tooClose = (to: number) => max - to <= minGap * to || kept.some((k) => Math.abs(to - k) <= minGap * k)
     for (const [id, to] of candidates) {
       if (to < min || to >= max || tooClose(to)) continue
       kept.push(to)
@@ -1863,7 +1886,7 @@ export function buildMenu(state: HandState, config: Partial<MenuConfig> = {}): M
 - [ ] **Step 4: Run tests to verify they pass**
 
 Run: `pnpm --filter @ab/engine exec vitest run test/menu.test.ts`
-Expected: PASS, 15 tests.
+Expected: PASS, 16 tests.
 
 - [ ] **Step 5: Commit**
 
@@ -2379,7 +2402,7 @@ export * from './duplicate'
 - [ ] **Step 4: Run the full suite and typecheck from the root**
 
 Run: `pnpm test && pnpm typecheck`
-Expected: 8 test files, 83 tests passed; typecheck clean.
+Expected: 8 test files, 84 tests passed; typecheck clean.
 
 - [ ] **Step 5: Commit**
 
@@ -2392,7 +2415,7 @@ git commit -m "feat(engine): public exports and random-play invariant tests"
 
 ## Done when
 
-- `pnpm test` passes 83 tests across 8 files; `pnpm typecheck` is clean.
+- `pnpm test` passes 84 tests across 8 files; `pnpm typecheck` is clean.
 - `@ab/engine` exports: cards/rng/evaluate helpers, `createHand`, `applyAction`, `legalActions`, `potSize`, `buildMenu`, tournament functions (`createTournament`, `nextHandConfig`, `recordHand`, `endTournament`, `liveTurboConfig`, `currentLevel`, `levelIndex`), and duplicate functions (`seatRotations`, `duplicateGroup`, `cashHandConfig`, `STUDY_CASH`).
 - Next: Plan 2 (players, table runner, event log) builds on these exports.
 
