@@ -25,6 +25,8 @@ export interface HandConfig {
   seed: number
   /** Test/replay override: the full 52-card deck, top card first. Ignores `seed` when set. */
   deck?: Card[]
+  /** Optional identifier echoed into `HandResult.handId`, so results can be matched to hands. */
+  handId?: string
 }
 
 export interface SeatState {
@@ -72,6 +74,8 @@ export interface PotAward extends Pot {
 }
 
 export interface HandResult {
+  /** `HandConfig.handId`, or null when the hand had none (standalone hands only; tournaments require it). */
+  handId: string | null
   /** True if two or more players reached showdown. */
   showdown: boolean
   awards: PotAward[]

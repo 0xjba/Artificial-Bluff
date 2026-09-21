@@ -19,3 +19,4 @@ plus a live spectator game.
 - Commit identity: `git -c user.email=jobinb6444@gmail.com -c user.name=0xjba commit ...`
 - Secrets only in `.env` (git-ignored). Never copy anything from the old `AI-Agents-Poker` repo's `.env`.
 - `salvage/` is git-ignored reference material; never import from it.
+- `pnpm demo` plays a free mock tournament into `data/demo.db`. `pnpm smoke lineups/live.json` spends real money (OpenRouter + TypeSafe): never run it without the user's explicit go-ahead. Line-ups: `lineups/*.example.json`; keys in `.env` (see `.env.example`).

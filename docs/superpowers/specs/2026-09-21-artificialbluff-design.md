@@ -25,7 +25,7 @@ Jev API reference is saved in `docs/jev/`.
 | Language / shape | One TypeScript pnpm monorepo, Node 20+ |
 | Information fairness | Identical observation for every player; code pre-computes arithmetic; no equity hints (ablation later via config) |
 | Luck control | Duplicate format for the study; separate live table for spectators |
-| Line-up | Jev + 2 frontier LLMs + 1 small/fast LLM + 1 open-weight LLM (5-max), all configurable |
+| Line-up | Jev + 2 frontier LLMs + 1 small/fast LLM + 1 open-weight LLM (5-max), all configurable. Two line-up files: research (frontier models TypeSafe benchmarked: Fable 5.1, GPT-6 Astra; ~$1.30/live game) for the study and recorded games; live (Sonnet 5, GPT-5.6 Sol, …; ~$0.32/game) for everyday live games |
 | LLM access | OpenRouter |
 | Action space | One shared menu of realistic sizes, shown as chip amounts |
 | Calibration | Every player states win probability + confidence per decision; per-player curves on site, per-action analysis in report |
@@ -61,8 +61,9 @@ engine state → observation for acting seat (own hole cards only)
 - Live mode: 2–4 s pacing per action, turbo structure, per-game cost cap.
 - Study mode: no pacing, N tables in parallel, seeded decks, duplicate rotation.
 
-**Event log is the single source of truth.** Events: `HandStarted`, `CardsDealt`, `TurnStarted`, `Decision`,
-`StreetDealt`, `Showdown`, `PotAwarded`, `HandEnded`, `GameEnded` (plus `GameInterrupted`, `BudgetCapReached`).
+**Event log is the single source of truth.** Events: `game_started` (with the config hash), `hand_started`,
+`cards_dealt`, `turn_started`, `decision`, `street_dealt`, `showdown`, `pot_awarded`, `hand_ended`, `game_ended`
+(its `reason` covers last player, hand cap, budget cap and interruption).
 A `Decision` records: seat, player id, model + version, legal options, chosen option, per-option probabilities
 (Jev), win probability, confidence, reasoning (LLMs), latency ms, input/output tokens, cost USD, fallback flag,
 retry count. Live view, replays and research all read this log. Seed + decisions reproduce a hand exactly.
@@ -121,14 +122,36 @@ the ablation. No personality/style text in the study; live characters are displa
 - `action`: Choice over legal option ids (each described with its chip amount).
 - `win`: Noul, worded literally: "The acting player wins this pot, either at showdown or because all opponents fold."
 - Plays the top choice (sampling from probabilities is a later ablation). Records all option probabilities,
-  choice confidence, win probability.
+  choice confidence, win probability, and the model version that answered.
+- No SDK retries (the LLM seats get no infrastructure retry either); SDK timeout set above the table's decision
+  timeout so one runner timeout governs both. API answers outside the offered options are infra faults, not Jev's.
+- Cost: input tokens × $0.042/M, output free — source: TypeSafe launch post (typesafe.ai/blog/introducing-system-one-models-and-jev),
+  read 2026-09-21; recorded in each game's config.
+- Disclosure for the write-up: TypeSafe recommends decomposing "best action" into atomic questions; the benchmark
+  asks it as one Choice for parity with the LLMs. A decomposed Jev design is a separate pre-registered ablation.
 
 **LLM adapter** (OpenRouter):
-- Cached system prompt: rules summary, option semantics, output schema. Baseline wording derived from the salvaged
-  prompt (`SALVAGE.md` §3), fixing its known defects.
+- System prompt: rules summary, option semantics, output schema. Baseline wording derived from the salvaged
+  prompt (`SALVAGE.md` §3), fixing its known defects. (At ~270 tokens it is below providers' prompt-caching minimums,
+  so no caching.)
 - Output: `{"action":"<option id>","win_probability":0-1,"confidence":0-1,"reasoning":"≤120 chars"}`; JSON-schema
-  mode where supported; temperature 0.3; reasoning/thinking disabled; max ~150 output tokens.
-- Invalid output → one retry including the specific error → fallback check/fold flagged `fallback:true`.
+  mode where supported; temperature 0.3; reasoning off (`effort: none`) and max 150 output tokens, or for models that
+  always reason `effort: low` (hidden) with 1,500. Reasoning tokens are recorded per decision as evidence.
+- Invalid, empty or refused output → one retry quoting the specific error (Jev cannot produce invalid output; the
+  retry's cost and latency count against the LLM). A reply truncated at max_tokens fails without retry. Then fallback
+  check/fold flagged `fallback:true` with a kind: model / infra / timeout / auto, so provider outages aren't blamed on
+  models. Probabilities outside 0-1 are rejected, never rescaled.
+- A free pre-flight against OpenRouter's model catalog rejects unknown models and sets per-model request flags
+  (structured output, reasoning parameter, temperature).
+- On timeout the runner aborts the call but still records what it had already cost (short grace period).
+- Temperature 0.3 is sent only where the model accepts it. Via OpenRouter (checked 2026-09-21) Anthropic and OpenAI
+  models don't list `temperature`, so those seats run at provider default. The adapted per-seat flags are recorded
+  in each game's config; disclose in the write-up.
+
+**Same questions for both:** Jev's win Noul and the LLMs' `win_probability` use one shared condition ("win this hand,
+either at showdown or because every opponent folds"), and both get the same option semantics. Calibration outcome
+for split pots: decided in Plan 3 and applied identically to all players. Note for the write-up: Jev's `confidence`
+is derived from its option probabilities, the LLMs' is self-reported — report them separately, not as one metric.
 
 **Bots:** Random, CallingStation, simple rule-based TAG, MockLLM (deterministic, free) for tests and $0 runs.
 
@@ -196,12 +219,12 @@ TEN branding and parody personas.
 
 | Failure | Behaviour |
 |---|---|
-| LLM timeout / error / invalid output | One retry with the error, then check/fold `fallback:true`; counted and displayed |
-| Jev API error / 429 | SDK backoff retries, then the same fallback |
+| LLM invalid / empty / refused output | One retry quoting the error, then check/fold `fallback:true` (kind `model`) |
+| LLM or Jev timeout, HTTP / network / provider error | No retry (same for both kinds of player); check/fold `fallback:true` (kind `timeout` / `infra`) |
 | Provider outage in live game | After 3 consecutive fallbacks, seat auto check/folds for the rest of the hand; UI shows "connection lost" |
 | Server crash, live | Game marked interrupted on restart; replay remains; no live resume in v1 |
 | Server crash, study | Resume skips completed pairs; partial groups dropped and replayed |
-| Budget cap | Study: no new groups. Live: end after current hand. Both logged |
+| Budget cap | Checked before every decision: once reached, no further paid calls (the hand finishes as check/fold) and the game ends; overspend is at most one decision. Study: no new groups. Logged |
 | Illegal engine operation | Throw (programming bug); unreachable through the menu |
 
 ## 10. Testing
