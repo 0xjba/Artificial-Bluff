@@ -1,0 +1,10 @@
+{
+  "_note": "Research / recorded line-up: the frontier models TypeSafe benchmarked Jev against. About $1.30 per live game.",
+  "players": [
+    { "id": "jev", "kind": "jev", "model": "jev-1.13.0" },
+    { "id": "pill", "kind": "llm", "model": "anthropic/claude-fable-5.1" },
+    { "id": "block", "kind": "llm", "model": "openai/gpt-6-astra" },
+    { "id": "drip", "kind": "llm", "model": "google/gemini-3.8-flash" },
+    { "id": "nimbus", "kind": "llm", "model": "meta-llama/llama-4-maverick" }
+  ]
+}

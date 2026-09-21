@@ -108,6 +108,11 @@ export function levelIndex(t: TournamentState): number {
   return Math.min(Math.floor(t.handNumber / t.config.handsPerLevel), t.config.levels.length - 1)
 }
 
+/** Hand id used by `nextHandConfig` and checked by `recordHand`. */
+export function tournamentHandId(handNumber: number): string {
+  return `hand-${handNumber}`
+}
+
 export function nextHandConfig(t: TournamentState): HandConfig {
   if (t.complete) throw new Error('tournament is complete')
   const alive = t.players.filter((p) => p.stack > 0)
@@ -120,6 +125,7 @@ export function nextHandConfig(t: TournamentState): HandConfig {
     bigBlind: level.bigBlind,
     // Namespace hash + hand counter: every hand in a tournament gets a distinct deck seed.
     seed: (deriveSeed(t.config.seed, 'hands') + t.handNumber) >>> 0,
+    handId: tournamentHandId(t.handNumber),
   }
 }
 
@@ -141,6 +147,11 @@ function chipLeader(t: TournamentState): string {
 /** Applies a finished hand's stacks, eliminates busted players, rotates the button, checks for the end. */
 export function recordHand(prev: TournamentState, result: HandResult): TournamentState {
   if (prev.complete) throw new Error('tournament is complete')
+  // Every tournament result must come from the hand nextHandConfig dealt (its id), never a stale one.
+  const expectedId = tournamentHandId(prev.handNumber)
+  if (result.handId !== expectedId) {
+    throw new Error(`hand result ${result.handId} is not for the current hand ${expectedId}`)
+  }
   // The result must come from the hand nextHandConfig dealt: exactly the live players, chips conserved.
   const dealt = prev.players.filter((p) => p.stack > 0)
   const ids = Object.keys(result.stacks)
