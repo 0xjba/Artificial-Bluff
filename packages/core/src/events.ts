@@ -107,6 +107,17 @@ export type EventBody =
       handsPlayed: number
     }
   | {
+      type: 'study_checkpoint'
+      /** Groups used (completed prefix in whole neighbour blocks) and blocks. */
+      groups: number
+      blocks: number
+      costUsd: number
+      /** 95% Student t CI of bb/100 per player; null where not yet defined (fewer than 2 blocks). */
+      players: Array<{ playerId: string; bb100: number | null; low: number | null; high: number | null; halfWidth: number | null }>
+      /** Whether this check stopped the study. */
+      stop: boolean
+    }
+  | {
       type: 'study_ended'
       reason: StudyEndReason
       /** Seed groups completed in order from group 0 (the prefix the results use). */
