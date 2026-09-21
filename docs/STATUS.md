@@ -21,7 +21,7 @@ Last updated: 2026-09-21
 | # | Plan | Status |
 |---|---|---|
 | 1 | Monorepo + game engine (`packages/engine`) | ✅ Merged to master (9de0579), 99 tests |
-| 2 | Players (Jev, LLM, bots, mock), table runner, SQLite event log | Plan written & verified in scratch (143 tests); executing on `feat/plan-2-players` |
+| 2 | Players (Jev, LLM, bots, mock), table runner, SQLite event log | Built and reviewed on `feat/plan-2-players` (181 tests); final review: ready to merge (final fixes in progress) |
 | 3 | Study runner (duplicate, budget cap, resume, CI stop) + report/charts | Not written yet |
 | 4 | Live server (WebSocket, replays, admin start) + web (Broadcast UI) + mascots (bloub) | Not written yet |
 
@@ -50,7 +50,8 @@ Last updated: 2026-09-21
 - [x] Task 8: Core package, events, SQLite store (8284e8b + a35aa52 + tsx dep; spec ✅ quality ✅ fixes (opus): no lost events with concurrent writers, strict canonical JSON, schema migrations, hash in game_started)
 - [x] Task 9: Table runner (929c010 + f5c874b + usage-check follow-up; spec ✅ quality ✅ (opus, 3k-hand replay from events clean) — timeout latency = limit, misbehaving-player guards, empty-error auto count, currentBet)
 - [x] Task 10: Live tournament driver (0f6bc7b + d62a4c3; spec ✅ quality ✅ — mid-game errors end game as interrupted, validated before writing, meta can't override recorded settings)
-- [ ] Task 11: pnpm demo / pnpm smoke (expect engine 104, players 43, core 31)
+- [x] Task 11: pnpm demo / pnpm smoke (74d25e3; spec ✅; quality folded into final review)
+- [ ] Final branch review (opus): ready to merge; fixes — spend checked before every decision, API keys ES-private, onEvent hook for Plan 4, docs
 
 ## Key decisions (summary; spec is authoritative)
 
@@ -87,8 +88,11 @@ Last updated: 2026-09-21
 - Plan 3: add decisions(model) index if analysis groups by model alone. (Task 8 re-review)
 - Plan 3 (Task 8 review): add seed/rotation/order ids to study events for resume; consider (player_id, model) analysis views.
 - Plan 4: stopping a live game (abort) takes effect between hands, so a stop can wait up to one hand. (Task 10 review)
+- Plan 3 (Plan 2 final review): resume primitive for a partially played hand (abandon/delete or per-attempt hand id; the probe saw duplicate hand_started after crash+replay); a study-shaped end event (EndReason has no ci_stop/completed); default handId = handKey(hand) in cashHandConfig; count timed-out calls at a conservative cost estimate (catalog pricing × max_tokens) for caps; optionally compare OpenRouter GET /api/v1/key usage before/after runs.
+- Plan 4 (Plan 2 final review): use runTournamentGame's onEvent hook for the live feed; call store.interruptRunningGames() on server start; redact seeds from configs; handle Ctrl-C/SIGTERM by aborting the game.
+- Smoke nits (Plan 2 final review): `--budget=0.5` syntax is ignored (use `--budget 0.5`); no Ctrl-C handling; preflight doesn't validate the Jev model id or keys (a bad key just fails every call as infra, costing nothing).
 - Plan 4 (final review): NEVER send `deck` or `config.seed` in live snapshots (reveals future cards; tournament seeds are base+handNumber so one seed reveals all later decks) — publish seeds only after the game. HandResult lacks best-five cards for winner highlighting: compute in Plan 4 or add to engine.
-- Line-ups (user decision 2026-09-21): research line-up (Fable 5.1, GPT-6 Astra, Gemini 3.8 Flash, Llama 4 Maverick; ~$1.30/live game) for study + recorded games; live line-up (Sonnet 5, GPT-5.6 Sol, Gemini 3.8 Flash, Llama 4 Maverick; ~$0.32/game) for everyday live games. Files: lineups/{research,live}.example.json. Real smoke test only with user go-ahead + keys.
+- Line-ups (user decision 2026-09-21): research line-up (Fable 5.1, GPT-6 Astra, Gemini 3.8 Flash, Llama 4 Maverick; ~$1.60-1.80/live game at the measured ~700-token prompt) for study + recorded games; live line-up (Sonnet 5, GPT-5.6 Sol, Gemini 3.8 Flash, Llama 4 Maverick; ~$0.40/game) for everyday live games. Files: lineups/{research,live}.example.json. Real smoke test only with user go-ahead + keys.
 - Equity-hint ablation (`hints.equity`) not implemented in Plan 2; do it in Plan 3 with the ablation runs.
 - Deferred from Plan 2 Task 3 review: list seats in action order / add playersToActAfter; compact LLM message (~180 vs ~350 tokens, same info) to cut input cost ~25% before the study is frozen.
 - Plan 3: define calibration outcome for split pots (e.g. win = net > 0, split = 0.5?) identically for all players; report Jev confidence (from option probabilities) and LLM confidence (self-reported) separately.
@@ -99,6 +103,8 @@ Last updated: 2026-09-21
 - Scratch bloub preview (custom colours, Mascots.vue) lived in the session scratchpad; recreate in Plan 4.
 
 ## Execution log
+
+- 2026-09-21: Plan 2 built on feat/plan-2-players — 11 tasks, each spec (diff vs verified reference) + quality reviewed (opus for the fairness-critical ones). Reviews caught: short-stack toCall/pot-odds and drifting SPR, bot folding aces, AA=KK, LLM truncation/reasoning-token/percentage-rescaling/win-wording issues, Jev asymmetric retries + unsourced price, SQLITE_BUSY lost events with concurrent writers, non-canonical config hashes, runner crash paths and latency skew, stuck 'running' games, soft budget cap, API keys visible on player objects.
 
 - 2026-09-21: Plan 1 complete on feat/plan-1-engine — 9 tasks, each spec+quality reviewed; reviews caught deriveSeed collision, malformed-card evaluation, pot crash, 3 NLHE rules bugs, menu sizing bias, unvalidated tournament results, duplicate-seating neighbour bias, consumer typecheck. 99 tests.
 

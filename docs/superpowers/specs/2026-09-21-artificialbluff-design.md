@@ -61,8 +61,9 @@ engine state → observation for acting seat (own hole cards only)
 - Live mode: 2–4 s pacing per action, turbo structure, per-game cost cap.
 - Study mode: no pacing, N tables in parallel, seeded decks, duplicate rotation.
 
-**Event log is the single source of truth.** Events: `HandStarted`, `CardsDealt`, `TurnStarted`, `Decision`,
-`StreetDealt`, `Showdown`, `PotAwarded`, `HandEnded`, `GameEnded` (plus `GameInterrupted`, `BudgetCapReached`).
+**Event log is the single source of truth.** Events: `game_started` (with the config hash), `hand_started`,
+`cards_dealt`, `turn_started`, `decision`, `street_dealt`, `showdown`, `pot_awarded`, `hand_ended`, `game_ended`
+(its `reason` covers last player, hand cap, budget cap and interruption).
 A `Decision` records: seat, player id, model + version, legal options, chosen option, per-option probabilities
 (Jev), win probability, confidence, reasoning (LLMs), latency ms, input/output tokens, cost USD, fallback flag,
 retry count. Live view, replays and research all read this log. Seed + decisions reproduce a hand exactly.
@@ -218,12 +219,12 @@ TEN branding and parody personas.
 
 | Failure | Behaviour |
 |---|---|
-| LLM timeout / error / invalid output | One retry with the error, then check/fold `fallback:true`; counted and displayed |
-| Jev API error / 429 | SDK backoff retries, then the same fallback |
+| LLM invalid / empty / refused output | One retry quoting the error, then check/fold `fallback:true` (kind `model`) |
+| LLM or Jev timeout, HTTP / network / provider error | No retry (same for both kinds of player); check/fold `fallback:true` (kind `timeout` / `infra`) |
 | Provider outage in live game | After 3 consecutive fallbacks, seat auto check/folds for the rest of the hand; UI shows "connection lost" |
 | Server crash, live | Game marked interrupted on restart; replay remains; no live resume in v1 |
 | Server crash, study | Resume skips completed pairs; partial groups dropped and replayed |
-| Budget cap | Study: no new groups. Live: end after current hand. Both logged |
+| Budget cap | Checked before every decision: once reached, no further paid calls (the hand finishes as check/fold) and the game ends; overspend is at most one decision. Study: no new groups. Logged |
 | Illegal engine operation | Throw (programming bug); unreachable through the menu |
 
 ## 10. Testing

@@ -1442,14 +1442,17 @@ export class LlmPlayer implements Player {
   readonly kind = 'llm' as const
   readonly id: string
   readonly model: string
+  /** ES-private so the API key can't leak through JSON.stringify or console.log of a player. */
+  readonly #options: LlmPlayerOptions
 
-  constructor(private readonly options: LlmPlayerOptions) {
+  constructor(options: LlmPlayerOptions) {
+    this.#options = options
     this.id = options.id
     this.model = options.model
   }
 
   private request(messages: ChatMessage[], obs: Observation): ChatRequest {
-    const o = this.options
+    const o = this.#options
     const reasoning = o.reasoning ?? 'off'
     return {
       model: o.model,
@@ -1473,7 +1476,7 @@ export class LlmPlayer implements Player {
       if (attempt > 0) usage.retries++
       let res
       try {
-        res = await chatCompletion(this.options.openrouter, this.request(messages, obs), signal)
+        res = await chatCompletion(this.#options.openrouter, this.request(messages, obs), signal)
       } catch (e) {
         return { ok: false, error: (e as Error).message, kind: 'infra', usage, model: servedBy }
       }
@@ -1703,12 +1706,15 @@ export class JevPlayer implements Player {
   readonly kind = 'jev' as const
   readonly id: string
   readonly model: string
-  private readonly client: TypeSafeClient
+  // ES-private so the API key can't leak through JSON.stringify or console.log of a player.
+  readonly #options: JevPlayerOptions
+  readonly #client: TypeSafeClient
 
-  constructor(private readonly options: JevPlayerOptions) {
+  constructor(options: JevPlayerOptions) {
+    this.#options = options
     this.id = options.id
     this.model = options.model
-    this.client = new TypeSafeClient({ defaultModel: options.model, ...options.client })
+    this.#client = new TypeSafeClient({ defaultModel: options.model, ...options.client })
   }
 
   async decide(obs: Observation, signal: AbortSignal): Promise<DecideResult> {
@@ -1717,7 +1723,7 @@ export class JevPlayer implements Player {
     const criteria = Object.fromEntries(options.map((o) => [o.id, o.label]))
     let res
     try {
-      res = await this.client.systemOne(
+      res = await this.#client.systemOne(
         {
           model: this.model,
           state: JSON.parse(JSON.stringify(state)),
@@ -1726,7 +1732,7 @@ export class JevPlayer implements Player {
             win: noul(WIN_INSTRUCTIONS),
           },
         },
-        { signal, timeout: this.options.timeoutMs ?? 60_000, retry: { maxRetries: 0 } },
+        { signal, timeout: this.#options.timeoutMs ?? 60_000, retry: { maxRetries: 0 } },
       )
     } catch (e) {
       return { ok: false, error: (e as Error).message, kind: 'infra', usage: NO_USAGE, model: this.model }
@@ -1738,7 +1744,7 @@ export class JevPlayer implements Player {
       inputTokens: res.usage.input_tokens,
       outputTokens: res.usage.output_tokens,
       reasoningTokens: 0,
-      costUsd: (res.usage.input_tokens * (this.options.inputPricePerMTok ?? JEV_INPUT_PRICE_PER_MTOK)) / 1_000_000,
+      costUsd: (res.usage.input_tokens * (this.#options.inputPricePerMTok ?? JEV_INPUT_PRICE_PER_MTOK)) / 1_000_000,
       retries: 0,
     }
     const action = res.answers.action
@@ -1822,6 +1828,22 @@ describe('createPlayers', () => {
       ['drip', 'bot', 'bot/tag'],
       ['nimbus', 'mock', 'mock/llm'],
     ])
+  })
+
+  it('never exposes API keys through serialization or inspection', async () => {
+    const { inspect } = await import('node:util')
+    const players = createPlayers(
+      [
+        { id: 'jev', kind: 'jev', model: 'jev-1.13.0' },
+        { id: 'pill', kind: 'llm', model: 'vendor/frontier-a' },
+      ],
+      { OPENROUTER_API_KEY: 'sk-or-secret-123', TYPESAFE_API_KEY: 'ts-secret-456' },
+    )
+    for (const p of players) {
+      for (const text of [JSON.stringify(p), inspect(p, { depth: 10 })]) {
+        expect(text).not.toContain('secret')
+      }
+    }
   })
 
   it('fails fast with a clear message when a key is missing, and rejects duplicate ids', () => {
@@ -2026,7 +2048,7 @@ export * from './factory'
 - [ ] **Step 4: Run tests and typecheck**
 
 Run: `pnpm --filter @ab/players exec vitest run && pnpm --filter @ab/players typecheck`
-Expected: PASS (43 tests); typecheck clean.
+Expected: PASS (44 tests); typecheck clean.
 
 - [ ] **Step 5: Commit**
 
@@ -2760,6 +2782,23 @@ describe('playHand', () => {
     expect(decisions(sink.events)[0]).toMatchObject({ playerId: 'u', currentBet: 100, toCall: 100, chipsIn: 100 })
   })
 
+  it('stops asking players once stopSpending returns true, finishing the hand as check-or-fold', async () => {
+    const asked = new Scripted('x', () => ({ ok: true, decision: { optionId: 'call', winProbability: null, confidence: null, optionProbabilities: null, reasoning: null }, usage: NO_USAGE, model: 'm' }))
+    let spent = 0
+    const sink = memorySink()
+    await playHand({
+      config: config(['b', 's', 'bb', 'x']),
+      players: byId([new CallingStation('b'), new CallingStation('s'), new CallingStation('bb'), asked]),
+      sink,
+      decisionTimeoutMs: 100,
+      stopSpending: () => spent++ >= 0,
+    })
+    const all = decisions(sink.events)
+    expect(all.every((d) => d.fallbackKind === 'auto' && d.fallbackReason === 'auto: budget cap reached')).toBe(true)
+    expect(asked.calls).toBe(0)
+    expect(sink.events.at(-1)!.type).toBe('hand_ended')
+  })
+
   it('records what a timed-out player had already spent', async () => {
     // Resolves with its spend only when aborted (like an LLM whose first attempt was billed).
     const slow: Player = {
@@ -2897,6 +2936,12 @@ export interface PlayHandOptions {
   maxConsecutiveFallbacks?: number
   /** After a timeout, how long to wait for the aborted player to report what it spent. Default 250 ms. */
   timeoutGraceMs?: number
+  /**
+   * Checked before every decision. Once it returns true (e.g. the budget cap is reached), the rest
+   * of the hand is played as check-or-fold without asking any player, so overspend is at most one
+   * decision rather than one hand.
+   */
+  stopSpending?: () => boolean
   menu?: Partial<MenuConfig>
   now?: () => number
   sleep?: (ms: number) => Promise<void>
@@ -3007,9 +3052,11 @@ export async function playHand(opts: PlayHandOptions): Promise<HandResult> {
     opts.sink.append({ type: 'turn_started', handId, playerId: seat.id, options: obs.options })
 
     const started = now()
-    const auto = (consecutiveFallbacks.get(seat.id) ?? 0) >= maxFallbacks
+    const capped = opts.stopSpending?.() ?? false
+    const auto = capped || (consecutiveFallbacks.get(seat.id) ?? 0) >= maxFallbacks
+    const autoReason = capped ? 'auto: budget cap reached' : 'auto: too many failures'
     const asked: Asked = auto
-      ? { result: { ok: false, error: 'auto: too many failures', kind: 'infra', usage: NO_USAGE, model: player.model }, timedOut: false }
+      ? { result: { ok: false, error: autoReason, kind: 'infra', usage: NO_USAGE, model: player.model }, timedOut: false }
       : await ask(player, obs, opts.decisionTimeoutMs, opts.timeoutGraceMs ?? 250)
     const res = asked.result
     // A timeout counts as exactly the time limit, however quickly the player reacts to the abort,
@@ -3096,7 +3143,7 @@ Key points:
 - [ ] **Step 4: Run tests**
 
 Run: `pnpm --filter @ab/core exec vitest run`
-Expected: PASS (23 tests).
+Expected: PASS (24 tests).
 
 - [ ] **Step 5: Commit**
 
@@ -3155,14 +3202,34 @@ describe('runTournamentGame', () => {
     expect(await run()).toEqual(await run())
   })
 
-  it('ends at the budget cap after the hand in which it is reached', async () => {
+  it('stops spending at the budget cap within one decision, then ends the game', async () => {
     const store = new EventStore()
     const pricey = lineup().map((p) => new MockLlm(p.id, 'mock/pricey', { inputPricePerMTok: 50_000 }))
     const t = await runTournamentGame({ gameId: 'g2', players: pricey, tournament: liveTurboConfig('s'), store, decisionTimeoutMs: 1000, budgetUsd: 0.5 })
     expect(t.endReason).toBe('budget_cap')
-    expect(t.handNumber).toBeGreaterThanOrEqual(1)
-    expect(store.gameCost('g2')).toBeGreaterThanOrEqual(0.5)
+    const paid = store.events('g2').filter((e): e is Extract<GameEvent, { type: 'decision' }> => e.type === 'decision' && e.costUsd > 0)
+    const maxOne = Math.max(...paid.map((d) => d.costUsd))
+    const cost = store.gameCost('g2')
+    expect(cost).toBeGreaterThanOrEqual(0.5)
+    expect(cost).toBeLessThan(0.5 + maxOne) // overspend is at most one decision
     expect(ended(store.events('g2')).reason).toBe('budget_cap')
+  })
+
+  it('streams every stored event to onEvent, and a failing listener never stops the game', async () => {
+    const store = new EventStore()
+    const seen: GameEvent[] = []
+    const errors: unknown[] = []
+    await runTournamentGame({
+      gameId: 'g8', players: lineup(), tournament: { ...liveTurboConfig('s'), maxHands: 3 }, store, decisionTimeoutMs: 1000, budgetUsd: 1,
+      onEvent: (e) => {
+        seen.push(e)
+        if (e.type === 'turn_started') throw new Error('listener bug')
+      },
+      onListenerError: (e) => errors.push(e),
+    })
+    expect(seen).toEqual(store.events('g8'))
+    expect(errors.length).toBeGreaterThan(0)
+    expect(store.game('g8')!.status).toBe('ended')
   })
 
   it('stops as interrupted when the signal aborts', async () => {
@@ -3235,6 +3302,7 @@ import {
 } from '@ab/engine'
 import type { Player } from '@ab/players'
 import { playHand } from './runner'
+import type { EventSink, GameEvent } from './events'
 import type { EventStore } from './store'
 
 export interface TournamentGameOptions {
@@ -3245,7 +3313,11 @@ export interface TournamentGameOptions {
   store: EventStore
   decisionTimeoutMs: number
   paceMs?: number
-  /** Stop after the hand in which total spend reaches this (USD). */
+  /**
+   * Spending cap (USD). Checked before every decision: once reached, the current hand finishes as
+   * check-or-fold with no further paid calls and the game ends. Overspend is at most one decision
+   * (plus the unrecorded cost of any timed-out calls, which providers may still bill).
+   */
   budgetUsd: number
   /**
    * Extra config recorded (and hashed) with the game, e.g. the line-up spec. It can't override the
@@ -3254,6 +3326,14 @@ export interface TournamentGameOptions {
   meta?: Record<string, unknown>
   /** Checked between hands: aborting lets the hand in progress finish, then ends the game as interrupted. */
   signal?: AbortSignal
+  /**
+   * Called with every event right after it is stored (e.g. to push to spectators). A listener that
+   * throws is reported to `onListenerError` and never stops the game.
+   */
+  onEvent?: (event: GameEvent) => void
+  onListenerError?: (error: unknown) => void
+  timeoutGraceMs?: number
+  maxConsecutiveFallbacks?: number
   menu?: Partial<MenuConfig>
   now?: () => number
   sleep?: (ms: number) => Promise<void>
@@ -3279,7 +3359,19 @@ export async function runTournamentGame(opts: TournamentGameOptions): Promise<To
     paceMs: opts.paceMs ?? 0,
     budgetUsd: opts.budgetUsd,
   })
-  const sink = opts.store.sink(opts.gameId)
+  const stored = opts.store.sink(opts.gameId)
+  const sink: EventSink = {
+    append(body) {
+      const event = stored.append(body)
+      try {
+        opts.onEvent?.(event)
+      } catch (e) {
+        opts.onListenerError?.(e)
+      }
+      return event
+    },
+  }
+  const overBudget = () => opts.store.gameCost(opts.gameId) >= opts.budgetUsd
   const finish = (state: TournamentState) =>
     sink.append({
       type: 'game_ended',
@@ -3302,7 +3394,7 @@ export async function runTournamentGame(opts: TournamentGameOptions): Promise<To
         t = endTournament(t, 'interrupted')
         break
       }
-      if (opts.store.gameCost(opts.gameId) >= opts.budgetUsd) {
+      if (overBudget()) {
         t = endTournament(t, 'budget_cap')
         break
       }
@@ -3311,6 +3403,9 @@ export async function runTournamentGame(opts: TournamentGameOptions): Promise<To
         players,
         sink,
         decisionTimeoutMs: opts.decisionTimeoutMs,
+        stopSpending: overBudget,
+        ...(opts.timeoutGraceMs !== undefined ? { timeoutGraceMs: opts.timeoutGraceMs } : {}),
+        ...(opts.maxConsecutiveFallbacks !== undefined ? { maxConsecutiveFallbacks: opts.maxConsecutiveFallbacks } : {}),
         ...(opts.paceMs !== undefined ? { paceMs: opts.paceMs } : {}),
         ...(opts.menu ? { menu: opts.menu } : {}),
         ...(opts.now ? { now: opts.now } : {}),
@@ -3346,7 +3441,7 @@ export * from './game'
 - [ ] **Step 4: Run tests**
 
 Run: `pnpm --filter @ab/core exec vitest run`
-Expected: PASS (31 tests).
+Expected: PASS (33 tests).
 
 - [ ] **Step 5: Commit**
 
@@ -3518,7 +3613,7 @@ Expected: prints one line like `game demo-…: 67 hands, 393 decisions, 1161 eve
 - [ ] **Step 3: Full verification**
 
 Run: `pnpm test && pnpm typecheck`
-Expected: engine 104, players 43, core 31 tests pass; typecheck clean across all three packages.
+Expected: engine 104, players 44, core 33 tests pass; typecheck clean across all three packages.
 
 - [ ] **Step 4: Commit**
 
@@ -3531,13 +3626,13 @@ git -c user.email=jobinb6444@gmail.com -c user.name=0xjba commit -m "feat: free 
 
 - [ ] **Step 5 (user, optional, costs money): real smoke test**
 
-Only with the user's go-ahead and keys: copy `.env.example` to `.env` and fill both keys; copy `lineups/live.example.json` to `lineups/live.json` (or the research line-up) and adjust models; run `pnpm smoke lineups/live.json --hands 5 --budget 0.25`. Expect a line per decision with latency, cost, stated win probability and reasoning or fallback reason, and a final total under the cap. Check: no unexpected fallbacks (a model rejecting `reasoning: {effort: "none"}` or lacking structured outputs shows up here; fix via `reasoning` ("off" | "low" | "omit") / `structuredOutput` in the line-up).
+Only with the user's go-ahead and keys: copy `.env.example` to `.env` and fill both keys; copy `lineups/live.example.json` to `lineups/live.json` (or the research line-up) and adjust models; run `pnpm smoke lineups/live.json --hands 5 --budget 0.25`. Expect a line per decision with latency, cost, stated win probability and reasoning or fallback reason, and a final total at most one decision over the cap (spend is checked before every decision; the unrecorded cost of timed-out calls may add a little). Check: no unexpected fallbacks (a model rejecting `reasoning: {effort: "none"}` or lacking structured outputs shows up here; fix via `reasoning` ("off" | "low" | "omit") / `structuredOutput` in the line-up).
 
 ---
 
 ## Cost note for the line-ups
 
-Measured shape from the demo: about 6 decisions per hand and ~65 hands per live game, so ~390 decisions, ~310 of them by the four LLM seats. At ~500 input and ~60 output tokens per decision:
+Measured shape from the demo: about 6 decisions per hand and ~65 hands per live game, so ~390 decisions, ~310 of them by the four LLM seats. At ~500 input and ~60 output tokens per decision (the final review measured the real prompt + observation + schema at ~700-750 input tokens, so budget ~25-35% more: research ≈ $1.60-1.80, live ≈ $0.40):
 
 | Seat | Research line-up | $/game | Live line-up | $/game |
 |---|---|---|---|---|
@@ -3552,7 +3647,7 @@ User decision (2026-09-21): the research line-up is used for the study and recor
 
 ## Done when
 
-- `pnpm test` passes (engine 104, players 43, core 31) and `pnpm typecheck` is clean.
+- `pnpm test` passes (engine 104, players 44, core 33) and `pnpm typecheck` is clean.
 - `pnpm demo` plays a full mock tournament into `data/demo.db` with no errors.
 - `@ab/players` exports `buildObservation`, the bots, `MockLlm`, `LlmPlayer`, `JevPlayer`, `createPlayers`; `@ab/core` exports the event types, `EventStore`, `playHand`, `runTournamentGame`.
 - Next: Plan 3 (study runner: duplicate groups, budget cap, resume, CI stop, report) builds on `playHand`, `EventStore` and `duplicateGroup`.
