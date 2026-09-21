@@ -49,8 +49,8 @@ Last updated: 2026-09-21
 - [x] Task 7: Player factory and exports (32909dc + d1d6a09; spec ✅ quality ✅ — live-catalog preflight clean for both line-ups)
 - [x] Task 8: Core package, events, SQLite store (8284e8b + a35aa52 + tsx dep; spec ✅ quality ✅ fixes (opus): no lost events with concurrent writers, strict canonical JSON, schema migrations, hash in game_started)
 - [x] Task 9: Table runner (929c010 + f5c874b + usage-check follow-up; spec ✅ quality ✅ (opus, 3k-hand replay from events clean) — timeout latency = limit, misbehaving-player guards, empty-error auto count, currentBet)
-- [ ] Task 10: Live tournament driver (0f6bc7b; spec ✅ (diff); quality review in progress)
-- [ ] Task 11: pnpm demo / pnpm smoke (expect engine 104, players 43, core 28)
+- [ ] Task 10: Live tournament driver (0f6bc7b; spec ✅; quality: mid-game throw left game 'running', meta could override recorded settings — fix in progress)
+- [ ] Task 11: pnpm demo / pnpm smoke (expect engine 104, players 43, core 31)
 
 ## Key decisions (summary; spec is authoritative)
 
@@ -86,6 +86,7 @@ Last updated: 2026-09-21
 - Delete any local data/*.db created before the schema-migration fix (user_version 0 + tables → migration fails). (Task 8 re-review)
 - Plan 3: add decisions(model) index if analysis groups by model alone. (Task 8 re-review)
 - Plan 3 (Task 8 review): add seed/rotation/order ids to study events for resume; consider (player_id, model) analysis views.
+- Plan 4: stopping a live game (abort) takes effect between hands, so a stop can wait up to one hand. (Task 10 review)
 - Plan 4 (final review): NEVER send `deck` or `config.seed` in live snapshots (reveals future cards; tournament seeds are base+handNumber so one seed reveals all later decks) — publish seeds only after the game. HandResult lacks best-five cards for winner highlighting: compute in Plan 4 or add to engine.
 - Line-ups (user decision 2026-09-21): research line-up (Fable 5.1, GPT-6 Astra, Gemini 3.8 Flash, Llama 4 Maverick; ~$1.30/live game) for study + recorded games; live line-up (Sonnet 5, GPT-5.6 Sol, Gemini 3.8 Flash, Llama 4 Maverick; ~$0.32/game) for everyday live games. Files: lineups/{research,live}.example.json. Real smoke test only with user go-ahead + keys.
 - Equity-hint ablation (`hints.equity`) not implemented in Plan 2; do it in Plan 3 with the ablation runs.

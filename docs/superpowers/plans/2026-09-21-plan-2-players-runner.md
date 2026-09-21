@@ -3181,6 +3181,36 @@ describe('runTournamentGame', () => {
     expect(game.config).toMatchObject({ budgetUsd: 1, decisionTimeoutMs: 1000, note: 'test', players: [{ id: 'jev', kind: 'mock', model: 'mock/llm' }, { id: 'pill' }, { id: 'block' }, { id: 'drip' }, { id: 'nimbus' }] })
     expect(game.configHash).toMatch(/^[0-9a-f]{64}$/)
   })
+
+  it('ends the game as interrupted if anything throws mid-game, then rethrows', async () => {
+    const store = new EventStore()
+    const run = runTournamentGame({
+      gameId: 'g5', players: lineup(), tournament: liveTurboConfig('s'), store, decisionTimeoutMs: 1000, budgetUsd: 100,
+      paceMs: 1,
+      sleep: async () => {
+        throw new Error('boom')
+      },
+    })
+    await expect(run).rejects.toThrow('boom')
+    expect(store.game('g5')!.status).toBe('interrupted')
+    expect(ended(store.events('g5'))).toMatchObject({ type: 'game_ended', reason: 'interrupted' })
+  })
+
+  it('writes nothing for an invalid tournament', async () => {
+    const store = new EventStore()
+    const dupes = [new MockLlm('a'), new MockLlm('a')]
+    await expect(runTournamentGame({ gameId: 'g6', players: dupes, tournament: liveTurboConfig('s'), store, decisionTimeoutMs: 1000, budgetUsd: 1 })).rejects.toThrow(/unique/)
+    expect(store.game('g6')).toBeNull()
+  })
+
+  it('does not let meta override the settings the game runs with', async () => {
+    const store = new EventStore()
+    await runTournamentGame({
+      gameId: 'g7', players: lineup(), tournament: { ...liveTurboConfig('s'), maxHands: 1 }, store, decisionTimeoutMs: 1000, budgetUsd: 1,
+      meta: { budgetUsd: 999, decisionTimeoutMs: 1, note: 'kept' },
+    })
+    expect(store.game('g7')!.config).toMatchObject({ budgetUsd: 1, decisionTimeoutMs: 1000, note: 'kept' })
+  })
 })
 ```
 
@@ -3217,67 +3247,88 @@ export interface TournamentGameOptions {
   paceMs?: number
   /** Stop after the hand in which total spend reaches this (USD). */
   budgetUsd: number
-  /** Extra config recorded (and hashed) with the game, e.g. the line-up spec. */
+  /**
+   * Extra config recorded (and hashed) with the game, e.g. the line-up spec. It can't override the
+   * fields the game actually runs with (tournament, players, timeouts, budget).
+   */
   meta?: Record<string, unknown>
+  /** Checked between hands: aborting lets the hand in progress finish, then ends the game as interrupted. */
   signal?: AbortSignal
   menu?: Partial<MenuConfig>
   now?: () => number
   sleep?: (ms: number) => Promise<void>
 }
 
-/** Runs a live tournament to completion, recording everything in the store. */
+/**
+ * Runs a live tournament to completion, recording everything in the store. If anything throws
+ * mid-game, the game is ended as 'interrupted' (with a game_ended event) before the error is
+ * rethrown, so it never stays 'running' with nothing driving it.
+ */
 export async function runTournamentGame(opts: TournamentGameOptions): Promise<TournamentState> {
   const players = new Map(opts.players.map((p) => [p.id, p]))
+  // Validate before writing anything: a bad config must not leave a game row behind.
+  let t = createTournament(
+    opts.players.map((p) => p.id),
+    opts.tournament,
+  )
   const game = opts.store.createGame(opts.gameId, 'live', {
+    ...opts.meta,
     tournament: opts.tournament,
     players: opts.players.map((p) => ({ id: p.id, kind: p.kind, model: p.model })),
     decisionTimeoutMs: opts.decisionTimeoutMs,
     paceMs: opts.paceMs ?? 0,
     budgetUsd: opts.budgetUsd,
-    ...opts.meta,
   })
   const sink = opts.store.sink(opts.gameId)
-  sink.append({
-    type: 'game_started',
-    kind: 'live',
-    configHash: game.configHash,
-    players: opts.players.map((p) => ({ id: p.id, kind: p.kind, model: p.model })),
-  })
-
-  let t = createTournament(
-    opts.players.map((p) => p.id),
-    opts.tournament,
-  )
-  while (!t.complete) {
-    if (opts.signal?.aborted) {
-      t = endTournament(t, 'interrupted')
-      break
-    }
-    if (opts.store.gameCost(opts.gameId) >= opts.budgetUsd) {
-      t = endTournament(t, 'budget_cap')
-      break
-    }
-    const result = await playHand({
-      config: nextHandConfig(t),
-      players,
-      sink,
-      decisionTimeoutMs: opts.decisionTimeoutMs,
-      ...(opts.paceMs !== undefined ? { paceMs: opts.paceMs } : {}),
-      ...(opts.menu ? { menu: opts.menu } : {}),
-      ...(opts.now ? { now: opts.now } : {}),
-      ...(opts.sleep ? { sleep: opts.sleep } : {}),
+  const finish = (state: TournamentState) =>
+    sink.append({
+      type: 'game_ended',
+      reason: state.endReason!,
+      winner: state.winner,
+      stacks: Object.fromEntries(state.players.map((p) => [p.id, p.stack])),
+      eliminated: [...state.eliminated],
+      handsPlayed: state.handNumber,
     })
-    t = recordHand(t, result)
+
+  try {
+    sink.append({
+      type: 'game_started',
+      kind: 'live',
+      configHash: game.configHash,
+      players: opts.players.map((p) => ({ id: p.id, kind: p.kind, model: p.model })),
+    })
+    while (!t.complete) {
+      if (opts.signal?.aborted) {
+        t = endTournament(t, 'interrupted')
+        break
+      }
+      if (opts.store.gameCost(opts.gameId) >= opts.budgetUsd) {
+        t = endTournament(t, 'budget_cap')
+        break
+      }
+      const result = await playHand({
+        config: nextHandConfig(t),
+        players,
+        sink,
+        decisionTimeoutMs: opts.decisionTimeoutMs,
+        ...(opts.paceMs !== undefined ? { paceMs: opts.paceMs } : {}),
+        ...(opts.menu ? { menu: opts.menu } : {}),
+        ...(opts.now ? { now: opts.now } : {}),
+        ...(opts.sleep ? { sleep: opts.sleep } : {}),
+      })
+      t = recordHand(t, result)
+    }
+  } catch (error) {
+    const stopped = t.complete ? t : endTournament(t, 'interrupted')
+    try {
+      finish(stopped)
+    } finally {
+      opts.store.setStatus(opts.gameId, 'interrupted')
+    }
+    throw error
   }
 
-  sink.append({
-    type: 'game_ended',
-    reason: t.endReason!,
-    winner: t.winner,
-    stacks: Object.fromEntries(t.players.map((p) => [p.id, p.stack])),
-    eliminated: [...t.eliminated],
-    handsPlayed: t.handNumber,
-  })
+  finish(t)
   opts.store.setStatus(opts.gameId, t.endReason === 'interrupted' ? 'interrupted' : 'ended')
   return t
 }
@@ -3295,7 +3346,7 @@ export * from './game'
 - [ ] **Step 4: Run tests**
 
 Run: `pnpm --filter @ab/core exec vitest run`
-Expected: PASS (28 tests).
+Expected: PASS (31 tests).
 
 - [ ] **Step 5: Commit**
 
@@ -3467,7 +3518,7 @@ Expected: prints one line like `game demo-…: 67 hands, 393 decisions, 1161 eve
 - [ ] **Step 3: Full verification**
 
 Run: `pnpm test && pnpm typecheck`
-Expected: engine 104, players 43, core 28 tests pass; typecheck clean across all three packages.
+Expected: engine 104, players 43, core 31 tests pass; typecheck clean across all three packages.
 
 - [ ] **Step 4: Commit**
 
@@ -3501,7 +3552,7 @@ User decision (2026-09-21): the research line-up is used for the study and recor
 
 ## Done when
 
-- `pnpm test` passes (engine 104, players 43, core 28) and `pnpm typecheck` is clean.
+- `pnpm test` passes (engine 104, players 43, core 31) and `pnpm typecheck` is clean.
 - `pnpm demo` plays a full mock tournament into `data/demo.db` with no errors.
 - `@ab/players` exports `buildObservation`, the bots, `MockLlm`, `LlmPlayer`, `JevPlayer`, `createPlayers`; `@ab/core` exports the event types, `EventStore`, `playHand`, `runTournamentGame`.
 - Next: Plan 3 (study runner: duplicate groups, budget cap, resume, CI stop, report) builds on `playHand`, `EventStore` and `duplicateGroup`.
