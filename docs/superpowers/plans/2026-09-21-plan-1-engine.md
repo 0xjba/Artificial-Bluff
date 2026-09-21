@@ -1975,6 +1975,21 @@ describe('tournament', () => {
     expect(() => nextHandConfig(t)).toThrow(/complete/)
   })
 
+  it('rejects a hand result that does not match the live players or loses chips', () => {
+    let t = createTournament(['a', 'b', 'c'], liveTurboConfig('s'))
+    expect(() => recordHand(t, result({ a: 4500, b: 4500 }))).toThrow(/do not match/)
+    expect(() => recordHand(t, result({ a: 3000, b: 3000, c: 3000, x: 0 }))).toThrow(/do not match/)
+    expect(() => recordHand(t, result({ a: 3000, b: 3000, c: 2000 }))).toThrow(/conserve chips/)
+    t = recordHand(t, result({ a: 0, b: 4500, c: 4500 }))
+    // 'a' is out: a result that includes 'a' again (e.g. a stale result) must be rejected.
+    expect(() => recordHand(t, result({ a: 100, b: 4400, c: 4500 }))).toThrow(/do not match/)
+  })
+
+  it('allows at most 10 players', () => {
+    const eleven = Array.from({ length: 11 }, (_, i) => `p${i}`)
+    expect(() => createTournament(eleven, liveTurboConfig('s'))).toThrow(/at most 10/)
+  })
+
   it('can be ended early for the budget cap', () => {
     const t = endTournament(createTournament(['a', 'b'], liveTurboConfig('s')), 'budget_cap')
     expect(t.complete).toBe(true)
@@ -2021,6 +2036,7 @@ Expected: FAIL, cannot resolve `../src/tournament`.
 `packages/engine/src/tournament.ts`:
 
 ```ts
+import { MAX_PLAYERS } from './hand'
 import { deriveSeed } from './rng'
 import type { HandConfig, HandResult } from './types'
 
@@ -2065,6 +2081,7 @@ export type EndReason = 'last_player' | 'hand_cap' | 'budget_cap' | 'interrupted
 export interface TournamentPlayer {
   id: string
   stack: number
+  /** 0-based index of the hand in which the player busted (i.e. `handNumber` before that hand was recorded). */
   eliminatedAtHand: number | null
 }
 
@@ -2085,6 +2102,7 @@ export interface TournamentState {
 
 export function createTournament(playerIds: string[], config: TournamentConfig): TournamentState {
   if (playerIds.length < 2) throw new Error('a tournament needs at least 2 players')
+  if (playerIds.length > MAX_PLAYERS) throw new Error(`a tournament allows at most ${MAX_PLAYERS} players`)
   if (new Set(playerIds).size !== playerIds.length) throw new Error('player ids must be unique')
   return {
     config,
@@ -2140,6 +2158,16 @@ function chipLeader(t: TournamentState): string {
 /** Applies a finished hand's stacks, eliminates busted players, rotates the button, checks for the end. */
 export function recordHand(prev: TournamentState, result: HandResult): TournamentState {
   if (prev.complete) throw new Error('tournament is complete')
+  // The result must come from the hand nextHandConfig dealt: exactly the live players, chips conserved.
+  const dealt = prev.players.filter((p) => p.stack > 0)
+  const ids = Object.keys(result.stacks)
+  if (ids.length !== dealt.length || !dealt.every((p) => p.id in result.stacks)) {
+    throw new Error(`hand result players [${ids.join(', ')}] do not match live players [${dealt.map((p) => p.id).join(', ')}]`)
+  }
+  const before = dealt.reduce((sum, p) => sum + p.stack, 0)
+  const after = Object.values(result.stacks).reduce((sum, v) => sum + v, 0)
+  if (before !== after) throw new Error(`hand result does not conserve chips: ${before} before, ${after} after`)
+
   const t = structuredClone(prev)
   const startStacks = new Map(t.players.map((p) => [p.id, p.stack]))
   for (const p of t.players) if (p.id in result.stacks) p.stack = result.stacks[p.id]!
@@ -2182,7 +2210,7 @@ Note: the button moves to the next seat with chips after every hand (a simple mo
 - [ ] **Step 4: Run tests to verify they pass**
 
 Run: `pnpm --filter @ab/engine exec vitest run test/tournament.test.ts`
-Expected: PASS, 8 tests.
+Expected: PASS, 10 tests.
 
 - [ ] **Step 5: Commit**
 
@@ -2402,7 +2430,7 @@ export * from './duplicate'
 - [ ] **Step 4: Run the full suite and typecheck from the root**
 
 Run: `pnpm test && pnpm typecheck`
-Expected: 8 test files, 84 tests passed; typecheck clean.
+Expected: 8 test files, 86 tests passed; typecheck clean.
 
 - [ ] **Step 5: Commit**
 
@@ -2415,7 +2443,7 @@ git commit -m "feat(engine): public exports and random-play invariant tests"
 
 ## Done when
 
-- `pnpm test` passes 84 tests across 8 files; `pnpm typecheck` is clean.
+- `pnpm test` passes 86 tests across 8 files; `pnpm typecheck` is clean.
 - `@ab/engine` exports: cards/rng/evaluate helpers, `createHand`, `applyAction`, `legalActions`, `potSize`, `buildMenu`, tournament functions (`createTournament`, `nextHandConfig`, `recordHand`, `endTournament`, `liveTurboConfig`, `currentLevel`, `levelIndex`), and duplicate functions (`seatRotations`, `duplicateGroup`, `cashHandConfig`, `STUDY_CASH`).
 - Next: Plan 2 (players, table runner, event log) builds on these exports.
 
