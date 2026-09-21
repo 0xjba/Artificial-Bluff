@@ -1,6 +1,6 @@
 # artificialBluff — Design Spec
 
-Date: 2026-09-21 · Status: awaiting user review
+Date: 2026-09-21 · Status: approved
 
 ## 1. Purpose
 
@@ -77,7 +77,7 @@ git-ignored from the first commit.
 - Standard min-raise rule; an incomplete all-in raise does not reopen action for players who already acted.
 - Side pots by contribution level; odd chip to first winner left of the button.
 - Hand evaluation via a proven evaluator library, cross-checked by a brute-force reference in tests.
-- Seeded Fisher–Yates shuffle; cards as `{rank, suit}` objects (no "0 = empty" sentinel).
+- Seeded Fisher–Yates shuffle; cards as two-character strings such as `"As"` (no "0 = empty" sentinel).
 - Timeout: check if legal, else fold. Live turn limit 30 s; per LLM call timeout ~20 s.
 
 **Action menu** (identical for all players; only legal options offered; options collapsing to the same amount
