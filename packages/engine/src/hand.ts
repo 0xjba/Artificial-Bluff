@@ -292,7 +292,15 @@ function finishHand(state: HandState): void {
     stacks[s.id] = s.stack
     net[s.id] = s.stack - s.startingStack
   }
-  const result: HandResult = { showdown, awards, hands, board: [...state.board], stacks, net }
+  const result: HandResult = {
+    handId: state.config.handId ?? null,
+    showdown,
+    awards,
+    hands,
+    board: [...state.board],
+    stacks,
+    net,
+  }
   state.result = result
 }
 
