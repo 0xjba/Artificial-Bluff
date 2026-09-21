@@ -56,9 +56,9 @@ Last updated: 2026-09-21
 
 ### Plan 3a task progress
 
-- [ ] Task 1: Study hands in the core event stream (duplicate info, study_ended)
-- [ ] Task 2: Study package and config
-- [ ] Task 3: Bootstrap CIs
+- [x] Task 1: Study hands in the core event stream (9226d6e; spec ✅ diff)
+- [x] Task 2: Study package and config (6c6ec35; spec ✅ diff)
+- [x] Task 3: Bootstrap CIs (f8dfb58; spec ✅ diff; quality review of Tasks 1-3 (opus: coverage, optional stopping) in progress)
 - [ ] Task 4: Study runner (progress, results, prereg, run)
 - [ ] Task 5: pnpm study CLI + example studies (expect engine 104, players 44, core 34, study 19)
 
