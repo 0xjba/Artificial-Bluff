@@ -80,6 +80,13 @@ describe('positions', () => {
     expect(positions(10, 0)).toEqual(['BTN', 'SB', 'BB', 'UTG', 'UTG+1', 'UTG+2', 'MP', 'LJ', 'HJ', 'CO'])
   })
 
+  it('rejects out-of-range player counts and button indices', () => {
+    expect(() => positions(1, 0)).toThrow(/2 to 10 players/)
+    expect(() => positions(11, 0)).toThrow(/2 to 10 players/)
+    expect(() => positions(5, 5)).toThrow(/buttonIndex/)
+    expect(() => blindSeats(5, -1)).toThrow(/buttonIndex/)
+  })
+
   it('agrees with the seats the engine actually posts blinds from', () => {
     for (let n = 2; n <= 10; n++) {
       for (let button = 0; button < n; button++) {
@@ -114,7 +121,14 @@ Expected: FAIL, cannot resolve `../src/positions`.
 ```ts
 export type Position = 'BTN' | 'SB' | 'BB' | 'UTG' | 'UTG+1' | 'UTG+2' | 'MP' | 'LJ' | 'HJ' | 'CO'
 
-/** Names for the seats between the big blind and the button, by how many there are. */
+export const MAX_POSITIONED_PLAYERS = 10
+
+/**
+ * Names for the seats between the big blind and the button, by how many there are.
+ * Deliberate convention: seats fill in from the button side (CO, HJ, LJ) and the earliest seats
+ * are UTG, UTG+1, UTG+2, so every seat has a distinct, unambiguous label at every table size
+ * (6-max and 10-max match common solver naming; some sites say EP/MP for 7-9 handed).
+ */
 const MIDDLE: Position[][] = [
   [],
   ['UTG'],
@@ -128,7 +142,12 @@ const MIDDLE: Position[][] = [
 
 /** Seat indices of the blinds. Heads-up the button posts the small blind. */
 export function blindSeats(playerCount: number, buttonIndex: number): { sb: number; bb: number } {
-  if (playerCount < 2) throw new Error('need at least 2 players')
+  if (!Number.isInteger(playerCount) || playerCount < 2 || playerCount > MAX_POSITIONED_PLAYERS) {
+    throw new Error(`positions support 2 to ${MAX_POSITIONED_PLAYERS} players`)
+  }
+  if (!Number.isInteger(buttonIndex) || buttonIndex < 0 || buttonIndex >= playerCount) {
+    throw new Error('buttonIndex out of range')
+  }
   if (playerCount === 2) return { sb: buttonIndex, bb: (buttonIndex + 1) % 2 }
   return { sb: (buttonIndex + 1) % playerCount, bb: (buttonIndex + 2) % playerCount }
 }
@@ -147,9 +166,7 @@ export function positions(playerCount: number, buttonIndex: number): Position[] 
   }
   out[sb] = 'SB'
   out[bb] = 'BB'
-  const middle = MIDDLE[playerCount - 3]
-  if (!middle) throw new Error(`positions supports up to ${MIDDLE.length + 2} players`)
-  middle.forEach((name, k) => {
+  MIDDLE[playerCount - 3]!.forEach((name, k) => {
     out[(bb + 1 + k) % playerCount] = name
   })
   return out
@@ -164,7 +181,7 @@ export * from './positions'
 - [ ] **Step 4: Run tests and typecheck**
 
 Run: `pnpm --filter @ab/engine exec vitest run && pnpm --filter @ab/engine typecheck`
-Expected: PASS (102 tests); typecheck clean.
+Expected: PASS (103 tests); typecheck clean.
 
 - [ ] **Step 5: Commit**
 
@@ -187,11 +204,15 @@ Lets the tournament reject a result from a different hand (Plan 1 review residua
 
 - [ ] **Step 1: Write the failing test**
 
-In `packages/engine/test/tournament.test.ts`, change the `result` helper's return line to include `handId: null`:
+In `packages/engine/test/tournament.test.ts`: add `tournamentHandId,` to the import list from `../src/tournament`; change the `result` helper's return line to include `handId: null`, and add a `rec` helper after it that records a synthetic result as the current hand:
 ```ts
   return { handId: null, showdown: false, awards: [], hands: {}, board: [], stacks, net: {} }
+}
+
+/** Records a synthetic result as the tournament's current hand. */
+const rec = (t: TournamentState, r: HandResult) => recordHand(t, { ...r, handId: tournamentHandId(t.handNumber) })
 ```
-and add this test immediately before `it('allows at most 10 players', ...)`:
+(the closing `}` shown is the helper's existing one). Replace every existing `recordHand(t, result(` with `rec(t, result(`, and `recordHand(a, result(` with `rec(a, result(`, since tournaments now require the current hand id. Then add this test immediately before `it('allows at most 10 players', ...)`:
 ```ts
   it('tags hands with an id and rejects a result from a different hand', () => {
     let t = createTournament(['a', 'b'], liveTurboConfig('s'))
@@ -200,6 +221,7 @@ and add this test immediately before `it('allows at most 10 players', ...)`:
     t = recordHand(t, first)
     expect(nextHandConfig(t).handId).toBe('hand-1')
     expect(() => recordHand(t, first)).toThrow(/not for the current hand/)
+    expect(() => recordHand(t, { ...first, handId: null })).toThrow(/not for the current hand/)
   })
 ```
 
@@ -217,7 +239,7 @@ In `packages/engine/src/types.ts`, add to `HandConfig` after the `deck?` field:
 ```
 and add as the first field of `HandResult`:
 ```ts
-  /** `HandConfig.handId`, or null when the hand had none. */
+  /** `HandConfig.handId`, or null when the hand had none (standalone hands only; tournaments require it). */
   handId: string | null
 ```
 
@@ -243,8 +265,9 @@ export function tournamentHandId(handNumber: number): string {
 ```
 add `handId: tournamentHandId(t.handNumber),` as the last property of the object returned by `nextHandConfig` (after `seed`), and at the start of `recordHand`, right after the `if (prev.complete) throw ...` line, add:
 ```ts
+  // Every tournament result must come from the hand nextHandConfig dealt (its id), never a stale one.
   const expectedId = tournamentHandId(prev.handNumber)
-  if (result.handId !== null && result.handId !== expectedId) {
+  if (result.handId !== expectedId) {
     throw new Error(`hand result ${result.handId} is not for the current hand ${expectedId}`)
   }
 ```
@@ -2738,7 +2761,7 @@ Expected: prints one line like `game demo-…: 67 hands, 393 decisions, 1161 eve
 - [ ] **Step 3: Full verification**
 
 Run: `pnpm test && pnpm typecheck`
-Expected: engine 103, players 22, core 18 tests pass; typecheck clean across all three packages.
+Expected: engine 104, players 22, core 18 tests pass; typecheck clean across all three packages.
 
 - [ ] **Step 4: Commit**
 
@@ -2771,7 +2794,7 @@ Measured shape from the demo: about 6 decisions per hand and ~65 hands per live 
 
 ## Done when
 
-- `pnpm test` passes (engine 103, players 22, core 18) and `pnpm typecheck` is clean.
+- `pnpm test` passes (engine 104, players 22, core 18) and `pnpm typecheck` is clean.
 - `pnpm demo` plays a full mock tournament into `data/demo.db` with no errors.
 - `@ab/players` exports `buildObservation`, the bots, `MockLlm`, `LlmPlayer`, `JevPlayer`, `createPlayers`; `@ab/core` exports the event types, `EventStore`, `playHand`, `runTournamentGame`.
 - Next: Plan 3 (study runner: duplicate groups, budget cap, resume, CI stop, report) builds on `playHand`, `EventStore` and `duplicateGroup`.
