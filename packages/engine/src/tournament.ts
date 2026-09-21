@@ -66,9 +66,31 @@ export function createTournament(playerIds: string[], config: TournamentConfig):
   if (playerIds.length < 2) throw new Error('a tournament needs at least 2 players')
   if (playerIds.length > MAX_PLAYERS) throw new Error(`a tournament allows at most ${MAX_PLAYERS} players`)
   if (new Set(playerIds).size !== playerIds.length) throw new Error('player ids must be unique')
+  if (config.levels.length === 0) throw new Error('a tournament needs at least one blind level')
+  for (const level of config.levels) {
+    if (
+      !Number.isInteger(level.smallBlind) ||
+      !Number.isInteger(level.bigBlind) ||
+      level.smallBlind <= 0 ||
+      level.bigBlind < level.smallBlind
+    ) {
+      throw new Error('invalid level blinds: must be positive integers with bigBlind >= smallBlind')
+    }
+  }
+  if (!Number.isInteger(config.handsPerLevel) || config.handsPerLevel < 1) {
+    throw new Error('handsPerLevel must be a positive integer')
+  }
+  if (!Number.isInteger(config.maxHands) || config.maxHands < 1) {
+    throw new Error('maxHands must be a positive integer')
+  }
+  if (!Number.isInteger(config.startingStack) || config.startingStack < 1) {
+    throw new Error('startingStack must be a positive integer')
+  }
+
+  const ownConfig = structuredClone(config)
   return {
-    config,
-    players: playerIds.map((id) => ({ id, stack: config.startingStack, eliminatedAtHand: null })),
+    config: ownConfig,
+    players: playerIds.map((id) => ({ id, stack: ownConfig.startingStack, eliminatedAtHand: null })),
     handNumber: 0,
     buttonSeat: 0,
     complete: false,
@@ -79,8 +101,7 @@ export function createTournament(playerIds: string[], config: TournamentConfig):
 }
 
 export function currentLevel(t: TournamentState): BlindLevel {
-  const idx = Math.min(Math.floor(t.handNumber / t.config.handsPerLevel), t.config.levels.length - 1)
-  return t.config.levels[idx]!
+  return t.config.levels[levelIndex(t)]!
 }
 
 export function levelIndex(t: TournamentState): number {
