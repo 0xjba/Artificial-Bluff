@@ -101,8 +101,12 @@ amounts, not option ids:
 | Length | ~60–80 hands; hard stop at hand 120 (chip leader wins) | CI-based stop or budget cap |
 | Pacing | 2–4 s per action | None, parallel tables |
 
-**Duplicate:** each deck seed is played 5 times, cyclically rotating players through all seats. The seed group is the
-statistical unit. Results in bb/100 with 95% bootstrap CIs over seed groups.
+**Duplicate:** each deck seed is played 5 times, cyclically rotating players through all seats, so every player gets
+every seat (and posts SB, BB and holds the button once) with the same cards. Pure cyclic rotation would keep the same
+neighbours forever (a bias with five different opponents), so each group also varies its base seating order: group g
+seats players[(k·i) mod 5] with k = 1 + (g mod 4). Over every block of 4 groups each ordered pair of players sits side by
+side exactly once; the order id is recorded with each hand. (Non-prime player counts fall back to a seeded random base
+order per group.) The seed group is the statistical unit. Results in bb/100 with 95% bootstrap CIs over seed groups.
 
 ## 5. Players
 
@@ -139,8 +143,9 @@ cap, concurrency, minimum seed groups.
 - **Budget:** running cost; stop launching groups when the next could exceed the cap; in-flight groups finish;
   incomplete groups excluded.
 - **Resume:** re-running skips completed (seed, rotation) pairs.
-- **Stopping:** every 20 groups, compute 95% bootstrap CIs of bb/100; stop when all half-widths ≤ target (not
-  before the minimum), or at the cap.
+- **Stopping:** every 20 groups (a multiple of the 4-group neighbour block), compute 95% bootstrap CIs of bb/100;
+  stop when all half-widths ≤ target (not before the minimum, itself a multiple of 4), or at the cap. The budget cap
+  also stops only at complete blocks where possible. The seating scheme is part of the pre-registered config.
 - **Stages:** `--players mock` ($0) → smoke ~100 hands (~$1) → main (cap ~$25).
 
 **Outputs:** static HTML report, CSV/JSON of every decision, and the same charts on the site's `/research` page:

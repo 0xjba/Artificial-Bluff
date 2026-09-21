@@ -33,8 +33,8 @@ Last updated: 2026-09-21
 - [x] Task 5: Hand state machine (e62c66c + fix 9072572; spec ✅ quality ✅ (opus, 30k-hand fuzz clean) — covered short blinds, TDA cumulative reopen, unknown actions throw, input validation)
 - [x] Task 6: Shared action menu (de07b4f + c3aa760 + 936499a; spec ✅ quality ✅ (opus, 265k-decision fuzz clean) — limper/caller-aware sizing, odd-blind rounding, near-duplicate + near-all-in drop)
 - [x] Task 7: Live turbo tournament (03c6c65 + fix 0558ae8; spec ✅ quality ✅ — recordHand validates players + chip conservation; 10-player cap)
-- [ ] Task 8: Duplicate seating
-- [ ] Task 9: Public exports + random-play invariants (expect 86 tests, 8 files)
+- [ ] Task 8: Duplicate seating (b1c5e72; spec ✅; quality review (opus) → neighbour-balanced base orders (zero extra hands), input checks, handKey, generic shuffle — fix in progress)
+- [ ] Task 9: Public exports + random-play invariants (expect 90 tests, 8 files)
 
 ## Key decisions (summary; spec is authoritative)
 
@@ -68,6 +68,8 @@ Last updated: 2026-09-21
 - Scratch bloub preview (custom colours, Mascots.vue) lived in the session scratchpad; recreate in Plan 4.
 
 ## Execution log
+
+- 2026-09-21: Decision: duplicate groups vary base seating (multiplier k = 1 + g mod 4 for 5 players) so neighbours balance over 4-group blocks; study stop checks in multiples of 4. Spec §4/§6 updated. Flag to user.
 
 - 2026-09-21: Decision: adopt TDA Rule 43 (several short all-ins adding to a full raise reopen betting). Recorded in spec §4.
 
