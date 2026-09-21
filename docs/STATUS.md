@@ -40,8 +40,8 @@ Last updated: 2026-09-21
 
 ### Plan 2 task progress
 
-- [ ] Task 1: Seat position names (engine)
-- [ ] Task 2: Hand ids config→result (engine)
+- [x] Task 1: Seat position names (engine) (8e0b82c; spec ✅ (diff vs reference) quality ✅)
+- [x] Task 2: Hand ids config→result (engine) (a107515 + fix 6fa50f1; spec ✅ quality ✅ — strict hand ids, position input validation)
 - [ ] Task 3: Players package, types, observations
 - [ ] Task 4: Bots and mock LLM
 - [ ] Task 5: LLM player via OpenRouter
@@ -83,7 +83,7 @@ Last updated: 2026-09-21
 - Plan 2 (final review recs): add engine helpers `positions(state)` (BTN/SB/BB/UTG/CO, heads-up aware) and observation arithmetic (to call, pot odds, eff. stack bb, SPR, timeout default check-else-fold); runner must derive street/board events by diffing (one action can deal flop+turn+river in a run-out; a hand can complete inside createHand); thread hand id.
 - Plan 2 tests: add a test that restores a JSON round-tripped state from the event log and continues the hand with applyAction; property test could include sub-1bb stacks. (final review minor)
 - Plan 4 (final review): NEVER send `deck` or `config.seed` in live snapshots (reveals future cards; tournament seeds are base+handNumber so one seed reveals all later decks) — publish seeds only after the game. HandResult lacks best-five cards for winner highlighting: compute in Plan 4 or add to engine.
-- LINE-UP COST (needs user decision): with Fable 5.1 + GPT-6 Astra as frontier seats a live game ≈ $1.30 (vs ~$0.50 estimated earlier); Sonnet 5 instead ≈ $0.35–0.80. Example line-up in lineup.example.json. Real smoke test (`pnpm smoke`) only with user go-ahead + keys.
+- Line-ups (user decision 2026-09-21): research line-up (Fable 5.1, GPT-6 Astra, Gemini 3.8 Flash, Llama 4 Maverick; ~$1.30/live game) for study + recorded games; live line-up (Sonnet 5, GPT-5.6 Sol, Gemini 3.8 Flash, Llama 4 Maverick; ~$0.32/game) for everyday live games. Files: lineups/{research,live}.example.json. Real smoke test only with user go-ahead + keys.
 - Equity-hint ablation (`hints.equity`) not implemented in Plan 2; do it in Plan 3 with the ablation runs.
 - Jev docs advice: atomic "gut-check" questions; no arithmetic; filter state; pin model version.
 - bloub is "an SVG recreation of the x.ai bot avatar": keep our variant clearly distinct (no black body, no circle, no rainbow rings).

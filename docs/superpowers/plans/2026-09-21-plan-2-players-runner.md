@@ -46,7 +46,7 @@
 | `packages/core/src/runner.ts` | `playHand` |
 | `packages/core/src/game.ts` | `runTournamentGame` |
 | `packages/core/scripts/{demo,smoke}.ts` | `pnpm demo` (free), `pnpm smoke` (real APIs, capped) |
-| `lineup.example.json`, `.env.example` | Example line-up and key names |
+| `lineups/research.example.json`, `lineups/live.example.json`, `.env.example` | Research line-up (frontier models), everyday live line-up (cheaper), key names |
 
 ---
 
@@ -2628,7 +2628,7 @@ git -c user.email=jobinb6444@gmail.com -c user.name=0xjba commit -m "feat(core):
 
 **Files:**
 - Create: `packages/core/scripts/demo.ts`, `packages/core/scripts/smoke.ts`
-- Create: `lineup.example.json`, `.env.example`
+- Create: `lineups/research.example.json`, `lineups/live.example.json`, `.env.example`
 - Modify: root `package.json` (scripts, `tsx`), `.gitignore`
 
 - [ ] **Step 1: Add the scripts**
@@ -2675,7 +2675,8 @@ store.close()
 /**
  * Real-API smoke test: a short live tournament with the players in a line-up file.
  * Costs real money (capped by --budget). Keys come from .env (see .env.example).
- * Usage: pnpm smoke [lineup.json] [--hands 5] [--budget 0.25]
+ * Usage: pnpm smoke [lineups/live.json] [--hands 5] [--budget 0.25]
+ * Line-ups: copy lineups/live.example.json or lineups/research.example.json and edit.
  */
 import { liveTurboConfig } from '@ab/engine'
 import { createPlayers, type PlayerSpec } from '@ab/players'
@@ -2688,7 +2689,7 @@ const flag = (name: string, fallback: number) => {
   const i = args.indexOf(`--${name}`)
   return i >= 0 ? Number(args[i + 1]) : fallback
 }
-const lineupPath = args.find((a) => a.endsWith('.json')) ?? 'lineup.json'
+const lineupPath = args.find((a) => a.endsWith('.json')) ?? 'lineups/live.json'
 const hands = flag('hands', 5)
 const budgetUsd = flag('budget', 0.25)
 
@@ -2749,7 +2750,8 @@ In the root `package.json`, add to `scripts`:
 and to `devDependencies`: `"tsx": "^4.20.0"`. Append to `.gitignore`:
 ```
 data/
-lineup.json
+lineups/*.json
+!lineups/*.example.json
 ```
 Run: `pnpm install`.
 
@@ -2767,30 +2769,31 @@ Expected: engine 104, players 22, core 18 tests pass; typecheck clean across all
 
 
 ```bash
-git add packages/core/scripts lineup.example.json .env.example package.json pnpm-lock.yaml .gitignore
+git add packages/core/scripts lineups .env.example package.json pnpm-lock.yaml .gitignore
 git -c user.email=jobinb6444@gmail.com -c user.name=0xjba commit -m "feat: free demo and capped real-API smoke scripts" -m "Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
 ```
 
 
 - [ ] **Step 5 (user, optional, costs money): real smoke test**
 
-Only with the user's go-ahead and keys: copy `.env.example` to `.env` and fill both keys; copy `lineup.example.json` to `lineup.json` and adjust models; run `pnpm smoke lineup.json --hands 5 --budget 0.25`. Expect a line per decision with latency, cost, stated win probability and reasoning or fallback reason, and a final total under the cap. Check: no unexpected fallbacks (a model rejecting `reasoning: {effort: "none"}` or lacking structured outputs shows up here; fix via `disableReasoning`/`structuredOutput` in the line-up).
+Only with the user's go-ahead and keys: copy `.env.example` to `.env` and fill both keys; copy `lineups/live.example.json` to `lineups/live.json` (or the research line-up) and adjust models; run `pnpm smoke lineups/live.json --hands 5 --budget 0.25`. Expect a line per decision with latency, cost, stated win probability and reasoning or fallback reason, and a final total under the cap. Check: no unexpected fallbacks (a model rejecting `reasoning: {effort: "none"}` or lacking structured outputs shows up here; fix via `disableReasoning`/`structuredOutput` in the line-up).
 
 ---
 
-## Cost note for the line-up
+## Cost note for the line-ups
 
 Measured shape from the demo: about 6 decisions per hand and ~65 hands per live game, so ~390 decisions, ~310 of them by the four LLM seats. At ~500 input and ~60 output tokens per decision:
 
-| Seat | Model (example) | $/decision | ≈ $/live game |
-|---|---|---|---|
-| JEV | jev-1.13.0 | 0.00002 | 0.002 |
-| PILL | anthropic/claude-fable-5.1 ($10/$50 per M) | 0.008 | 0.62 |
-| BLOCK | openai/gpt-6-astra ($10/$50) | 0.008 | 0.62 |
-| DRIP | google/gemini-3.8-flash ($0.75/$3.75) | 0.0006 | 0.05 |
-| NIMBUS | meta-llama/llama-4-maverick ($0.20/$0.80) | 0.00015 | 0.01 |
+| Seat | Research line-up | $/game | Live line-up | $/game |
+|---|---|---|---|---|
+| JEV | jev-1.13.0 | 0.002 | jev-1.13.0 | 0.002 |
+| PILL | anthropic/claude-fable-5.1 ($10/$50 per M) | 0.62 | anthropic/claude-sonnet-5 ($2/$10) | 0.13 |
+| BLOCK | openai/gpt-6-astra ($10/$50) | 0.62 | openai/gpt-5.6-sol ($2/$10) | 0.13 |
+| DRIP | google/gemini-3.8-flash ($0.75/$3.75) | 0.05 | same | 0.05 |
+| NIMBUS | meta-llama/llama-4-maverick ($0.20/$0.80) | 0.01 | same | 0.01 |
+| **Total** | | **≈ $1.30** | | **≈ $0.32** |
 
-≈ **$1.30 per live game** with these two frontier models (they're the ones TypeSafe benchmarked Jev against, which makes the comparison directly relevant to their audience). Swapping to `anthropic/claude-sonnet-5` ($2/$10) for one or both frontier seats brings it to ≈ $0.35–0.80. The line-up is config, so this is the user's call; the per-game budget cap enforces whatever is chosen.
+User decision (2026-09-21): the research line-up is used for the study and recorded games; everyday live games use the cheaper live line-up. Both are config files; the per-game budget cap enforces whatever is chosen.
 
 ## Done when
 

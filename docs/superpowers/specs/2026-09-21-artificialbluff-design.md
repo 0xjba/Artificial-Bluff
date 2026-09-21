@@ -25,7 +25,7 @@ Jev API reference is saved in `docs/jev/`.
 | Language / shape | One TypeScript pnpm monorepo, Node 20+ |
 | Information fairness | Identical observation for every player; code pre-computes arithmetic; no equity hints (ablation later via config) |
 | Luck control | Duplicate format for the study; separate live table for spectators |
-| Line-up | Jev + 2 frontier LLMs + 1 small/fast LLM + 1 open-weight LLM (5-max), all configurable |
+| Line-up | Jev + 2 frontier LLMs + 1 small/fast LLM + 1 open-weight LLM (5-max), all configurable. Two line-up files: research (frontier models TypeSafe benchmarked: Fable 5.1, GPT-6 Astra; ~$1.30/live game) for the study and recorded games; live (Sonnet 5, GPT-5.6 Sol, …; ~$0.32/game) for everyday live games |
 | LLM access | OpenRouter |
 | Action space | One shared menu of realistic sizes, shown as chip amounts |
 | Calibration | Every player states win probability + confidence per decision; per-player curves on site, per-action analysis in report |
