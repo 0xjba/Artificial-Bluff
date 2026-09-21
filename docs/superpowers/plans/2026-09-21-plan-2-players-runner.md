@@ -2119,11 +2119,20 @@ export interface DecisionEvent {
   model: string
   optionId: OptionId
   label: string
+  /**
+   * The engine action. A bet (no bet yet this street) is `{type: 'raise', to}` too: it's a bet when
+   * `currentBet` was 0. It's all-in when `chipsIn` equals the seat's stack before acting.
+   */
   action: Action
   /** Chips moved from the player's stack by this action. */
   chipsIn: number
   /** Pot before the action. */
   pot: number
+  /**
+   * Highest street commitment the player faced before acting. Preflop this is the full big blind
+   * even when the big blind posted short (it was all-in), so rebuild state from this, not from posts.
+   */
+  currentBet: number
   toCall: number
   winProbability: number | null
   confidence: number | null
@@ -2220,7 +2229,7 @@ import { canonicalJson, configHash, EventStore, SCHEMA_VERSION } from '../src/st
 
 const decision = (over: Partial<DecisionEvent> = {}): DecisionEvent => ({
   type: 'decision', handId: 'hand-0', street: 'preflop', playerId: 'jev', position: 'BTN', model: 'jev-1.13.0',
-  optionId: 'call', label: 'Call 100', action: { type: 'call' }, chipsIn: 100, pot: 150, toCall: 100,
+  optionId: 'call', label: 'Call 100', action: { type: 'call' }, chipsIn: 100, pot: 150, currentBet: 100, toCall: 100,
   winProbability: 0.5, confidence: 0.4, optionProbabilities: { call: 0.6, fold: 0.4 }, reasoning: null,
   latencyMs: 120, inputTokens: 500, outputTokens: 2, reasoningTokens: 0, costUsd: 0.000021, retries: 0,
   fallback: false, fallbackKind: null, fallbackReason: null,
@@ -2552,7 +2561,8 @@ export class EventStore {
               body.fallback ? 1 : 0, body.fallbackKind,
             )
         }
-        return { ...body, gameId, seq: next, ts: now } as GameEvent
+        // Return exactly what was stored (e.g. no undefined keys), so live listeners and replays see the same event.
+        return { ...(JSON.parse(json) as EventBody), gameId, seq: next, ts: now } as GameEvent
       })
       .immediate()
   }
@@ -2706,6 +2716,49 @@ describe('playHand', () => {
     }
   })
 
+  it('survives players that throw synchronously, return a non-promise, or reject with non-errors', async () => {
+    const bad: Array<Player['decide']> = [
+      () => {
+        throw new Error('sync boom')
+      },
+      (() => ({ ok: true })) as unknown as Player['decide'],
+      () => Promise.reject(undefined),
+      () => Promise.reject(null),
+    ]
+    for (const decide of bad) {
+      const sink = memorySink()
+      const x: Player = { id: 'x', kind: 'mock', model: 'm', decide }
+      await playHand({ config: config(['b', 's', 'bb', 'x']), players: byId([new CallingStation('b'), new CallingStation('s'), new CallingStation('bb'), x]), sink, decisionTimeoutMs: 50 })
+      expect(sink.events.at(-1)!.type).toBe('hand_ended')
+      expect(decisions(sink.events).find((e) => e.playerId === 'x')).toMatchObject({ optionId: 'fold', fallback: true })
+    }
+  })
+
+  it('records a timeout as exactly the time limit, whether or not the player honours the abort', async () => {
+    const honours: Player = { id: 'x', kind: 'llm', model: 'm', decide: (_o, signal) => new Promise((resolve) => signal.addEventListener('abort', () => resolve({ ok: false, error: 'aborted', kind: 'infra', usage: NO_USAGE, model: 'm' }))) }
+    const ignores: Player = { id: 'x', kind: 'jev', model: 'm', decide: () => new Promise(() => {}) }
+    for (const x of [honours, ignores]) {
+      const sink = memorySink()
+      await playHand({ config: config(['b', 's', 'bb', 'x']), players: byId([new CallingStation('b'), new CallingStation('s'), new CallingStation('bb'), x]), sink, decisionTimeoutMs: 40, timeoutGraceMs: 60 })
+      expect(decisions(sink.events).find((e) => e.playerId === 'x')).toMatchObject({ fallbackKind: 'timeout', latencyMs: 40 })
+    }
+  })
+
+  it('counts a failure with an empty message toward auto', async () => {
+    const blank = new Scripted('f', () => Promise.reject(new Error('')))
+    const sink = memorySink()
+    await playHand({ config: config(['b', 's', 'f']), players: byId([new CallingStation('b'), new CallingStation('s'), blank]), sink, decisionTimeoutMs: 100 })
+    expect(decisions(sink.events).filter((d) => d.playerId === 'f').map((d) => d.fallbackKind)).toEqual(['infra', 'infra', 'infra', 'auto'])
+    expect(blank.calls).toBe(3)
+  })
+
+  it('records the bet each decision faced, including the full big blind after a short post', async () => {
+    const sink = memorySink()
+    // BB (seat 2) is short with 30 and posts all-in; UTG still faces the full 100.
+    await playHand({ config: config(['b', 's', 'bb', 'u'], [10_000, 10_000, 30, 10_000]), players: byId(['b', 's', 'bb', 'u'].map((id) => new CallingStation(id))), sink, decisionTimeoutMs: 100 })
+    expect(decisions(sink.events)[0]).toMatchObject({ playerId: 'u', currentBet: 100, toCall: 100, chipsIn: 100 })
+  })
+
   it('records what a timed-out player had already spent', async () => {
     // Resolves with its spend only when aborted (like an LLM whose first attempt was billed).
     const slow: Player = {
@@ -2854,6 +2907,16 @@ const defaultSleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms))
 
 type Asked = { result: DecideResult; timedOut: boolean }
 
+/** Guards against players returning something that isn't a DecideResult. */
+function checked(r: unknown, model: string): DecideResult {
+  const x = r as Partial<DecideResult> | null
+  if (x && typeof x === 'object' && x.usage && typeof x.model === 'string') {
+    if (x.ok === true && x.decision && typeof x.decision.optionId === 'string') return x as DecideResult
+    if (x.ok === false && typeof x.error === 'string' && (x.kind === 'model' || x.kind === 'infra')) return x as DecideResult
+  }
+  return { ok: false, error: 'malformed player result', kind: 'infra', usage: NO_USAGE, model }
+}
+
 /**
  * Calls the player under a timeout. Never throws: rejections and timeouts become failures.
  * On timeout the player is aborted and given `graceMs` to resolve, so money it already spent
@@ -2861,9 +2924,17 @@ type Asked = { result: DecideResult; timedOut: boolean }
  */
 async function ask(player: Player, obs: Parameters<Player['decide']>[0], timeoutMs: number, graceMs: number): Promise<Asked> {
   const ac = new AbortController()
-  const pending = player
-    .decide(obs, ac.signal)
-    .catch((e: unknown): DecideResult => ({ ok: false, error: (e as Error).message ?? String(e), kind: 'infra', usage: NO_USAGE, model: player.model }))
+  // Promise.resolve().then: a player that throws synchronously or returns a non-promise can't crash the hand.
+  const pending = Promise.resolve()
+    .then(() => player.decide(obs, ac.signal))
+    .then((r) => checked(r, player.model))
+    .catch((e: unknown): DecideResult => ({
+      ok: false,
+      error: e instanceof Error ? e.message : String(e),
+      kind: 'infra',
+      usage: NO_USAGE,
+      model: player.model,
+    }))
   let timer: ReturnType<typeof setTimeout> | undefined
   const timeout = new Promise<'timeout'>((resolve) => {
     timer = setTimeout(() => resolve('timeout'), timeoutMs)
@@ -2938,7 +3009,9 @@ export async function playHand(opts: PlayHandOptions): Promise<HandResult> {
       ? { result: { ok: false, error: 'auto: too many failures', kind: 'infra', usage: NO_USAGE, model: player.model }, timedOut: false }
       : await ask(player, obs, opts.decisionTimeoutMs, opts.timeoutGraceMs ?? 250)
     const res = asked.result
-    const latencyMs = auto ? 0 : now() - started
+    // A timeout counts as exactly the time limit, however quickly the player reacts to the abort,
+    // so latency data doesn't depend on how a player handles cancellation.
+    const latencyMs = auto ? 0 : asked.timedOut ? opts.decisionTimeoutMs : now() - started
 
     let chosen = res.ok ? menu.find((o) => o.id === res.decision.optionId) : undefined
     let fallbackReason: string | null = null
@@ -2951,7 +3024,7 @@ export async function playHand(opts: PlayHandOptions): Promise<HandResult> {
       fallbackKind = 'model'
     }
     if (!chosen) chosen = menu.find((o) => o.id === checkOrFold(obs))!
-    consecutiveFallbacks.set(seat.id, fallbackReason ? (consecutiveFallbacks.get(seat.id) ?? 0) + 1 : 0)
+    consecutiveFallbacks.set(seat.id, fallbackReason !== null ? (consecutiveFallbacks.get(seat.id) ?? 0) + 1 : 0)
 
     if (opts.paceMs && latencyMs < opts.paceMs) await sleep(opts.paceMs - latencyMs)
 
@@ -2968,6 +3041,7 @@ export async function playHand(opts: PlayHandOptions): Promise<HandResult> {
       action: chosen.action,
       chipsIn: chosen.cost,
       pot: potSize(state),
+      currentBet: state.currentBet,
       toCall: obs.facts.toCall,
       winProbability: decision?.winProbability ?? null,
       confidence: decision?.confidence ?? null,
@@ -3019,7 +3093,7 @@ Key points:
 - [ ] **Step 4: Run tests**
 
 Run: `pnpm --filter @ab/core exec vitest run`
-Expected: PASS (19 tests).
+Expected: PASS (23 tests).
 
 - [ ] **Step 5: Commit**
 
@@ -3218,7 +3292,7 @@ export * from './game'
 - [ ] **Step 4: Run tests**
 
 Run: `pnpm --filter @ab/core exec vitest run`
-Expected: PASS (24 tests).
+Expected: PASS (28 tests).
 
 - [ ] **Step 5: Commit**
 
@@ -3390,7 +3464,7 @@ Expected: prints one line like `game demo-…: 67 hands, 393 decisions, 1161 eve
 - [ ] **Step 3: Full verification**
 
 Run: `pnpm test && pnpm typecheck`
-Expected: engine 104, players 43, core 24 tests pass; typecheck clean across all three packages.
+Expected: engine 104, players 43, core 28 tests pass; typecheck clean across all three packages.
 
 - [ ] **Step 4: Commit**
 
@@ -3424,7 +3498,7 @@ User decision (2026-09-21): the research line-up is used for the study and recor
 
 ## Done when
 
-- `pnpm test` passes (engine 104, players 43, core 24) and `pnpm typecheck` is clean.
+- `pnpm test` passes (engine 104, players 43, core 28) and `pnpm typecheck` is clean.
 - `pnpm demo` plays a full mock tournament into `data/demo.db` with no errors.
 - `@ab/players` exports `buildObservation`, the bots, `MockLlm`, `LlmPlayer`, `JevPlayer`, `createPlayers`; `@ab/core` exports the event types, `EventStore`, `playHand`, `runTournamentGame`.
 - Next: Plan 3 (study runner: duplicate groups, budget cap, resume, CI stop, report) builds on `playHand`, `EventStore` and `duplicateGroup`.
