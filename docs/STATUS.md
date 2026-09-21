@@ -34,7 +34,7 @@ Last updated: 2026-09-21
 - [ ] Task 6: Shared action menu (de07b4f; spec ✅; quality review (opus) → sizing redesign: limper/caller-aware opens and re-raises, odd-blind rounding, near-duplicate drop — fix in progress)
 - [ ] Task 7: Live turbo tournament
 - [ ] Task 8: Duplicate seating
-- [ ] Task 9: Public exports + random-play invariants (expect 83 tests, 8 files)
+- [ ] Task 9: Public exports + random-play invariants (expect 84 tests, 8 files)
 
 ## Key decisions (summary; spec is authoritative)
 
@@ -60,6 +60,7 @@ Last updated: 2026-09-21
 
 - Security: public repo `github.com/0xjba/AI-Agents-Poker` has committed `.env` with 6 private keys + OpenRouter/redpill key. User told to rotate/revoke; not yet confirmed done.
 - Plan 2: every Decision event must record the chosen chip amount (and pot fraction), because merged menu ids vary by spot; analyse by amount, not id. (Task 6 review)
+- Known, deliberate menu behaviours (Task 6 review): caller count can undercount after an incomplete all-in re-raise (rare, still sensible); the SB completing counts as a limper for opening sizes.
 - Jev docs advice: atomic "gut-check" questions; no arithmetic; filter state; pin model version.
 - bloub is "an SVG recreation of the x.ai bot avatar": keep our variant clearly distinct (no black body, no circle, no rainbow rings).
 - Scratch bloub preview (custom colours, Mascots.vue) lived in the session scratchpad; recreate in Plan 4.

@@ -82,7 +82,7 @@ git-ignored from the first commit.
 - Timeout: check if legal, else fold. Live turn limit 30 s; per LLM call timeout ~20 s.
 
 **Action menu** (identical for all players; only legal options offered; options at the same amount, or within 5%
-of one already offered, are merged; amounts rounded to a 25-chip unit, or to the small blind when the big blind is
+of one already offered or of all-in, are merged; amounts rounded to a 25-chip unit, or to the small blind when the big blind is
 not a multiple of 25). Because merged ids vary by spot, every decision records its chip amount and analysis uses
 amounts, not option ids:
 - Preflop unopened: min-raise, open to 2.5 / 3 / 4 bb plus 1 bb per limper, all-in.
