@@ -95,8 +95,6 @@ export interface HandState {
   currentBet: number
   /** Size of the last full bet or raise on this street (the minimum raise increment). */
   lastRaiseSize: number
-  /** `seq` of the last full bet or raise on this street; -1 when none. */
-  lastFullRaiseSeq: number
   /** Index into `seats` of the player to act, or null when nobody is to act. */
   toAct: number | null
   seq: number

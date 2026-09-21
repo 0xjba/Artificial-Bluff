@@ -1,4 +1,4 @@
-import { fullDeck, type Card } from './cards'
+import { fullDeck, isCard, type Card } from './cards'
 import { evaluateHand, type HandValue } from './evaluate'
 import { buildPots, splitPot } from './pots'
 import { shuffle } from './rng'
@@ -69,7 +69,14 @@ function needsAction(state: HandState, seat: SeatState): boolean {
 function nextToAct(state: HandState, from: number): number | null {
   const canAct = actors(state)
   if (canAct.length === 0) return null
-  if (canAct.length === 1 && canAct[0]!.streetCommitted >= state.currentBet) return null
+  if (canAct.length === 1) {
+    // Only one player can still bet: they act only if they haven't matched the most any other
+    // live player put in (which can be less than currentBet when a short blind is all-in).
+    const lone = canAct[0]!
+    const others = liveSeats(state).filter((s) => s !== lone)
+    const target = Math.min(state.currentBet, Math.max(0, ...others.map((s) => s.streetCommitted)))
+    if (lone.streetCommitted >= target) return null
+  }
   for (const i of clockwiseFrom(from, state.seats.length)) {
     if (needsAction(state, state.seats[i]!)) return i
   }
@@ -77,19 +84,31 @@ function nextToAct(state: HandState, from: number): number | null {
 }
 
 function checkedDeck(deck: Card[]): Card[] {
-  if (deck.length !== 52 || new Set(deck).size !== 52) throw new Error('deck override must be 52 unique cards')
+  if (deck.length !== 52 || new Set(deck).size !== 52 || !deck.every(isCard)) {
+    throw new Error('deck override must be 52 unique valid cards')
+  }
   return [...deck]
 }
+
+export const MAX_PLAYERS = 10
 
 export function createHand(config: HandConfig): HandState {
   const n = config.seats.length
   if (n < 2) throw new Error('a hand needs at least 2 players')
+  if (n > MAX_PLAYERS) throw new Error(`a hand allows at most ${MAX_PLAYERS} players`)
   if (new Set(config.seats.map((s) => s.id)).size !== n) throw new Error('player ids must be unique')
   if (config.seats.some((s) => !Number.isInteger(s.stack) || s.stack <= 0)) {
     throw new Error('every stack must be a positive integer')
   }
   if (config.buttonIndex < 0 || config.buttonIndex >= n) throw new Error('buttonIndex out of range')
-  if (config.smallBlind <= 0 || config.bigBlind < config.smallBlind) throw new Error('invalid blinds')
+  if (
+    !Number.isInteger(config.smallBlind) ||
+    !Number.isInteger(config.bigBlind) ||
+    config.smallBlind <= 0 ||
+    config.bigBlind < config.smallBlind
+  ) {
+    throw new Error('invalid blinds: must be positive integers with bigBlind >= smallBlind')
+  }
 
   const state: HandState = {
     config: structuredClone(config),
@@ -111,7 +130,6 @@ export function createHand(config: HandConfig): HandState {
     complete: false,
     currentBet: 0,
     lastRaiseSize: config.bigBlind,
-    lastFullRaiseSeq: -1,
     toAct: null,
     seq: 0,
     history: [],
@@ -144,7 +162,9 @@ export function legalActions(state: HandState): LegalActions {
   const toCall = state.currentBet - seat.streetCommitted
   const maxTo = seat.streetCommitted + seat.stack
   const opponentsWhoCanAct = actors(state).filter((s) => s.seatIndex !== seat.seatIndex).length
-  const reopened = seat.lastActionSeq === null || state.lastFullRaiseSeq > seat.lastActionSeq
+  // TDA rule: a seat that already acted may re-raise only when facing at least a full raise,
+  // which can be built from several short all-ins together.
+  const reopened = seat.lastActionSeq === null || toCall >= state.lastRaiseSize
   const canRaise = reopened && opponentsWhoCanAct > 0 && maxTo > state.currentBet
   const minTo = state.currentBet + state.lastRaiseSize
   return {
@@ -189,16 +209,14 @@ export function applyAction(prev: HandState, action: Action): HandState {
       if (to < legal.minRaiseTo) throw new Error(`illegal raise: ${to} below minimum ${legal.minRaiseTo}`)
       const increment = to - state.currentBet
       const kind: ActionKind = state.currentBet === 0 ? 'bet' : 'raise'
-      const seq = record(state, i, kind, commit(seat, to - seat.streetCommitted))
-      seat.lastActionSeq = seq
-      if (increment >= state.lastRaiseSize) {
-        // A full raise reopens the betting for everyone.
-        state.lastRaiseSize = increment
-        state.lastFullRaiseSeq = seq
-      }
+      seat.lastActionSeq = record(state, i, kind, commit(seat, to - seat.streetCommitted))
+      // A full raise sets the new minimum increment; a short all-in only raises currentBet.
+      if (increment >= state.lastRaiseSize) state.lastRaiseSize = increment
       state.currentBet = to
       break
     }
+    default:
+      throw new Error(`unknown action type: ${(action as { type?: unknown }).type}`)
   }
 
   if (liveSeats(state).length === 1) {
@@ -216,7 +234,6 @@ function startStreet(state: HandState, street: Street): void {
   state.board.push(...draw(state, BOARD_CARDS[street]))
   state.currentBet = 0
   state.lastRaiseSize = state.config.bigBlind
-  state.lastFullRaiseSeq = -1
   for (const s of state.seats) {
     s.streetCommitted = 0
     s.lastActionSeq = null
@@ -279,7 +296,10 @@ function finishHand(state: HandState): void {
   state.result = result
 }
 
-/** Total chips in the middle, including the current street's bets. */
+/**
+ * Total chips put in this hand, including uncalled bets. At hand end, `result.awards`
+ * shows what was actually contested (uncalled chips come back as single-eligible pots).
+ */
 export function potSize(state: HandState): number {
   return state.seats.reduce((sum, s) => sum + s.handCommitted, 0)
 }
