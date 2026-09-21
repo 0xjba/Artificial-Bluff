@@ -1,3 +1,4 @@
+/// <reference path="./phe.d.ts" />
 import { evaluateCards, handRank, rankDescription } from 'phe'
 import { isCard, type Card } from './cards'
 
