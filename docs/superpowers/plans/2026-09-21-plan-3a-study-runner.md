@@ -20,7 +20,7 @@
 - **Hand ids:** `"<group>:<rotation>#<attempt>"`. A hand is valid if it reached `hand_ended` and no decision in it was auto-played because the budget cap was hit (`fallbackReason === 'auto: budget cap reached'`). Invalid attempts are simply superseded by the next attempt on resume; nothing is deleted.
 - **Stopping rule:** every `checkEvery` completed groups, over the completed prefix (groups 0..k-1 all valid), truncated to whole blocks: stop when every player's 95% **Student t** CI (df = blocks − 1) half-width of bb/100 is ≤ target; never before `minGroups`, which must be ≥ 10 neighbour blocks (40 groups for 5 players) unless the study has a fixed size (`minGroups == maxGroups`); at most `maxGroups`. Every check is logged as a `study_checkpoint` event.
 - **Check schedule is data-only:** the rule is evaluated at every boundary (each multiple of `checkEvery`, plus `maxGroups`) in order, over exactly the groups before that boundary, and the first met boundary ends the study; results (and `study_ended.analysedGroups`) use that boundary, not hands that finished later. Resume continues after the last logged check (catching up on any a crash skipped); a met check that never reached `study_ended` still ends the study. A met rule wins over a budget cap or interruption. So the stopping point depends neither on concurrency nor on where a run was interrupted (review finding).
-- **One runner per study:** `EventStore.claimGame` atomically refuses a study already marked `running`; `--takeover` resumes one a crash left running.
+- **One runner per study:** `EventStore.claimGame` atomically refuses a study already marked `running`; `--takeover` resumes one a crash left running. Progress is read only after the claim (a stale read could replay hands another run just finished). `minGroups` must be a multiple of `checkEvery` (unless fixed size), so a check falls exactly on it.
 - **Budget cap:** checked before every hand and decision; with N tables up to N decisions already in flight can finish past it, and a call abandoned on timeout can still be billed, so it is a cap with small, bounded overshoot (logged at start).
 - **Why t, not a bootstrap:** a statistics review (fat-tailed simulations) found the percentile bootstrap covers only ~84–90% at 5–10 blocks and, with width-based stopping, published "95%" CIs could cover ~70%. Student t over blocks stays near 95%. The bootstrap is kept as a reported sensitivity check.
 - **bb/100:** per group, a player's net over all rotations ÷ rotations ÷ big blind × 100 (each player plays one hand per rotation); block value = mean of its groups; the t CI and the bootstrap both work on block values.
@@ -263,6 +263,7 @@ describe('parseStudyConfig', () => {
   it('requires at least 10 blocks before the CI rule may stop, unless the study has a fixed size', () => {
     expect(() => parseStudyConfig({ ...base, minGroups: 8 })).toThrow(/at least 10 neighbour blocks \(40 groups for 5 players\)/)
     expect(parseStudyConfig({ ...base, minGroups: 8, maxGroups: 8 }).minGroups).toBe(8)
+    expect(() => parseStudyConfig({ ...base, minGroups: 40, checkEvery: 12 })).toThrow(/multiple of "checkEvery"/)
   })
 
   it('validates every line-up seat', () => {
@@ -324,7 +325,8 @@ export interface StudyConfig {
   targetHalfWidthBb100: number
   /**
    * Never stop on the CI before this many groups. Must be at least 10 neighbour blocks (40 groups
-   * for 5 players), unless the study has a fixed size (minGroups == maxGroups).
+   * for 5 players), unless the study has a fixed size (minGroups == maxGroups), and a multiple of
+   * checkEvery, so the first check allowed to stop is exactly at minGroups.
    */
   minGroups: number
   /** Stop after this many groups (a multiple of the neighbour block). */
@@ -465,6 +467,9 @@ export function parseStudyConfig(input: unknown): StudyConfig {
         `(${MIN_BLOCKS_BEFORE_STOPPING * block} groups for ${lineup.length} players) so the CI stopping rule can't fire on too little data, ` +
         'unless the study has a fixed size (minGroups == maxGroups)',
     )
+  }
+  if (config.minGroups !== config.maxGroups && config.minGroups % config.checkEvery !== 0) {
+    throw new Error('study config: "minGroups" must be a multiple of "checkEvery" (so a check falls exactly on it)')
   }
   return config
 }
@@ -954,6 +959,9 @@ describe('runStudy', () => {
     expect(out.reason).toBe('ci_target')
     expect(eventsOf(crashed, 'hand_started')).toHaveLength(hands)
     expect(crashed.events('pilot').at(-1)).toMatchObject({ type: 'study_ended', reason: 'ci_target', analysedGroups: 16 })
+    const rerun = await run(config({ targetHalfWidthBb100: 0.001 }), tags(), crashed) // finished: reads, plays nothing
+    expect(rerun).toMatchObject({ reason: 'ci_target', summary: { groups: 16 } })
+    expect(crashed.game('pilot')!.status).toBe('ended')
     // Crash after the last hand, before its check was logged: the check is caught up on resume.
     const early = crashCopy(done, (e, i, all) => e.type === 'study_ended' || (e.type === 'study_checkpoint' && i === all.length - 2))
     const again = await run(config({ targetHalfWidthBb100: 0.001 }), tags(), early, undefined, true)
@@ -1053,12 +1061,14 @@ export interface StudyProgress {
   valid: Map<string, Record<string, number>>
   handsPlayed: number
   lastEnd: StudyEndReason | null
+  /** analysedGroups of the last study_ended: the groups its published results use. */
+  analysedGroups: number | null
   /** The last logged stopping-rule check: resume continues from its boundary. */
   lastCheckpoint: { groups: number; stop: boolean } | null
 }
 
 export function emptyProgress(): StudyProgress {
-  return { attempts: new Map(), valid: new Map(), handsPlayed: 0, lastEnd: null, lastCheckpoint: null }
+  return { attempts: new Map(), valid: new Map(), handsPlayed: 0, lastEnd: null, analysedGroups: null, lastCheckpoint: null }
 }
 
 /**
@@ -1084,6 +1094,7 @@ export function readProgress(events: readonly GameEvent[]): StudyProgress {
       p.lastCheckpoint = { groups: e.groups, stop: e.stop }
     } else if (e.type === 'study_ended') {
       p.lastEnd = e.reason
+      p.analysedGroups = e.analysedGroups
     }
   }
   return p
@@ -1191,7 +1202,7 @@ export function preregistration(config: StudyConfig, adaptedLineup: PlayerSpec[]
     stopping:
       'every checkEvery groups: over the completed prefix of groups in whole neighbour blocks, stop when every ' +
       "player's 95% Student t CI (df = blocks - 1) half-width of bb/100 is at most targetHalfWidthBb100; never " +
-      'before minGroups (at least 10 blocks unless the study has a fixed size); at most maxGroups; every check is ' +
+      'before minGroups (at least 10 blocks and a check boundary, unless the study has a fixed size); at most maxGroups; every check is ' +
       'logged as a study_checkpoint event; hands cut short by the budget cap are excluded and replayed on resume',
     intervals:
       'per-player 95% t CIs over neighbour blocks are marginal, not simultaneous; pairwise claims use paired ' +
@@ -1228,7 +1239,7 @@ import { cashHandConfig, duplicateGroup, type DuplicateHand } from '@ab/engine'
 import type { Player } from '@ab/players'
 import type { StudyConfig } from './config'
 import { assertPreregMatches } from './prereg'
-import { completedPrefix, emptyProgress, handKeyOf, readStoreProgress } from './progress'
+import { completedPrefix, handKeyOf, readStoreProgress, type StudyProgress } from './progress'
 import { summarize, type StudySummary } from './results'
 
 export interface RunStudyOptions {
@@ -1280,13 +1291,24 @@ export async function runStudy(opts: RunStudyOptions): Promise<StudyOutcome> {
     if (existing.kind !== 'study') throw new Error(`${config.id} is not a study`)
     if (existing.configHash !== hash) throw new Error(`study ${config.id} was pre-registered with a different config (hash ${existing.configHash.slice(0, 12)}…); use a new id`)
   }
-  const p = existing ? readStoreProgress(store, config.id) : emptyProgress()
-  if (p.lastEnd === 'ci_target' || p.lastEnd === 'max_groups') {
-    const analysed = p.lastEnd === 'ci_target' ? p.lastCheckpoint!.groups : config.maxGroups
-    return { reason: p.lastEnd, groupsCompleted: completedPrefix(p, n, config.maxGroups), summary: summarize(p, config, analysed), costUsd: store.gameCost(config.id), configHash: hash }
+  const finished = (q: StudyProgress): StudyOutcome | null =>
+    q.lastEnd === 'ci_target' || q.lastEnd === 'max_groups'
+      ? { reason: q.lastEnd, groupsCompleted: completedPrefix(q, n, config.maxGroups), summary: summarize(q, config, q.analysedGroups!), costUsd: store.gameCost(config.id), configHash: hash }
+      : null
+  if (existing) {
+    const done = finished(readStoreProgress(store, config.id))
+    if (done) return done
+    store.claimGame(config.id, opts.takeover)
+  } else {
+    store.createGame(config.id, 'study', opts.prereg)
   }
-  if (existing) store.claimGame(config.id, opts.takeover)
-  else store.createGame(config.id, 'study', opts.prereg)
+  // Read progress only once we hold the study, so it can't be stale (another run may have just ended).
+  const p = readStoreProgress(store, config.id)
+  const done = finished(p)
+  if (done) {
+    store.setStatus(config.id, 'ended')
+    return done
+  }
   const sink = store.sink(config.id)
   sink.append({ type: 'game_started', kind: 'study', configHash: hash, players: ids.map((id) => players.get(id)!).map((pl) => ({ id: pl.id, kind: pl.kind, model: pl.model })) })
 
