@@ -1367,6 +1367,8 @@ export async function runStudy(opts: RunStudyOptions): Promise<StudyOutcome> {
 
   async function worker(): Promise<void> {
     for (;;) {
+      // Let signal handlers (Ctrl-C) run even when every player answers instantly (mocks, bots).
+      await new Promise<void>((resolve) => setImmediate(resolve))
       if (stop) return
       if (opts.signal?.aborted) {
         stop = 'interrupted'
@@ -1466,8 +1468,8 @@ git -c user.email=jobinb6444@gmail.com -c user.name=0xjba commit -m "feat(study)
 
 ```ts
 import { EventStore } from '@ab/core'
-import { describe, expect, it } from 'vitest'
-import { mockVariant, preregCommand, runCommand, statusCommand } from '../src/commands'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { mockVariant, parseCliArgs, preregCommand, runCommand, statusCommand } from '../src/commands'
 import { parseStudyConfig } from '../src/config'
 
 const config = parseStudyConfig({
@@ -1510,7 +1512,10 @@ describe('study commands (mock mode: free, no network, no keys)', () => {
     expect(JSON.parse(lines[0]!)).toMatchObject({ kind: 'artificialBluff study', study: { id: 'smoke-mock' } })
   })
 
+  afterEach(() => vi.unstubAllGlobals())
+
   it('runs a mock study and reports status', async () => {
+    vi.stubGlobal('fetch', () => Promise.reject(new Error('mock mode must not use the network')))
     const store = new EventStore()
     const run = capture()
     const outcome = await runCommand(config, true, store, run.deps)
@@ -1526,6 +1531,33 @@ describe('study commands (mock mode: free, no network, no keys)', () => {
     const { lines, deps } = capture()
     statusCommand(config, true, new EventStore(), deps)
     expect(lines).toEqual(['study smoke-mock has not started'])
+  })
+
+  it('refuses to resume a study whose budget is spent, and says a finished study is finished', async () => {
+    const store = new EventStore()
+    const broke = { ...config, budgetUsd: 0.00001 }
+    expect((await runCommand(broke, true, store, capture().deps)).reason).toBe('budget_cap')
+    await expect(runCommand(broke, true, store, capture().deps)).rejects.toThrow(/budget already spent .* raise budgetUsd/)
+    const done = new EventStore()
+    await runCommand(config, true, done, capture().deps)
+    const again = capture()
+    await runCommand(config, true, done, again.deps)
+    expect(again.lines[0]).toBe('study smoke-mock already finished (max_groups)')
+  })
+})
+
+describe('study CLI arguments', () => {
+  it('needs an explicit --mock or --live to run, so a typo never starts a paid run', () => {
+    expect(parseCliArgs(['run', 'x.json', '--mock'])).toMatchObject({ command: 'run', mock: true, live: false, db: 'data/studies.db' })
+    expect(parseCliArgs(['run', 'x.json', '--live', '--takeover', '--db', 'd.db'])).toMatchObject({ live: true, takeover: true, db: 'd.db' })
+    expect(() => parseCliArgs(['run', 'x.json'])).toThrow(/--mock \(free rehearsal\) or --live \(spends real money/)
+    expect(() => parseCliArgs(['run', 'x.json', '--Mock'])).toThrow(/unknown argument for run: --Mock/)
+    expect(() => parseCliArgs(['run', 'x.json', '--mock', '--live'])).toThrow(/not both/)
+    expect(() => parseCliArgs(['run', 'x.json', '--mock', '--db'])).toThrow(/--db needs a path/)
+    expect(() => parseCliArgs(['run', 'x.json', '--db', '--mock'])).toThrow(/--db needs a path/)
+    expect(() => parseCliArgs(['status', 'x.json', '--live'])).toThrow(/unknown argument/)
+    expect(() => parseCliArgs(['go', 'x.json'])).toThrow(/unknown command/)
+    expect(() => parseCliArgs(['run'])).toThrow(/missing <config.json>/)
   })
 })
 ```
@@ -1544,7 +1576,7 @@ import { configHash, EventStore } from '@ab/core'
 import { adaptLineup, createPlayers, fetchModelCatalog, type PlayerEnv, type PlayerSpec } from '@ab/players'
 import { readFileSync } from 'node:fs'
 import { parseStudyConfig, type StudyConfig } from './config'
-import { preregistration } from './prereg'
+import { assertPreregMatches, preregistration } from './prereg'
 import { completedPrefix, readStoreProgress } from './progress'
 import { summarize, type StudySummary } from './results'
 import { runStudy, type StudyOutcome } from './run'
@@ -1600,10 +1632,27 @@ export async function preregCommand(config: StudyConfig, mock: boolean, deps: Co
 
 export async function runCommand(config: StudyConfig, mock: boolean, store: EventStore, deps: CommandDeps): Promise<StudyOutcome> {
   const c = mock ? mockVariant(config) : config
-  const lineup = await resolveLineup(c, mock, deps.log)
+  const game = store.game(c.id)
+  let lineup: PlayerSpec[]
+  if (game) {
+    // Resume with the pre-registered line-up: re-adapting it to today's model catalog could change
+    // its request flags, and so the hash, and lock the study out.
+    const record = game.config as Record<string, unknown>
+    assertPreregMatches(record, c)
+    lineup = (record.study as { lineup: PlayerSpec[] }).lineup
+    const progress = readStoreProgress(store, c.id)
+    if (progress.lastEnd === 'ci_target' || progress.lastEnd === 'max_groups') deps.log(`study ${c.id} already finished (${progress.lastEnd})`)
+    const spent = store.gameCost(c.id)
+    if (progress.lastEnd === 'budget_cap' && spent >= c.budgetUsd) {
+      throw new Error(`study ${c.id}: budget already spent ($${spent.toFixed(4)} of $${c.budgetUsd}); raise budgetUsd to resume`)
+    }
+  } else {
+    lineup = await resolveLineup(c, mock, deps.log)
+  }
   const players = createPlayers(lineup, deps.env)
   const prereg = preregistration(c, lineup)
   if (mock) deps.log('mock mode: no API calls are made; costs shown are simulated')
+  else deps.log(`REAL RUN: this spends real money, up to $${c.budgetUsd} for the whole study`)
   deps.log(`study ${c.id}: ${players.map((p) => `${p.id}=${p.model}`).join(', ')}`)
   deps.log(`pre-registration hash ${configHash(prereg)}; budget $${c.budgetUsd}; ${c.concurrency} table(s)`)
   if (c.concurrency > 1) deps.log(`note: up to ${c.concurrency} decisions already in flight can finish after the budget is reached`)
@@ -1628,10 +1677,53 @@ export function statusCommand(config: StudyConfig, mock: boolean, store: EventSt
     deps.log(`study ${c.id} has not started`)
     return
   }
+  assertPreregMatches(game.config as Record<string, unknown>, c)
   const progress = readStoreProgress(store, c.id)
-  const prefix = completedPrefix(progress, c.lineup.length, c.maxGroups)
+  const finished = game.status === 'ended' && progress.analysedGroups !== null
+  const groups = finished ? progress.analysedGroups! : completedPrefix(progress, c.lineup.length, c.maxGroups)
   deps.log(`study ${c.id}: ${game.status}${progress.lastEnd ? ` (${progress.lastEnd})` : ''}, ${progress.handsPlayed} hands played, hash ${game.configHash.slice(0, 12)}…`)
-  formatSummary(summarize(progress, c, prefix), store.gameCost(c.id)).forEach(deps.log)
+  formatSummary(summarize(progress, c, groups), store.gameCost(c.id)).forEach(deps.log)
+}
+
+export interface CliArgs {
+  command: 'prereg' | 'run' | 'status'
+  configPath: string
+  mock: boolean
+  live: boolean
+  takeover: boolean
+  db: string
+}
+
+export const USAGE =
+  'usage: pnpm study prereg <config.json> [--mock]\n' +
+  '       pnpm study run    <config.json> (--mock | --live) [--takeover] [--db path]\n' +
+  '       pnpm study status <config.json> [--mock] [--db path]'
+
+/**
+ * Strict argument parsing: unknown arguments are errors, and `run` needs an explicit --mock (free)
+ * or --live (real money), so a typo can never start a paid run.
+ */
+export function parseCliArgs(argv: readonly string[]): CliArgs {
+  const [command, configPath, ...rest] = argv
+  if (command !== 'prereg' && command !== 'run' && command !== 'status') throw new Error(`unknown command: ${command ?? '(none)'}`)
+  if (!configPath || configPath.startsWith('-')) throw new Error('missing <config.json>')
+  const args: CliArgs = { command, configPath, mock: false, live: false, takeover: false, db: 'data/studies.db' }
+  for (let i = 0; i < rest.length; i++) {
+    const a = rest[i]!
+    if (a === '--mock') args.mock = true
+    else if (a === '--live' && command === 'run') args.live = true
+    else if (a === '--takeover' && command === 'run') args.takeover = true
+    else if (a === '--db' && command !== 'prereg') {
+      const path = rest[++i]
+      if (!path || path.startsWith('-')) throw new Error('--db needs a path')
+      args.db = path
+    } else throw new Error(`unknown argument for ${command}: ${a}`)
+  }
+  if (args.mock && args.live) throw new Error('use --mock or --live, not both')
+  if (command === 'run' && !args.mock && !args.live) {
+    throw new Error('run needs --mock (free rehearsal) or --live (spends real money, up to the study budget)')
+  }
+  return args
 }
 ```
 
@@ -1639,51 +1731,66 @@ export function statusCommand(config: StudyConfig, mock: boolean, store: EventSt
 
 ```ts
 /**
- * pnpm study prereg <config.json> [--mock]    print the pre-registration record and hash
- * pnpm study run    <config.json> [--mock]    run or resume a study (real runs spend money)
- * pnpm study status <config.json> [--mock]    progress, cost and current bb/100 intervals
+ * pnpm study prereg <config.json> [--mock]                   print the pre-registration record and hash
+ * pnpm study run    <config.json> (--mock | --live)          run or resume a study; --live spends real money
+ * pnpm study status <config.json> [--mock]                   progress, cost and current bb/100 intervals
  * Options: --db <path> (default data/studies.db); --takeover resumes a study a crash left marked
  * running (only if no other run of it is active). Keys come from .env (see .env.example).
+ * Exit codes: 0 finished (or prereg/status), 1 error, 2 usage, 3 stopped early (budget cap or
+ * interrupted: resume by running again).
  */
 import { EventStore } from '@ab/core'
 import { mkdirSync } from 'node:fs'
 import { dirname } from 'node:path'
-import { loadStudyConfig, preregCommand, runCommand, statusCommand } from './commands'
+import { loadStudyConfig, parseCliArgs, preregCommand, runCommand, statusCommand, USAGE, type CliArgs } from './commands'
 
-const [command, configPath, ...rest] = process.argv.slice(2)
-const mock = rest.includes('--mock')
-const takeover = rest.includes('--takeover')
-const dbIndex = rest.indexOf('--db')
-const dbPath = dbIndex >= 0 ? rest[dbIndex + 1]! : 'data/studies.db'
-if (!command || !configPath || !['prereg', 'run', 'status'].includes(command)) {
-  console.error('usage: pnpm study <prereg|run|status> <config.json> [--mock] [--db path] [--takeover]')
+let args: CliArgs
+try {
+  args = parseCliArgs(process.argv.slice(2))
+} catch (e) {
+  console.error(`${(e as Error).message}\n${USAGE}`)
   process.exit(2)
 }
 try {
   process.loadEnvFile('.env')
-} catch {
-  // no .env: fine for --mock and status
+} catch (e) {
+  // No .env is fine for --mock and status; a broken one is not.
+  if ((e as NodeJS.ErrnoException).code !== 'ENOENT') throw e
 }
-const config = loadStudyConfig(configPath)
-const deps = { env: process.env, log: (line: string) => console.log(line) }
 
-if (command === 'prereg') {
-  await preregCommand(config, mock, deps)
-} else {
-  mkdirSync(dirname(dbPath), { recursive: true })
-  const store = new EventStore(dbPath)
-  if (command === 'status') {
-    statusCommand(config, mock, store, deps)
+const deps = { env: process.env, log: (line: string) => console.log(line) }
+let exitCode = 0
+let store: EventStore | null = null
+try {
+  const config = loadStudyConfig(args.configPath)
+  if (args.command === 'prereg') {
+    await preregCommand(config, args.mock, deps)
   } else {
-    const ac = new AbortController()
-    process.once('SIGINT', () => {
-      console.log('stopping after the hands in progress…')
-      ac.abort()
-    })
-    await runCommand(config, mock, store, { ...deps, signal: ac.signal, takeover })
+    mkdirSync(dirname(args.db), { recursive: true })
+    store = new EventStore(args.db)
+    if (args.command === 'status') {
+      statusCommand(config, args.mock, store, deps)
+    } else {
+      const ac = new AbortController()
+      process.on('SIGINT', () => {
+        if (ac.signal.aborted) {
+          console.log('quitting now; the study stays marked running: resume with --takeover')
+          process.exit(130)
+        }
+        console.log('stopping after the hands in progress… (Ctrl-C again to quit now)')
+        ac.abort()
+      })
+      const outcome = await runCommand(config, args.mock, store, { ...deps, signal: ac.signal, takeover: args.takeover })
+      if (outcome.reason === 'budget_cap' || outcome.reason === 'interrupted') exitCode = 3
+    }
   }
-  store.close()
+} catch (e) {
+  console.error(`error: ${(e as Error).message}`)
+  exitCode = 1
+} finally {
+  store?.close()
 }
+process.exit(exitCode)
 ```
 
 Append to `apps/study/src/index.ts`:
@@ -1694,6 +1801,16 @@ export * from './commands'
 In the root `package.json` `scripts`, add:
 ```json
     "study": "tsx apps/study/src/cli.ts"
+```
+and change `"engines"` to `{ "node": ">=20.12" }` (the CLI uses `process.loadEnvFile`).
+
+In `apps/study/src/run.ts`, the worker loop starts each iteration with
+`await new Promise<void>((resolve) => setImmediate(resolve))` (already shown in Task 4's `run.ts`): without it, Ctrl-C
+can't stop a mock run, because instant players never let Node run the signal handler (final review).
+
+In `CLAUDE.md`, after the line about line-ups and keys, add:
+```
+- `pnpm study run <study.json> --mock` is a free rehearsal; `--live` spends real money (up to the study's budget): never run `--live` without the user's explicit go-ahead.
 ```
 
 `studies/smoke.example.json`:
@@ -1723,7 +1840,7 @@ In the root `package.json` `scripts`, add:
 
 ```json
 {
-  "_note": "Main study. Publish `pnpm study prereg` output before running. targetHalfWidthBb100 is a research choice: set it before pre-registering.",
+  "_note": "Main study. Publish `pnpm study prereg` output before running. targetHalfWidthBb100 is a research choice: set it before pre-registering. At ~$0.025 per hand, $25 buys ~1,000 hands (~200 groups), so expect budget_cap unless the budget is raised; topping up and resuming keeps the pre-registration.",
   "id": "main-2026-09",
   "lineup": [
     { "id": "jev", "kind": "jev", "model": "jev-1.13.0" },
@@ -1745,7 +1862,7 @@ In the root `package.json` `scripts`, add:
 - [ ] **Step 4: Run tests, typecheck and a free mock study**
 
 Run: `pnpm --filter @ab/study exec vitest run && pnpm typecheck`
-Expected: PASS (35 tests); typecheck clean everywhere.
+Expected: PASS (37 tests); typecheck clean everywhere.
 
 Run: `pnpm study run studies/smoke.example.json --mock --db data/study-mock.db`
 Expected: "mock mode: no API calls…", the pre-registration hash, checkpoint tables, then `ended: ci_target` (identical mock strategies break exactly even, so every CI is 0 wide) with 8 groups (a fixed-size study). Costs shown are simulated.
@@ -1753,7 +1870,7 @@ Expected: "mock mode: no API calls…", the pre-registration hash, checkpoint ta
 - [ ] **Step 5: Full verification and commit**
 
 Run: `pnpm test && pnpm typecheck`
-Expected: engine 104, players 44, core 35, study 35; typecheck clean.
+Expected: engine 104, players 44, core 35, study 37; typecheck clean.
 
 
 ```bash
@@ -1773,7 +1890,7 @@ git -c user.email=jobinb6444@gmail.com -c user.name=0xjba commit -m "feat(study)
 
 ## Done when
 
-- `pnpm test` passes (engine 104, players 44, core 35, study 35); `pnpm typecheck` clean.
+- `pnpm test` passes (engine 104, players 44, core 35, study 37); `pnpm typecheck` clean.
 - `pnpm study run studies/smoke.example.json --mock` completes for free.
 - Next: Plan 3b reads the study's events (and live games') to produce the report: bb/100 with CIs, cost, latency, calibration (A: main-pot share; C: expected main-pot share at decision), fallback rates, play style, CSV/JSON exports and a static HTML report.
 
