@@ -1537,7 +1537,7 @@ git commit -m "feat(engine): NLHE hand state machine with correct raise, all-in 
 
 ### Task 6: Shared action menu
 
-The only choices any player is offered: realistic preflop sizes in big blinds, postflop pot fractions, min-raise and all-in, rounded to a 25-chip unit, de-duplicated, labelled as chip amounts.
+The only choices any player is offered: realistic preflop sizes (opens 2.5/3/4 bb + 1 bb per limper; re-raises 2.5x/3x the current bet + 1x per caller), postflop pot fractions, min-raise and all-in, rounded to a 25-chip unit (the small blind if the big blind is not a multiple of 25), with exact and near (within 5%) duplicates dropped, labelled as chip amounts.
 
 **Files:**
 - Create: `packages/engine/src/menu.ts`
@@ -1579,10 +1579,83 @@ describe('buildMenu', () => {
     ])
   })
 
-  it('offers a 3x re-raise after an open', () => {
+  it('offers 2.5x and 3x re-raises after an open', () => {
     const s = play(start([10_000, 10_000, 10_000, 10_000]), { type: 'raise', to: 300 })
-    expect(ids(s)).toEqual(['fold', 'call', 'min_raise', 'reraise_3x', 'all_in'])
-    expect(buildMenu(s).find((o) => o.id === 'reraise_3x')!.label).toBe('Raise to 900')
+    expect(buildMenu(s).map((o) => [o.id, o.label])).toEqual([
+      ['fold', 'Fold'],
+      ['call', 'Call 300'],
+      ['min_raise', 'Raise to 500'],
+      ['reraise_2_5x', 'Raise to 750'],
+      ['reraise_3x', 'Raise to 900'],
+      ['all_in', 'All-in 10,000'],
+    ])
+  })
+
+  it('adds 1 bb per limper to opening sizes (isolation raise)', () => {
+    // 6-handed, button p0; UTG p3, p4, p5 limp. p0 to act, pot 450.
+    let s = start([10_000, 10_000, 10_000, 10_000, 10_000, 10_000])
+    s = play(s, { type: 'call' }, { type: 'call' }, { type: 'call' })
+    expect(s.toAct).toBe(0)
+    const sized = buildMenu(s).filter((o) => o.id.startsWith('open_')).map((o) => o.label)
+    expect(sized).toEqual(['Raise to 550', 'Raise to 600', 'Raise to 700'])
+  })
+
+  it('adds 1x per caller to re-raise sizes (squeeze)', () => {
+    // UTG p3 opens 300, p0 (button) calls; SB p1 to act.
+    const s = play(start([10_000, 10_000, 10_000, 10_000]), { type: 'raise', to: 300 }, { type: 'call' })
+    expect(s.toAct).toBe(1)
+    const sized = buildMenu(s).filter((o) => o.id.startsWith('reraise_')).map((o) => [o.id, o.label])
+    expect(sized).toEqual([
+      ['reraise_2_5x', 'Raise to 1,050'],
+      ['reraise_3x', 'Raise to 1,200'],
+    ])
+  })
+
+  it('offers a standard-sized 4-bet', () => {
+    let s = start([10_000, 10_000, 10_000, 10_000])
+    s = play(s, { type: 'raise', to: 300 }, { type: 'fold' }, { type: 'fold' }, { type: 'raise', to: 900 })
+    expect(s.toAct).toBe(3)
+    expect(buildMenu(s).find((o) => o.id === 'reraise_2_5x')!.label).toBe('Raise to 2,250')
+  })
+
+  it('sizes re-raises sensibly after an incomplete all-in raise', () => {
+    // UTG p3 shoves 150 (a short raise); p0 to act faces 150: min raise 250, 2.5x 375, 3x 450.
+    const s = play(start([10_000, 10_000, 10_000, 150]), { type: 'raise', to: 150 })
+    expect(buildMenu(s).map((o) => o.label)).toEqual([
+      'Fold',
+      'Call 150',
+      'Raise to 250',
+      'Raise to 375',
+      'Raise to 450',
+      'All-in 10,000',
+    ])
+  })
+
+  it('rounds to the small blind when the big blind is not a multiple of 25', () => {
+    const s = createHand({
+      seats: [10_000, 10_000, 10_000].map((stack, i) => ({ id: `p${i}`, stack })),
+      buttonIndex: 0,
+      smallBlind: 15,
+      bigBlind: 30,
+      seed: 1,
+    })
+    const sized = buildMenu(s).filter((o) => o.id.startsWith('open_')).map((o) => o.label)
+    expect(sized).toEqual(['Raise to 75', 'Raise to 90', 'Raise to 120'])
+  })
+
+  it('drops sizes within 5% of one already offered', () => {
+    // Flop: p1 bets 100, p0 raises to 400. p1 faces a raise: min 700, pot_33 would be 725.
+    let s = start([10_000, 10_000])
+    s = play(s, { type: 'call' }, { type: 'check' }, { type: 'raise', to: 100 }, { type: 'raise', to: 400 })
+    const amounts = buildMenu(s)
+      .filter((o) => o.action.type === 'raise')
+      .map((o) => (o.action as { to: number }).to)
+    for (let i = 1; i < amounts.length; i++) expect(amounts[i]! - amounts[i - 1]!).toBeGreaterThan(0.05 * amounts[i - 1]!)
+    expect(amounts).not.toContain(725)
+  })
+
+  it('rejects a bad chipUnit', () => {
+    expect(() => buildMenu(start([1000, 1000]), { chipUnit: 0 })).toThrow(/chipUnit/)
   })
 
   it('offers pot-fraction bets postflop, merging sizes that collide', () => {
@@ -1661,6 +1734,7 @@ export type OptionId =
   | 'open_2_5bb'
   | 'open_3bb'
   | 'open_4bb'
+  | 'reraise_2_5x'
   | 'reraise_3x'
   | 'pot_33'
   | 'pot_50'
@@ -1679,19 +1753,32 @@ export interface MenuOption {
 }
 
 export interface MenuConfig {
-  /** Raise amounts are rounded to a multiple of this. */
+  /** Raise amounts are rounded to a multiple of this (the small blind is used if the big blind isn't a multiple). */
   chipUnit: number
+  /** A sized option within this fraction of an already-offered amount is dropped as a near-duplicate. */
+  minGap: number
 }
+
+export const DEFAULT_MENU_CONFIG: MenuConfig = { chipUnit: 25, minGap: 0.05 }
 
 const fmt = (n: number) => n.toLocaleString('en-US')
 
 /**
  * The shared action menu: the only choices any player (Jev or LLM) is ever offered.
- * Every option is legal; options that land on the same amount are merged (first id wins).
+ * Every option is legal; options that land on the same (or a nearly identical) amount are
+ * merged, first id wins, so record the chip amount with each decision rather than relying on ids.
+ *
+ * Sizes:
+ * - Preflop, unopened: open to 2.5 / 3 / 4 bb, plus 1 bb per limper.
+ * - Preflop, facing a raise: re-raise to 2.5x or 3x the current bet, plus 1x per caller.
+ * - Postflop: bet or raise to currentBet + f x (pot + to call), f in 1/3, 1/2, 3/4, 1, 1.5.
+ * - Always min-raise and all-in when raising is legal.
  */
-export function buildMenu(state: HandState, config: MenuConfig = { chipUnit: 25 }): MenuOption[] {
-  const legal = legalActions(state)
+export function buildMenu(state: HandState, config: Partial<MenuConfig> = {}): MenuOption[] {
   if (state.toAct === null) return []
+  const { chipUnit, minGap } = { ...DEFAULT_MENU_CONFIG, ...config }
+  if (!Number.isInteger(chipUnit) || chipUnit <= 0) throw new Error('chipUnit must be a positive integer')
+  const legal = legalActions(state)
   const seat = state.seats[state.toAct]!
   const options: MenuOption[] = []
 
@@ -1711,17 +1798,31 @@ export function buildMenu(state: HandState, config: MenuConfig = { chipUnit: 25 
     const min = legal.minRaiseTo
     const max = legal.maxRaiseTo
     const bb = state.config.bigBlind
-    const unit = config.chipUnit
+    const unit = bb % chipUnit === 0 ? chipUnit : state.config.smallBlind
     const round = (x: number) => Math.max(unit, Math.round(x / unit) * unit)
     const verb = state.currentBet === 0 ? 'Bet' : 'Raise to'
     const candidates: Array<[OptionId, number]> = [['min_raise', min]]
 
     if (state.street === 'preflop') {
-      const unopened = state.currentBet === bb && state.history.every((h) => h.kind !== 'raise' && h.kind !== 'bet')
-      if (unopened) {
-        candidates.push(['open_2_5bb', round(2.5 * bb)], ['open_3bb', round(3 * bb)], ['open_4bb', round(4 * bb)])
+      const preflop = state.history.filter((h) => h.street === 'preflop')
+      const opened = preflop.some((h) => h.kind === 'raise' || h.kind === 'bet')
+      if (!opened) {
+        const limpers = preflop.filter((h) => h.kind === 'call').length
+        candidates.push(
+          ['open_2_5bb', round((2.5 + limpers) * bb)],
+          ['open_3bb', round((3 + limpers) * bb)],
+          ['open_4bb', round((4 + limpers) * bb)],
+        )
       } else {
-        candidates.push(['reraise_3x', round(3 * state.currentBet)])
+        // Players who have put in the full current bet, other than the raiser and the actor.
+        const matched = state.seats.filter(
+          (s) => !s.folded && s !== seat && s.streetCommitted === state.currentBet,
+        ).length
+        const callers = Math.max(0, matched - 1)
+        candidates.push(
+          ['reraise_2_5x', round((2.5 + callers) * state.currentBet)],
+          ['reraise_3x', round((3 + callers) * state.currentBet)],
+        )
       }
     } else {
       const toCall = state.currentBet - seat.streetCommitted
@@ -1736,10 +1837,11 @@ export function buildMenu(state: HandState, config: MenuConfig = { chipUnit: 25 
       for (const [id, f] of fractions) candidates.push([id, round(state.currentBet + f * base)])
     }
 
-    const seen = new Set<number>()
+    const kept: number[] = []
+    const tooClose = (to: number) => kept.some((k) => Math.abs(to - k) <= minGap * k)
     for (const [id, to] of candidates) {
-      if (to < min || to >= max || seen.has(to)) continue
-      seen.add(to)
+      if (to < min || to >= max || tooClose(to)) continue
+      kept.push(to)
       options.push({
         id,
         label: `${verb} ${fmt(to)}`,
@@ -1761,7 +1863,7 @@ export function buildMenu(state: HandState, config: MenuConfig = { chipUnit: 25 
 - [ ] **Step 4: Run tests to verify they pass**
 
 Run: `pnpm --filter @ab/engine exec vitest run test/menu.test.ts`
-Expected: PASS, 8 tests.
+Expected: PASS, 15 tests.
 
 - [ ] **Step 5: Commit**
 
@@ -2277,7 +2379,7 @@ export * from './duplicate'
 - [ ] **Step 4: Run the full suite and typecheck from the root**
 
 Run: `pnpm test && pnpm typecheck`
-Expected: 8 test files, 76 tests passed; typecheck clean.
+Expected: 8 test files, 83 tests passed; typecheck clean.
 
 - [ ] **Step 5: Commit**
 
@@ -2290,7 +2392,7 @@ git commit -m "feat(engine): public exports and random-play invariant tests"
 
 ## Done when
 
-- `pnpm test` passes 76 tests across 8 files; `pnpm typecheck` is clean.
+- `pnpm test` passes 83 tests across 8 files; `pnpm typecheck` is clean.
 - `@ab/engine` exports: cards/rng/evaluate helpers, `createHand`, `applyAction`, `legalActions`, `potSize`, `buildMenu`, tournament functions (`createTournament`, `nextHandConfig`, `recordHand`, `endTournament`, `liveTurboConfig`, `currentLevel`, `levelIndex`), and duplicate functions (`seatRotations`, `duplicateGroup`, `cashHandConfig`, `STUDY_CASH`).
 - Next: Plan 2 (players, table runner, event log) builds on these exports.
 

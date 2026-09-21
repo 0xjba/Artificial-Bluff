@@ -81,9 +81,13 @@ git-ignored from the first commit.
 - Seeded Fisher–Yates shuffle; cards as two-character strings such as `"As"` (no "0 = empty" sentinel).
 - Timeout: check if legal, else fold. Live turn limit 30 s; per LLM call timeout ~20 s.
 
-**Action menu** (identical for all players; only legal options offered; options collapsing to the same amount
-merged; amounts rounded to a 25-chip unit):
-- Preflop: min-raise, open to 2.5 / 3 / 4 bb, 3-bet to 3× the last raise, all-in.
+**Action menu** (identical for all players; only legal options offered; options at the same amount, or within 5%
+of one already offered, are merged; amounts rounded to a 25-chip unit, or to the small blind when the big blind is
+not a multiple of 25). Because merged ids vary by spot, every decision records its chip amount and analysis uses
+amounts, not option ids:
+- Preflop unopened: min-raise, open to 2.5 / 3 / 4 bb plus 1 bb per limper, all-in.
+- Preflop facing a raise: min-raise, re-raise to 2.5× or 3× the current bet plus 1× per caller (covers 3-bets,
+  squeezes and ~2.5× 4-bets), all-in.
 - Postflop: min-raise, bet/raise ⅓, ½, ¾, 1× pot, 1.5× pot overbet, all-in.
 - Always: fold (when facing a bet), check or call.
 
