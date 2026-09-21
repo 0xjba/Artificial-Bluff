@@ -13,12 +13,14 @@ export interface StudyProgress {
   valid: Map<string, Record<string, number>>
   handsPlayed: number
   lastEnd: StudyEndReason | null
+  /** analysedGroups of the last study_ended: the groups its published results use. */
+  analysedGroups: number | null
   /** The last logged stopping-rule check: resume continues from its boundary. */
   lastCheckpoint: { groups: number; stop: boolean } | null
 }
 
 export function emptyProgress(): StudyProgress {
-  return { attempts: new Map(), valid: new Map(), handsPlayed: 0, lastEnd: null, lastCheckpoint: null }
+  return { attempts: new Map(), valid: new Map(), handsPlayed: 0, lastEnd: null, analysedGroups: null, lastCheckpoint: null }
 }
 
 /**
@@ -44,6 +46,7 @@ export function readProgress(events: readonly GameEvent[]): StudyProgress {
       p.lastCheckpoint = { groups: e.groups, stop: e.stop }
     } else if (e.type === 'study_ended') {
       p.lastEnd = e.reason
+      p.analysedGroups = e.analysedGroups
     }
   }
   return p

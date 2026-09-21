@@ -23,7 +23,8 @@ export interface StudyConfig {
   targetHalfWidthBb100: number
   /**
    * Never stop on the CI before this many groups. Must be at least 10 neighbour blocks (40 groups
-   * for 5 players), unless the study has a fixed size (minGroups == maxGroups).
+   * for 5 players), unless the study has a fixed size (minGroups == maxGroups), and a multiple of
+   * checkEvery, so the first check allowed to stop is exactly at minGroups.
    */
   minGroups: number
   /** Stop after this many groups (a multiple of the neighbour block). */
@@ -164,6 +165,9 @@ export function parseStudyConfig(input: unknown): StudyConfig {
         `(${MIN_BLOCKS_BEFORE_STOPPING * block} groups for ${lineup.length} players) so the CI stopping rule can't fire on too little data, ` +
         'unless the study has a fixed size (minGroups == maxGroups)',
     )
+  }
+  if (config.minGroups !== config.maxGroups && config.minGroups % config.checkEvery !== 0) {
+    throw new Error('study config: "minGroups" must be a multiple of "checkEvery" (so a check falls exactly on it)')
   }
   return config
 }
