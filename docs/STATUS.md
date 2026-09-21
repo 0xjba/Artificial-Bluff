@@ -19,7 +19,7 @@ Last updated: 2026-09-21
 
 | # | Plan | Status |
 |---|---|---|
-| 1 | Monorepo + game engine (`packages/engine`) | Executing on branch `feat/plan-1-engine` (subagent-driven: implementer + spec review + quality review per task) |
+| 1 | Monorepo + game engine (`packages/engine`) | Built and reviewed on `feat/plan-1-engine` (99 tests); final review: ready to merge |
 | 2 | Players (Jev, LLM, bots, mock), table runner, SQLite event log | Not written yet: write after Plan 1 is built |
 | 3 | Study runner (duplicate, budget cap, resume, CI stop) + report/charts | Not written yet |
 | 4 | Live server (WebSocket, replays, admin start) + web (Broadcast UI) + mascots (bloub) | Not written yet |
@@ -35,7 +35,7 @@ Last updated: 2026-09-21
 - [x] Task 7: Live turbo tournament (03c6c65 + fix 0558ae8; spec ✅ quality ✅ — recordHand validates players + chip conservation; 10-player cap)
 - [x] Task 8: Duplicate seating (b1c5e72 + fix 316bead; spec ✅ quality ✅ (opus, 400-group probe clean) — neighbour-balanced base orders, input checks, handKey, generic shuffle)
 - [x] Task 9: Public exports + random-play invariants (7e61c34; spec ✅; quality folded into final branch review)
-- [ ] Final branch review (opus): ready to merge after fixes — consumer typecheck of phe types (Important), wider property test + replay test, tournament config validation — fix in progress
+- [x] Final branch review (opus): READY TO MERGE (fixes 501660f consumer typecheck, 21e998c wider property + replay tests, 9a470e7 tournament config validation; 99 tests)
 
 ## Key decisions (summary; spec is authoritative)
 
@@ -66,12 +66,15 @@ Last updated: 2026-09-21
 - Plan 2 runner: thread a hand id from nextHandConfig through HandResult so recordHand can reject a replayed result from a different hand (Task 7 review residual).
 - Plan 3: bootstrap by whole neighbour blocks; compute block size with neighbourBlockSize(players.length), never hardcode 4. (Task 8 review)
 - Plan 2 (final review recs): add engine helpers `positions(state)` (BTN/SB/BB/UTG/CO, heads-up aware) and observation arithmetic (to call, pot odds, eff. stack bb, SPR, timeout default check-else-fold); runner must derive street/board events by diffing (one action can deal flop+turn+river in a run-out; a hand can complete inside createHand); thread hand id.
+- Plan 2 tests: add a test that restores a JSON round-tripped state from the event log and continues the hand with applyAction; property test could include sub-1bb stacks. (final review minor)
 - Plan 4 (final review): NEVER send `deck` or `config.seed` in live snapshots (reveals future cards; tournament seeds are base+handNumber so one seed reveals all later decks) — publish seeds only after the game. HandResult lacks best-five cards for winner highlighting: compute in Plan 4 or add to engine.
 - Jev docs advice: atomic "gut-check" questions; no arithmetic; filter state; pin model version.
 - bloub is "an SVG recreation of the x.ai bot avatar": keep our variant clearly distinct (no black body, no circle, no rainbow rings).
 - Scratch bloub preview (custom colours, Mascots.vue) lived in the session scratchpad; recreate in Plan 4.
 
 ## Execution log
+
+- 2026-09-21: Plan 1 complete on feat/plan-1-engine — 9 tasks, each spec+quality reviewed; reviews caught deriveSeed collision, malformed-card evaluation, pot crash, 3 NLHE rules bugs, menu sizing bias, unvalidated tournament results, duplicate-seating neighbour bias, consumer typecheck. 99 tests.
 
 - 2026-09-21: Decision: duplicate groups vary base seating (multiplier k = 1 + g mod 4 for 5 players) so neighbours balance over 4-group blocks; study stop checks in multiples of 4. Spec §4/§6 updated. Flag to user.
 
