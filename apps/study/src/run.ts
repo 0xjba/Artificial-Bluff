@@ -2,7 +2,8 @@ import { configHash, playHand, type EventStore, type StudyEndReason } from '@ab/
 import { cashHandConfig, duplicateGroup, type DuplicateHand } from '@ab/engine'
 import type { Player } from '@ab/players'
 import type { StudyConfig } from './config'
-import { BUDGET_CAP_REASON, completedPrefix, handKeyOf, readStoreProgress } from './progress'
+import { assertPreregMatches } from './prereg'
+import { completedPrefix, emptyProgress, handKeyOf, readStoreProgress } from './progress'
 import { summarize, type StudySummary } from './results'
 
 export interface RunStudyOptions {
@@ -10,10 +11,12 @@ export interface RunStudyOptions {
   /** Players for the line-up, in any order (matched by id). */
   players: Player[]
   store: EventStore
-  /** The pre-registration record (see `preregistration`); its hash must not change across resumes. */
+  /** The pre-registration record of `config` (see `preregistration`); its hash must not change across resumes. */
   prereg: Record<string, unknown>
   /** Stops scheduling new hands; hands in flight finish. */
   signal?: AbortSignal
+  /** Run a study left marked 'running' (a crash). Never while another process is running it. */
+  takeover?: boolean
   /** Called each time the stopping rule is checked. */
   onCheckpoint?: (summary: StudySummary, costUsd: number) => void
   now?: () => number
@@ -24,6 +27,7 @@ export interface StudyOutcome {
   reason: StudyEndReason
   /** Completed prefix of groups (before truncating to whole blocks). */
   groupsCompleted: number
+  /** Results over the analysed groups (see the study_ended event's analysedGroups). */
   summary: StudySummary
   costUsd: number
   configHash: string
@@ -32,7 +36,9 @@ export interface StudyOutcome {
 /**
  * Runs (or resumes) a duplicate study. Hands are played in group order by `concurrency` workers.
  * Results always use the completed prefix of groups in whole neighbour blocks, so the stopping rule
- * can't pick favourable groups. Hands cut short by the budget cap don't count and are replayed
+ * can't pick favourable groups. The rule is checked at every boundary (each multiple of checkEvery,
+ * and maxGroups) in order, so where a study stops depends only on the data, never on concurrency or
+ * on where a run was interrupted. Hands cut short by the budget cap don't count and are replayed
  * (as a new attempt) when the study is resumed with more budget.
  */
 export async function runStudy(opts: RunStudyOptions): Promise<StudyOutcome> {
@@ -41,59 +47,72 @@ export async function runStudy(opts: RunStudyOptions): Promise<StudyOutcome> {
   const players = new Map(opts.players.map((p) => [p.id, p]))
   for (const spec of config.lineup) if (!players.has(spec.id)) throw new Error(`no player for line-up seat ${spec.id}`)
   const ids = config.lineup.map((s) => s.id)
+  assertPreregMatches(opts.prereg, config)
 
   const hash = configHash(opts.prereg)
   const existing = store.game(config.id)
   if (existing) {
     if (existing.kind !== 'study') throw new Error(`${config.id} is not a study`)
     if (existing.configHash !== hash) throw new Error(`study ${config.id} was pre-registered with a different config (hash ${existing.configHash.slice(0, 12)}…); use a new id`)
-  } else {
-    store.createGame(config.id, 'study', opts.prereg)
   }
-  const progress = readStoreProgress(store, config.id)
-  const summaryNow = () => summarize(progress, config, completedPrefix(progress, n, config.maxGroups))
-  if (progress.lastEnd === 'ci_target' || progress.lastEnd === 'max_groups') {
-    return { reason: progress.lastEnd, groupsCompleted: completedPrefix(progress, n, config.maxGroups), summary: summaryNow(), costUsd: store.gameCost(config.id), configHash: hash }
+  const p = existing ? readStoreProgress(store, config.id) : emptyProgress()
+  if (p.lastEnd === 'ci_target' || p.lastEnd === 'max_groups') {
+    const analysed = p.lastEnd === 'ci_target' ? p.lastCheckpoint!.groups : config.maxGroups
+    return { reason: p.lastEnd, groupsCompleted: completedPrefix(p, n, config.maxGroups), summary: summarize(p, config, analysed), costUsd: store.gameCost(config.id), configHash: hash }
   }
-  if (existing) store.setStatus(config.id, 'running')
+  if (existing) store.claimGame(config.id, opts.takeover)
+  else store.createGame(config.id, 'study', opts.prereg)
   const sink = store.sink(config.id)
-  sink.append({ type: 'game_started', kind: 'study', configHash: hash, players: opts.players.map((p) => ({ id: p.id, kind: p.kind, model: p.model })) })
+  sink.append({ type: 'game_started', kind: 'study', configHash: hash, players: ids.map((id) => players.get(id)!).map((pl) => ({ id: pl.id, kind: pl.kind, model: pl.model })) })
 
   const overBudget = () => store.gameCost(config.id) >= config.budgetUsd
   let stop: StudyEndReason | null = null
   let failure: unknown = null
-  let checkedAt = completedPrefix(progress, n, config.maxGroups)
+  // Resume the check schedule after the last logged check; a met rule that was logged but never
+  // reached study_ended (crash) still ends the study.
+  let checkedAt = p.lastCheckpoint?.groups ?? 0
+  let stopAt: number | null = p.lastCheckpoint?.stop ? p.lastCheckpoint.groups : null
+  if (stopAt !== null) stop = 'ci_target'
 
-  function checkpoint(): void {
-    const prefix = completedPrefix(progress, n, config.maxGroups)
-    if (prefix < checkedAt + config.checkEvery && prefix < config.maxGroups) return
-    checkedAt = prefix - (prefix % config.checkEvery)
-    const summary = summarize(progress, config, prefix)
-    const costUsd = store.gameCost(config.id)
-    const met = prefix >= config.minGroups && summary.players.every((p) => p.bb100.halfWidth <= config.targetHalfWidthBb100)
-    const finite = (x: number) => (Number.isFinite(x) ? x : null)
-    sink.append({
-      type: 'study_checkpoint',
-      groups: summary.groups,
-      blocks: summary.blocks,
-      costUsd,
-      players: summary.players.map((p) => ({
-        playerId: p.playerId,
-        bb100: finite(p.bb100.mean),
-        low: finite(p.bb100.low),
-        high: finite(p.bb100.high),
-        halfWidth: finite(p.bb100.halfWidth),
-      })),
-      stop: met && stop === null,
-    })
-    opts.onCheckpoint?.(summary, costUsd)
-    if (met) stop ??= 'ci_target'
+  /** Checks the rule at every boundary the completed prefix has reached, in order; stops at the first met. */
+  function checkpoints(): void {
+    const prefix = completedPrefix(p, n, config.maxGroups)
+    while (stopAt === null) {
+      const boundary = Math.min(checkedAt + config.checkEvery, config.maxGroups)
+      if (boundary <= checkedAt || boundary > prefix) return
+      checkedAt = boundary
+      const summary = summarize(p, config, boundary)
+      const costUsd = store.gameCost(config.id)
+      const met = boundary >= config.minGroups && summary.players.every((pl) => pl.bb100.halfWidth <= config.targetHalfWidthBb100)
+      const finite = (x: number) => (Number.isFinite(x) ? x : null)
+      sink.append({
+        type: 'study_checkpoint',
+        groups: boundary,
+        blocks: summary.blocks,
+        costUsd,
+        players: summary.players.map((pl) => ({
+          playerId: pl.playerId,
+          bb100: finite(pl.bb100.mean),
+          low: finite(pl.bb100.low),
+          high: finite(pl.bb100.high),
+          halfWidth: finite(pl.bb100.halfWidth),
+        })),
+        stop: met,
+      })
+      opts.onCheckpoint?.(summary, costUsd)
+      if (met) {
+        stopAt = boundary
+        // Decided by the data, so it takes precedence over a budget cap or an interruption.
+        stop = 'ci_target'
+      }
+    }
   }
+  checkpoints() // catch up on checks a crash skipped
 
   function* tasks(): Generator<DuplicateHand> {
     for (let g = 0; g < config.maxGroups; g++) {
       for (const hand of duplicateGroup(config.masterSeed, g, ids)) {
-        if (!progress.valid.has(handKeyOf(hand.groupIndex, hand.rotation))) yield hand
+        if (!p.valid.has(handKeyOf(hand.groupIndex, hand.rotation))) yield hand
       }
     }
   }
@@ -114,8 +133,8 @@ export async function runStudy(opts: RunStudyOptions): Promise<StudyOutcome> {
       if (next.done) return
       const hand = next.value
       const key = handKeyOf(hand.groupIndex, hand.rotation)
-      const attempt = (progress.attempts.get(key) ?? 0) + 1
-      progress.attempts.set(key, attempt)
+      const attempt = (p.attempts.get(key) ?? 0) + 1
+      p.attempts.set(key, attempt)
       let capped = false
       try {
         const result = await playHand({
@@ -131,23 +150,24 @@ export async function runStudy(opts: RunStudyOptions): Promise<StudyOutcome> {
           ...(opts.now ? { now: opts.now } : {}),
           ...(opts.sleep ? { sleep: opts.sleep } : {}),
         })
-        progress.handsPlayed++
-        if (!capped) progress.valid.set(key, result.net)
-        checkpoint()
+        p.handsPlayed++
+        if (!capped) p.valid.set(key, result.net)
+        checkpoints()
       } catch (e) {
         failure ??= e
-        stop = 'interrupted'
+        stop ??= 'interrupted'
         return
       }
     }
   }
 
   await Promise.all(Array.from({ length: config.concurrency }, () => worker()))
-  const groupsCompleted = completedPrefix(progress, n, config.maxGroups)
+  const groupsCompleted = completedPrefix(p, n, config.maxGroups)
   const reason: StudyEndReason = stop ?? (groupsCompleted >= config.maxGroups ? 'max_groups' : 'interrupted')
+  const summary = summarize(p, config, stopAt ?? groupsCompleted)
   const costUsd = store.gameCost(config.id)
-  sink.append({ type: 'study_ended', reason, groupsCompleted, handsPlayed: progress.handsPlayed, costUsd })
+  sink.append({ type: 'study_ended', reason, groupsCompleted, analysedGroups: summary.groups, handsPlayed: p.handsPlayed, costUsd })
   store.setStatus(config.id, reason === 'interrupted' ? 'interrupted' : 'ended')
   if (failure) throw failure
-  return { reason, groupsCompleted, summary: summaryNow(), costUsd, configHash: hash }
+  return { reason, groupsCompleted, summary, costUsd, configHash: hash }
 }
