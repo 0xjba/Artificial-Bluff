@@ -44,13 +44,13 @@ Last updated: 2026-09-21
 - [x] Task 2: Hand ids config→result (engine) (a107515 + fix 6fa50f1; spec ✅ quality ✅ — strict hand ids, position input validation)
 - [x] Task 3: Players package, types, observations (340edce + fix b3e2a49; spec ✅ quality ✅ (opus, 20k-decision leak probe clean) — capped toCall, winnable-pot odds, street-start SPR, no hand id)
 - [x] Task 4: Bots and mock LLM (a581394 + fix e94c1d7; spec ✅ quality ✅ — TAG shoves when all-in only raise, AA>KK, mock honours prior abort)
-- [ ] Task 5: LLM player via OpenRouter
+- [ ] Task 5: LLM player via OpenRouter (aae9e10 + 46602a4; spec ✅ quality ✅ (opus) — cost/calibration hardening; follow-up: 200 error body = infra — in progress)
 - [ ] Task 6: Jev player
 - [ ] Task 7: Player factory and exports
 - [ ] Task 8: Core package, events, SQLite store
 - [ ] Task 9: Table runner
 - [ ] Task 10: Live tournament driver
-- [ ] Task 11: pnpm demo / pnpm smoke (expect engine 104, players 36, core 19)
+- [ ] Task 11: pnpm demo / pnpm smoke (expect engine 104, players 37, core 19)
 
 ## Key decisions (summary; spec is authoritative)
 

@@ -21,7 +21,7 @@
 - **Fallback:** on failure, timeout or an option id that isn't offered, the runner plays check if free, else fold, and records `fallback: true` with the reason. After 3 consecutive fallbacks a player auto check/folds for the rest of the hand (spec §9 provider outage rule).
 - **Events** are the single source of truth (spec §3). The store assigns `seq`/`ts`; decisions are also denormalized into a `decisions` table for analysis. Record chip amounts (`chipsIn`, `label`), not only option ids, because merged menu ids vary by spot.
 - **Never send `deck` or `config.seed` to spectators** (Plan 4); events here never contain them.
-- **OpenRouter facts (checked 2026-09-21):** every response includes `usage.cost` (credits ≈ USD) plus token counts; `response_format: {type: "json_schema", ...}` with `provider.require_parameters: true` routes only to endpoints supporting it; `reasoning: {effort: "none"}` disables thinking, but models that always reason reject it, and models without a `reasoning` parameter would be filtered out by `require_parameters`, so set `disableReasoning: false` for those in the line-up.
+- **OpenRouter facts (checked 2026-09-21):** every response includes `usage.cost` (credits ≈ USD) plus token counts; `response_format: {type: "json_schema", ...}` with `provider.require_parameters: true` routes only to endpoints supporting it; `reasoning: {effort: "none"}` disables thinking, but models that always reason reject it, and models without a `reasoning` parameter would be filtered out by `require_parameters`, so set `reasoning: "omit"` for those in the line-up (the preflight does this automatically), and `reasoning: "low"` by hand for models a smoke test shows always reason.
 - **TypeSafe SDK facts (0.6.0 types, saved in `docs/jev/sdk-js-0.6.0-types.d.mts.txt`):** `client.systemOne({state, questions, model}, {signal, retry})` → `{model, answers, usage: {input_tokens, output_tokens}}`; Choice answers have `choice`, `confidence`, `probabilities`; Noul answers have `noul`. The client accepts a custom `fetch`, which the tests use (no SDK mocking).
 - **pnpm 10 blocks native build scripts;** root `package.json` must list `better-sqlite3` in `pnpm.onlyBuiltDependencies`.
 
@@ -1162,6 +1162,14 @@ describe('LlmPlayer', () => {
     expect(retry.at(-1)!.content).toMatch(/the reply was a refusal/)
   })
 
+  it('treats a provider error inside a 200 as an infrastructure failure, without a retry', async () => {
+    const body = JSON.stringify({ error: { message: 'upstream overloaded' }, usage: { prompt_tokens: 400, completion_tokens: 0, cost: 0.0005 } })
+    const fake = fakeFetch([{ body }])
+    const res = await make(fake.fn).decide(obs, signal)
+    expect(res).toMatchObject({ ok: false, kind: 'infra', error: 'provider error: upstream overloaded', usage: { costUsd: 0.0005, retries: 0 } })
+    expect(fake.requests).toHaveLength(1)
+  })
+
   it('returns an infrastructure failure (not a throw) on HTTP errors', async () => {
     const fake = fakeFetch([{ status: 500, body: 'upstream down' }])
     const res = await make(fake.fn).decide(obs, signal)
@@ -1203,6 +1211,8 @@ export interface ChatResult {
   finishReason: string | null
   /** True when the model refused (non-empty `refusal` field). */
   refused: boolean
+  /** Provider error reported inside a 200 response (no choices), or null. */
+  error: string | null
   /** Model that actually served the request. */
   model: string
   promptTokens: number
@@ -1253,6 +1263,7 @@ export async function chatCompletion(
   if (!res.ok) throw new OpenRouterError(res.status, text)
   // A 200 whose body isn't JSON (e.g. a gateway page) may still have been billed; cost is unknown then.
   const body = JSON.parse(text) as {
+    error?: { message?: string } | string
     model?: string
     choices?: Array<{ finish_reason?: string | null; message?: { content?: string | null; refusal?: string | null } }>
     usage?: {
@@ -1267,6 +1278,7 @@ export async function chatCompletion(
     content: choice?.message?.content ?? '',
     finishReason: choice?.finish_reason ?? null,
     refused: Boolean(choice?.message?.refusal),
+    error: body.error ? (typeof body.error === 'string' ? body.error : (body.error.message ?? 'provider error')) : null,
     model: body.model ?? request.model,
     promptTokens: body.usage?.prompt_tokens ?? 0,
     completionTokens: body.usage?.completion_tokens ?? 0,
@@ -1466,6 +1478,10 @@ export class LlmPlayer implements Player {
       usage.reasoningTokens += res.reasoningTokens
       usage.costUsd += res.cost
       servedBy = res.model
+      if (res.error) {
+        // A provider failure reported inside a 200: not the model's fault, and retrying won't help.
+        return { ok: false, error: `provider error: ${res.error}`, kind: 'infra', usage, model: servedBy }
+      }
       if (res.finishReason === 'length') {
         return { ok: false, error: 'truncated: reply hit max_tokens', kind: 'model', usage, model: servedBy }
       }
@@ -1489,7 +1505,7 @@ export class LlmPlayer implements Player {
 - [ ] **Step 4: Run tests and typecheck**
 
 Run: `pnpm --filter @ab/players exec vitest run && pnpm --filter @ab/players typecheck`
-Expected: PASS (30 tests); typecheck clean.
+Expected: PASS (31 tests); typecheck clean.
 
 - [ ] **Step 5: Commit**
 
@@ -1688,7 +1704,7 @@ The two instruction strings are part of the experiment: changing them changes wh
 - [ ] **Step 4: Run tests and typecheck**
 
 Run: `pnpm --filter @ab/players exec vitest run && pnpm --filter @ab/players typecheck`
-Expected: PASS (32 tests); typecheck clean.
+Expected: PASS (33 tests); typecheck clean.
 
 - [ ] **Step 5: Commit**
 
@@ -1765,11 +1781,11 @@ describe('preflight', () => {
       ],
       catalog,
     )
-    expect(problems).toEqual([])
+    expect(problems).toEqual(['b: "vendor/plain" has no strict structured output; using plain JSON replies'])
     expect(specs).toEqual([
       { id: 'jev', kind: 'jev', model: 'jev-1.13.0' },
       { id: 'a', kind: 'llm', model: 'vendor/reasoner', structuredOutput: true, reasoning: 'off', sendTemperature: true },
-      { id: 'b', kind: 'llm', model: 'vendor/plain', structuredOutput: true, reasoning: 'omit', sendTemperature: true },
+      { id: 'b', kind: 'llm', model: 'vendor/plain', structuredOutput: false, reasoning: 'omit', sendTemperature: true },
       { id: 'c', kind: 'llm', model: 'vendor/reasoner', structuredOutput: true, reasoning: 'low', sendTemperature: true },
     ])
   })
@@ -1785,7 +1801,7 @@ describe('preflight', () => {
     )
     expect(problems).toEqual([
       'x: model "vendor/typo" is not in the OpenRouter catalog',
-      'y: "vendor/bare" has no structured output; using plain JSON replies',
+      'y: "vendor/bare" has no strict structured output; using plain JSON replies',
     ])
   })
 })
@@ -1854,6 +1870,60 @@ export function createPlayers(specs: PlayerSpec[], env: PlayerEnv, fetchImpl?: F
 }
 ```
 
+`packages/players/src/llm/preflight.ts` (a free check against OpenRouter's public model list; sets request flags from what each model supports):
+```ts
+import type { PlayerSpec } from '../factory'
+import type { Fetch } from './openrouter'
+
+export interface CatalogModel {
+  id: string
+  supported_parameters?: string[]
+}
+
+/** OpenRouter's public model list (no key needed). */
+export async function fetchModelCatalog(fetchImpl: Fetch = fetch, baseUrl = 'https://openrouter.ai/api/v1'): Promise<Map<string, CatalogModel>> {
+  const res = await fetchImpl(`${baseUrl}/models`)
+  if (!res.ok) throw new Error(`model catalog: HTTP ${res.status}`)
+  const body = (await res.json()) as { data?: CatalogModel[] }
+  return new Map((body.data ?? []).map((m) => [m.id, m]))
+}
+
+/**
+ * Checks each LLM seat against the catalog and fills in unset request flags from what the model
+ * supports, so a seat can't fail every call because a parameter is unsupported (with
+ * provider.require_parameters, one unsupported parameter means no endpoint at all).
+ * Explicit settings in the spec are kept. Rules:
+ * - structuredOutput: only 'structured_outputs' promises strict json_schema; 'response_format' alone may
+ *   mean JSON mode only, so those models get plain JSON replies (the parser validates either way).
+ * - reasoning: 'off' if the model has a 'reasoning' parameter, else 'omit'. The catalog can't tell whether
+ *   a model can turn reasoning off; set 'low' by hand for models a smoke test shows reject effort 'none'.
+ * - sendTemperature: whether 'temperature' is supported.
+ */
+export function adaptLineup(specs: PlayerSpec[], catalog: Map<string, CatalogModel>): { specs: PlayerSpec[]; problems: string[] } {
+  const problems: string[] = []
+  const adapted = specs.map((spec): PlayerSpec => {
+    if (spec.kind !== 'llm') return spec
+    const model = catalog.get(spec.model)
+    if (!model) {
+      problems.push(`${spec.id}: model "${spec.model}" is not in the OpenRouter catalog`)
+      return spec
+    }
+    const params = new Set(model.supported_parameters ?? [])
+    const strict = params.has('structured_outputs')
+    if (spec.structuredOutput === undefined && !strict) {
+      problems.push(`${spec.id}: "${spec.model}" has no strict structured output; using plain JSON replies`)
+    }
+    return {
+      ...spec,
+      structuredOutput: spec.structuredOutput ?? strict,
+      reasoning: spec.reasoning ?? (params.has('reasoning') ? 'off' : 'omit'),
+      sendTemperature: spec.sendTemperature ?? params.has('temperature'),
+    }
+  })
+  return { specs: adapted, problems }
+}
+```
+
 `packages/players/src/index.ts`:
 
 ```ts
@@ -1873,7 +1943,7 @@ export * from './factory'
 - [ ] **Step 4: Run tests and typecheck**
 
 Run: `pnpm --filter @ab/players exec vitest run && pnpm --filter @ab/players typecheck`
-Expected: PASS (36 tests); typecheck clean.
+Expected: PASS (37 tests); typecheck clean.
 
 - [ ] **Step 5: Commit**
 
@@ -3113,7 +3183,7 @@ Expected: prints one line like `game demo-…: 67 hands, 393 decisions, 1161 eve
 - [ ] **Step 3: Full verification**
 
 Run: `pnpm test && pnpm typecheck`
-Expected: engine 104, players 36, core 19 tests pass; typecheck clean across all three packages.
+Expected: engine 104, players 37, core 19 tests pass; typecheck clean across all three packages.
 
 - [ ] **Step 4: Commit**
 
@@ -3126,7 +3196,7 @@ git -c user.email=jobinb6444@gmail.com -c user.name=0xjba commit -m "feat: free 
 
 - [ ] **Step 5 (user, optional, costs money): real smoke test**
 
-Only with the user's go-ahead and keys: copy `.env.example` to `.env` and fill both keys; copy `lineups/live.example.json` to `lineups/live.json` (or the research line-up) and adjust models; run `pnpm smoke lineups/live.json --hands 5 --budget 0.25`. Expect a line per decision with latency, cost, stated win probability and reasoning or fallback reason, and a final total under the cap. Check: no unexpected fallbacks (a model rejecting `reasoning: {effort: "none"}` or lacking structured outputs shows up here; fix via `disableReasoning`/`structuredOutput` in the line-up).
+Only with the user's go-ahead and keys: copy `.env.example` to `.env` and fill both keys; copy `lineups/live.example.json` to `lineups/live.json` (or the research line-up) and adjust models; run `pnpm smoke lineups/live.json --hands 5 --budget 0.25`. Expect a line per decision with latency, cost, stated win probability and reasoning or fallback reason, and a final total under the cap. Check: no unexpected fallbacks (a model rejecting `reasoning: {effort: "none"}` or lacking structured outputs shows up here; fix via `reasoning` ("off" | "low" | "omit") / `structuredOutput` in the line-up).
 
 ---
 
@@ -3147,7 +3217,7 @@ User decision (2026-09-21): the research line-up is used for the study and recor
 
 ## Done when
 
-- `pnpm test` passes (engine 104, players 36, core 19) and `pnpm typecheck` is clean.
+- `pnpm test` passes (engine 104, players 37, core 19) and `pnpm typecheck` is clean.
 - `pnpm demo` plays a full mock tournament into `data/demo.db` with no errors.
 - `@ab/players` exports `buildObservation`, the bots, `MockLlm`, `LlmPlayer`, `JevPlayer`, `createPlayers`; `@ab/core` exports the event types, `EventStore`, `playHand`, `runTournamentGame`.
 - Next: Plan 3 (study runner: duplicate groups, budget cap, resume, CI stop, report) builds on `playHand`, `EventStore` and `duplicateGroup`.
