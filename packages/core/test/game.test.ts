@@ -59,4 +59,34 @@ describe('runTournamentGame', () => {
     expect(game.config).toMatchObject({ budgetUsd: 1, decisionTimeoutMs: 1000, note: 'test', players: [{ id: 'jev', kind: 'mock', model: 'mock/llm' }, { id: 'pill' }, { id: 'block' }, { id: 'drip' }, { id: 'nimbus' }] })
     expect(game.configHash).toMatch(/^[0-9a-f]{64}$/)
   })
+
+  it('ends the game as interrupted if anything throws mid-game, then rethrows', async () => {
+    const store = new EventStore()
+    const run = runTournamentGame({
+      gameId: 'g5', players: lineup(), tournament: liveTurboConfig('s'), store, decisionTimeoutMs: 1000, budgetUsd: 100,
+      paceMs: 1,
+      sleep: async () => {
+        throw new Error('boom')
+      },
+    })
+    await expect(run).rejects.toThrow('boom')
+    expect(store.game('g5')!.status).toBe('interrupted')
+    expect(ended(store.events('g5'))).toMatchObject({ type: 'game_ended', reason: 'interrupted' })
+  })
+
+  it('writes nothing for an invalid tournament', async () => {
+    const store = new EventStore()
+    const dupes = [new MockLlm('a'), new MockLlm('a')]
+    await expect(runTournamentGame({ gameId: 'g6', players: dupes, tournament: liveTurboConfig('s'), store, decisionTimeoutMs: 1000, budgetUsd: 1 })).rejects.toThrow(/unique/)
+    expect(store.game('g6')).toBeNull()
+  })
+
+  it('does not let meta override the settings the game runs with', async () => {
+    const store = new EventStore()
+    await runTournamentGame({
+      gameId: 'g7', players: lineup(), tournament: { ...liveTurboConfig('s'), maxHands: 1 }, store, decisionTimeoutMs: 1000, budgetUsd: 1,
+      meta: { budgetUsd: 999, decisionTimeoutMs: 1, note: 'kept' },
+    })
+    expect(store.game('g7')!.config).toMatchObject({ budgetUsd: 1, decisionTimeoutMs: 1000, note: 'kept' })
+  })
 })
