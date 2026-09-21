@@ -9,6 +9,7 @@ Last updated: 2026-09-21
 |---|---|
 | Design spec (approved) | `docs/superpowers/specs/2026-09-21-artificialbluff-design.md` |
 | Plan 1: monorepo + engine | `docs/superpowers/plans/2026-09-21-plan-1-engine.md` |
+| Plan 2: players, runner, event log | `docs/superpowers/plans/2026-09-21-plan-2-players-runner.md` |
 | Salvage report (old TEN project) | `SALVAGE.md` |
 | Salvaged raw code (git-ignored) | `salvage/` (contracts-latest, agents-latest, frontend-latest, pokerkit-harness-old) |
 | Jev / TypeSafe API docs | `docs/jev/` |
@@ -20,7 +21,7 @@ Last updated: 2026-09-21
 | # | Plan | Status |
 |---|---|---|
 | 1 | Monorepo + game engine (`packages/engine`) | ✅ Merged to master (9de0579), 99 tests |
-| 2 | Players (Jev, LLM, bots, mock), table runner, SQLite event log | Writing plan (researching Jev SDK + OpenRouter APIs) |
+| 2 | Players (Jev, LLM, bots, mock), table runner, SQLite event log | Plan written & verified in scratch (143 tests); executing on `feat/plan-2-players` |
 | 3 | Study runner (duplicate, budget cap, resume, CI stop) + report/charts | Not written yet |
 | 4 | Live server (WebSocket, replays, admin start) + web (Broadcast UI) + mascots (bloub) | Not written yet |
 
@@ -36,6 +37,20 @@ Last updated: 2026-09-21
 - [x] Task 8: Duplicate seating (b1c5e72 + fix 316bead; spec ✅ quality ✅ (opus, 400-group probe clean) — neighbour-balanced base orders, input checks, handKey, generic shuffle)
 - [x] Task 9: Public exports + random-play invariants (7e61c34; spec ✅; quality folded into final branch review)
 - [x] Final branch review (opus): READY TO MERGE (fixes 501660f consumer typecheck, 21e998c wider property + replay tests, 9a470e7 tournament config validation; 99 tests)
+
+### Plan 2 task progress
+
+- [ ] Task 1: Seat position names (engine)
+- [ ] Task 2: Hand ids config→result (engine)
+- [ ] Task 3: Players package, types, observations
+- [ ] Task 4: Bots and mock LLM
+- [ ] Task 5: LLM player via OpenRouter
+- [ ] Task 6: Jev player
+- [ ] Task 7: Player factory and exports
+- [ ] Task 8: Core package, events, SQLite store
+- [ ] Task 9: Table runner
+- [ ] Task 10: Live tournament driver
+- [ ] Task 11: pnpm demo / pnpm smoke (expect engine 103, players 22, core 18)
 
 ## Key decisions (summary; spec is authoritative)
 
@@ -68,6 +83,8 @@ Last updated: 2026-09-21
 - Plan 2 (final review recs): add engine helpers `positions(state)` (BTN/SB/BB/UTG/CO, heads-up aware) and observation arithmetic (to call, pot odds, eff. stack bb, SPR, timeout default check-else-fold); runner must derive street/board events by diffing (one action can deal flop+turn+river in a run-out; a hand can complete inside createHand); thread hand id.
 - Plan 2 tests: add a test that restores a JSON round-tripped state from the event log and continues the hand with applyAction; property test could include sub-1bb stacks. (final review minor)
 - Plan 4 (final review): NEVER send `deck` or `config.seed` in live snapshots (reveals future cards; tournament seeds are base+handNumber so one seed reveals all later decks) — publish seeds only after the game. HandResult lacks best-five cards for winner highlighting: compute in Plan 4 or add to engine.
+- LINE-UP COST (needs user decision): with Fable 5.1 + GPT-6 Astra as frontier seats a live game ≈ $1.30 (vs ~$0.50 estimated earlier); Sonnet 5 instead ≈ $0.35–0.80. Example line-up in lineup.example.json. Real smoke test (`pnpm smoke`) only with user go-ahead + keys.
+- Equity-hint ablation (`hints.equity`) not implemented in Plan 2; do it in Plan 3 with the ablation runs.
 - Jev docs advice: atomic "gut-check" questions; no arithmetic; filter state; pin model version.
 - bloub is "an SVG recreation of the x.ai bot avatar": keep our variant clearly distinct (no black body, no circle, no rainbow rings).
 - Scratch bloub preview (custom colours, Mascots.vue) lived in the session scratchpad; recreate in Plan 4.
