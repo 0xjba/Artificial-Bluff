@@ -9,6 +9,7 @@ export type OptionId =
   | 'open_2_5bb'
   | 'open_3bb'
   | 'open_4bb'
+  | 'reraise_2_5x'
   | 'reraise_3x'
   | 'pot_33'
   | 'pot_50'
@@ -27,19 +28,32 @@ export interface MenuOption {
 }
 
 export interface MenuConfig {
-  /** Raise amounts are rounded to a multiple of this. */
+  /** Raise amounts are rounded to a multiple of this (the small blind is used if the big blind isn't a multiple). */
   chipUnit: number
+  /** A sized option within this fraction of an already-offered amount is dropped as a near-duplicate. */
+  minGap: number
 }
+
+export const DEFAULT_MENU_CONFIG: MenuConfig = { chipUnit: 25, minGap: 0.05 }
 
 const fmt = (n: number) => n.toLocaleString('en-US')
 
 /**
  * The shared action menu: the only choices any player (Jev or LLM) is ever offered.
- * Every option is legal; options that land on the same amount are merged (first id wins).
+ * Every option is legal; options that land on the same (or a nearly identical) amount are
+ * merged, first id wins, so record the chip amount with each decision rather than relying on ids.
+ *
+ * Sizes:
+ * - Preflop, unopened: open to 2.5 / 3 / 4 bb, plus 1 bb per limper.
+ * - Preflop, facing a raise: re-raise to 2.5x or 3x the current bet, plus 1x per caller.
+ * - Postflop: bet or raise to currentBet + f x (pot + to call), f in 1/3, 1/2, 3/4, 1, 1.5.
+ * - Always min-raise and all-in when raising is legal.
  */
-export function buildMenu(state: HandState, config: MenuConfig = { chipUnit: 25 }): MenuOption[] {
-  const legal = legalActions(state)
+export function buildMenu(state: HandState, config: Partial<MenuConfig> = {}): MenuOption[] {
   if (state.toAct === null) return []
+  const { chipUnit, minGap } = { ...DEFAULT_MENU_CONFIG, ...config }
+  if (!Number.isInteger(chipUnit) || chipUnit <= 0) throw new Error('chipUnit must be a positive integer')
+  const legal = legalActions(state)
   const seat = state.seats[state.toAct]!
   const options: MenuOption[] = []
 
@@ -59,17 +73,31 @@ export function buildMenu(state: HandState, config: MenuConfig = { chipUnit: 25 
     const min = legal.minRaiseTo
     const max = legal.maxRaiseTo
     const bb = state.config.bigBlind
-    const unit = config.chipUnit
+    const unit = bb % chipUnit === 0 ? chipUnit : state.config.smallBlind
     const round = (x: number) => Math.max(unit, Math.round(x / unit) * unit)
     const verb = state.currentBet === 0 ? 'Bet' : 'Raise to'
     const candidates: Array<[OptionId, number]> = [['min_raise', min]]
 
     if (state.street === 'preflop') {
-      const unopened = state.currentBet === bb && state.history.every((h) => h.kind !== 'raise' && h.kind !== 'bet')
-      if (unopened) {
-        candidates.push(['open_2_5bb', round(2.5 * bb)], ['open_3bb', round(3 * bb)], ['open_4bb', round(4 * bb)])
+      const preflop = state.history.filter((h) => h.street === 'preflop')
+      const opened = preflop.some((h) => h.kind === 'raise' || h.kind === 'bet')
+      if (!opened) {
+        const limpers = preflop.filter((h) => h.kind === 'call').length
+        candidates.push(
+          ['open_2_5bb', round((2.5 + limpers) * bb)],
+          ['open_3bb', round((3 + limpers) * bb)],
+          ['open_4bb', round((4 + limpers) * bb)],
+        )
       } else {
-        candidates.push(['reraise_3x', round(3 * state.currentBet)])
+        // Players who have put in the full current bet, other than the raiser and the actor.
+        const matched = state.seats.filter(
+          (s) => !s.folded && s !== seat && s.streetCommitted === state.currentBet,
+        ).length
+        const callers = Math.max(0, matched - 1)
+        candidates.push(
+          ['reraise_2_5x', round((2.5 + callers) * state.currentBet)],
+          ['reraise_3x', round((3 + callers) * state.currentBet)],
+        )
       }
     } else {
       const toCall = state.currentBet - seat.streetCommitted
@@ -84,10 +112,11 @@ export function buildMenu(state: HandState, config: MenuConfig = { chipUnit: 25 
       for (const [id, f] of fractions) candidates.push([id, round(state.currentBet + f * base)])
     }
 
-    const seen = new Set<number>()
+    const kept: number[] = []
+    const tooClose = (to: number) => kept.some((k) => Math.abs(to - k) <= minGap * k)
     for (const [id, to] of candidates) {
-      if (to < min || to >= max || seen.has(to)) continue
-      seen.add(to)
+      if (to < min || to >= max || tooClose(to)) continue
+      kept.push(to)
       options.push({
         id,
         label: `${verb} ${fmt(to)}`,

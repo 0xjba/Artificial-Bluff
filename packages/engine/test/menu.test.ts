@@ -29,10 +29,83 @@ describe('buildMenu', () => {
     ])
   })
 
-  it('offers a 3x re-raise after an open', () => {
+  it('offers 2.5x and 3x re-raises after an open', () => {
     const s = play(start([10_000, 10_000, 10_000, 10_000]), { type: 'raise', to: 300 })
-    expect(ids(s)).toEqual(['fold', 'call', 'min_raise', 'reraise_3x', 'all_in'])
-    expect(buildMenu(s).find((o) => o.id === 'reraise_3x')!.label).toBe('Raise to 900')
+    expect(buildMenu(s).map((o) => [o.id, o.label])).toEqual([
+      ['fold', 'Fold'],
+      ['call', 'Call 300'],
+      ['min_raise', 'Raise to 500'],
+      ['reraise_2_5x', 'Raise to 750'],
+      ['reraise_3x', 'Raise to 900'],
+      ['all_in', 'All-in 10,000'],
+    ])
+  })
+
+  it('adds 1 bb per limper to opening sizes (isolation raise)', () => {
+    // 6-handed, button p0; UTG p3, p4, p5 limp. p0 to act, pot 450.
+    let s = start([10_000, 10_000, 10_000, 10_000, 10_000, 10_000])
+    s = play(s, { type: 'call' }, { type: 'call' }, { type: 'call' })
+    expect(s.toAct).toBe(0)
+    const sized = buildMenu(s).filter((o) => o.id.startsWith('open_')).map((o) => o.label)
+    expect(sized).toEqual(['Raise to 550', 'Raise to 600', 'Raise to 700'])
+  })
+
+  it('adds 1x per caller to re-raise sizes (squeeze)', () => {
+    // UTG p3 opens 300, p0 (button) calls; SB p1 to act.
+    const s = play(start([10_000, 10_000, 10_000, 10_000]), { type: 'raise', to: 300 }, { type: 'call' })
+    expect(s.toAct).toBe(1)
+    const sized = buildMenu(s).filter((o) => o.id.startsWith('reraise_')).map((o) => [o.id, o.label])
+    expect(sized).toEqual([
+      ['reraise_2_5x', 'Raise to 1,050'],
+      ['reraise_3x', 'Raise to 1,200'],
+    ])
+  })
+
+  it('offers a standard-sized 4-bet', () => {
+    let s = start([10_000, 10_000, 10_000, 10_000])
+    s = play(s, { type: 'raise', to: 300 }, { type: 'fold' }, { type: 'fold' }, { type: 'raise', to: 900 })
+    expect(s.toAct).toBe(3)
+    expect(buildMenu(s).find((o) => o.id === 'reraise_2_5x')!.label).toBe('Raise to 2,250')
+  })
+
+  it('sizes re-raises sensibly after an incomplete all-in raise', () => {
+    // UTG p3 shoves 150 (a short raise); p0 to act faces 150: min raise 250, 2.5x 375, 3x 450.
+    const s = play(start([10_000, 10_000, 10_000, 150]), { type: 'raise', to: 150 })
+    expect(buildMenu(s).map((o) => o.label)).toEqual([
+      'Fold',
+      'Call 150',
+      'Raise to 250',
+      'Raise to 375',
+      'Raise to 450',
+      'All-in 10,000',
+    ])
+  })
+
+  it('rounds to the small blind when the big blind is not a multiple of 25', () => {
+    const s = createHand({
+      seats: [10_000, 10_000, 10_000].map((stack, i) => ({ id: `p${i}`, stack })),
+      buttonIndex: 0,
+      smallBlind: 15,
+      bigBlind: 30,
+      seed: 1,
+    })
+    const sized = buildMenu(s).filter((o) => o.id.startsWith('open_')).map((o) => o.label)
+    expect(sized).toEqual(['Raise to 75', 'Raise to 90', 'Raise to 120'])
+  })
+
+  it('drops sizes within 5% of one already offered', () => {
+    // Flop: p1 bets 100, p0 raises to 400. p1 faces a raise: min 700, pot_33 would be 725.
+    let s = start([10_000, 10_000])
+    s = play(s, { type: 'call' }, { type: 'check' }, { type: 'raise', to: 100 }, { type: 'raise', to: 400 })
+    const amounts = buildMenu(s)
+      .filter((o) => o.action.type === 'raise')
+      .map((o) => (o.action as { to: number }).to)
+    for (let i = 1; i < amounts.length; i++) expect(amounts[i]! - amounts[i - 1]!).toBeGreaterThan(0.05 * amounts[i - 1]!)
+    expect(amounts).not.toContain(725)
+  })
+
+  it('rejects a bad chipUnit', () => {
+    expect(() => buildMenu(start([1000, 1000]), { chipUnit: 0 })).toThrow(/chipUnit/)
   })
 
   it('offers pot-fraction bets postflop, merging sizes that collide', () => {
