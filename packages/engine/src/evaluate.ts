@@ -1,5 +1,5 @@
 import { evaluateCards, handRank, rankDescription } from 'phe'
-import type { Card } from './cards'
+import { isCard, type Card } from './cards'
 
 export type HandCategory =
   | 'straight_flush'
@@ -37,6 +37,9 @@ export function evaluateHand(cards: readonly Card[]): HandValue {
   if (cards.length < 5 || cards.length > 7) {
     throw new Error(`evaluateHand needs 5-7 cards, got ${cards.length}`)
   }
+  // phe does no validation and silently mis-evaluates bad strings, so check every card.
+  const bad = cards.find((c) => !isCard(c))
+  if (bad !== undefined) throw new Error(`evaluateHand got a malformed card: ${bad}`)
   if (new Set(cards).size !== cards.length) {
     throw new Error(`evaluateHand got duplicate cards: ${cards.join(' ')}`)
   }

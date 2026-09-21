@@ -25,6 +25,15 @@ describe('evaluateHand', () => {
     expect(() => evaluateHand(hand('As Ks Qs Js'))).toThrow(/5-7/)
   })
 
+  it('rejects malformed cards instead of mis-evaluating them', () => {
+    expect(() => evaluateHand(hand('ts Ks Qs Js As'))).toThrow(/malformed/)
+    expect(() => evaluateHand(hand('10s Ks Qs Js As'))).toThrow(/malformed/)
+  })
+
+  it('reports an exact tie as 0', () => {
+    expect(compareHands(value('As Kd 2c 3d 7h 8s 9c'), value('Ac Kh 2c 3d 7h 8s 9c'))).toBe(0)
+  })
+
   // Every case the salvaged Solidity HandEvaluator got wrong (see SALVAGE.md).
   describe('regressions from the on-chain evaluator', () => {
     it('ranks a six-high straight above the wheel', () => {
