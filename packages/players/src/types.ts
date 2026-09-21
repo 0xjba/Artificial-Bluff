@@ -62,18 +62,27 @@ export interface Decision {
 
 export interface Usage {
   inputTokens: number
+  /** Billed output tokens, including any reasoning tokens. */
   outputTokens: number
+  /** Hidden reasoning ("thinking") tokens among outputTokens; 0 when the model didn't reason. */
+  reasoningTokens: number
   costUsd: number
   /** Extra attempts made after the first (e.g. an invalid-output retry). */
   retries: number
 }
 
-export const NO_USAGE: Usage = { inputTokens: 0, outputTokens: 0, costUsd: 0, retries: 0 }
+export const NO_USAGE: Usage = { inputTokens: 0, outputTokens: 0, reasoningTokens: 0, costUsd: 0, retries: 0 }
+
+/**
+ * Why a decision failed: the model answered badly ('model': invalid, truncated or empty output) or
+ * the call itself failed ('infra': HTTP, network, provider or configuration errors).
+ */
+export type FailureKind = 'model' | 'infra'
 
 /** A failed decision still reports what it cost: failed calls are billed too. */
 export type DecideResult =
   | { ok: true; decision: Decision; usage: Usage; model: string }
-  | { ok: false; error: string; usage: Usage; model: string }
+  | { ok: false; error: string; kind: FailureKind; usage: Usage; model: string }
 
 export type PlayerKind = 'jev' | 'llm' | 'bot' | 'mock'
 
