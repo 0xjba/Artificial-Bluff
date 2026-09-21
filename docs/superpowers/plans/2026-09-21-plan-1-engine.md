@@ -272,8 +272,6 @@ export function isCard(value: string): value is Card {
 `packages/engine/src/rng.ts`:
 
 ```ts
-import type { Card } from './cards'
-
 /** Mulberry32: small, fast, deterministic 32-bit PRNG. Returns floats in [0, 1). */
 export function mulberry32(seed: number): () => number {
   let a = seed >>> 0
@@ -308,8 +306,8 @@ export function deriveSeed(...parts: Array<string | number>): number {
 }
 
 /** Fisher–Yates shuffle driven by a seed. Never mutates its input. */
-export function shuffle(cards: readonly Card[], seed: number): Card[] {
-  const out = [...cards]
+export function shuffle<T>(items: readonly T[], seed: number): T[] {
+  const out = [...items]
   const rand = mulberry32(seed)
   for (let i = out.length - 1; i > 0; i--) {
     const j = Math.floor(rand() * (i + 1))
@@ -2233,7 +2231,7 @@ git commit -m "feat(engine): live turbo tournament with blind levels, eliminatio
 
 ```ts
 import { describe, expect, it } from 'vitest'
-import { cashHandConfig, duplicateGroup, seatRotations } from '../src/duplicate'
+import { cashHandConfig, duplicateGroup, handKey, neighbourBlockSize, seatRotations } from '../src/duplicate'
 import { createHand } from '../src/hand'
 
 const players = ['jev', 'pill', 'block', 'drip', 'nimbus']
@@ -2266,6 +2264,46 @@ describe('duplicate', () => {
     expect(new Set(jevCards).size).toBe(5)
   })
 
+  it('gives each player the button, small blind and big blind exactly once per group', () => {
+    const group = duplicateGroup('m', 3, players)
+    for (const role of [0, 1, 2]) {
+      expect(new Set(group.map((h) => h.seating[role])).size).toBe(5)
+    }
+  })
+
+  it('balances neighbours: over a block of 4 groups every ordered pair sits side by side once', () => {
+    expect(neighbourBlockSize(5)).toBe(4)
+    const leftOf = new Map<string, number>()
+    for (let g = 0; g < 4; g++) {
+      const seating = duplicateGroup('m', g, players)[0]!.seating
+      for (let i = 0; i < 5; i++) {
+        const key = `${seating[i]}>${seating[(i + 1) % 5]}`
+        leftOf.set(key, (leftOf.get(key) ?? 0) + 1)
+      }
+    }
+    expect(leftOf.size).toBe(20) // all 5 x 4 ordered pairs
+    expect([...leftOf.values()].every((v) => v === 1)).toBe(true)
+    expect(duplicateGroup('m', 0, players)[0]!.order).toBe(1)
+    expect(duplicateGroup('m', 5, players)[0]!.order).toBe(2)
+  })
+
+  it('falls back to a seeded shuffle for non-prime player counts', () => {
+    const four = ['a', 'b', 'c', 'd']
+    expect(neighbourBlockSize(4)).toBe(1)
+    const g = duplicateGroup('m', 2, four)
+    expect(g[0]!.order).toBe(0)
+    expect([...g[0]!.seating].sort()).toEqual(four)
+    expect(duplicateGroup('m', 2, four)[0]!.seating).toEqual(g[0]!.seating)
+  })
+
+  it('validates inputs and exposes a stable hand key', () => {
+    expect(() => duplicateGroup('m', -1, players)).toThrow(/groupIndex/)
+    expect(() => duplicateGroup('m', 1.5, players)).toThrow(/groupIndex/)
+    expect(() => duplicateGroup('m', 0, ['a'])).toThrow(/at least 2/)
+    expect(() => duplicateGroup('m', 0, ['a', 'a'])).toThrow(/unique/)
+    expect(handKey(duplicateGroup('m', 12, players)[3]!)).toBe('12:3')
+  })
+
   it('starts every study hand at 100 big blinds with the button on seat 0', () => {
     const cfg = cashHandConfig(duplicateGroup('m', 0, players)[2]!)
     expect(cfg.seats.every((s) => s.stack === 10_000)).toBe(true)
@@ -2285,32 +2323,79 @@ Expected: FAIL, cannot resolve `../src/duplicate`.
 `packages/engine/src/duplicate.ts`:
 
 ```ts
-import { deriveSeed } from './rng'
+import { deriveSeed, shuffle } from './rng'
 import type { HandConfig } from './types'
 
+function isPrime(n: number): boolean {
+  if (n < 2) return false
+  for (let d = 2; d * d <= n; d++) if (n % d === 0) return false
+  return true
+}
+
 /**
- * Cyclic seat rotations: rotation r puts players[(i + r) % n] in seat i.
+ * Number of consecutive seed groups that together balance who sits next to whom.
+ * For a prime player count n, the n-1 multiplier orders put every ordered pair of players
+ * side by side exactly once. Otherwise each group uses a seeded random order (block size 1).
+ */
+export function neighbourBlockSize(playerCount: number): number {
+  return isPrime(playerCount) ? playerCount - 1 : 1
+}
+
+/**
+ * Base seating for a group. Prime n: multiplier k = 1 + (group mod (n-1)) seats
+ * players[(k * i) mod n] in seat i. Otherwise: a shuffle seeded by the group seed.
+ * Returns the seating and the order id recorded with each hand (k, or 0 for a shuffle).
+ */
+export function baseSeating(
+  players: readonly string[],
+  groupIndex: number,
+  groupSeed: number,
+): { seating: string[]; order: number } {
+  const n = players.length
+  if (isPrime(n)) {
+    const k = 1 + (groupIndex % (n - 1))
+    return { seating: Array.from({ length: n }, (_, i) => players[(k * i) % n]!), order: k }
+  }
+  return { seating: shuffle(players, groupSeed), order: 0 }
+}
+
+/**
+ * Cyclic seat rotations: rotation r puts seating[(i + r) % n] in seat i.
  * Across n rotations every player sits in every seat exactly once.
  */
-export function seatRotations<T>(players: readonly T[]): T[][] {
-  const n = players.length
-  return Array.from({ length: n }, (_, r) => Array.from({ length: n }, (_, i) => players[(i + r) % n]!))
+export function seatRotations<T>(seating: readonly T[]): T[][] {
+  const n = seating.length
+  return Array.from({ length: n }, (_, r) => Array.from({ length: n }, (_, i) => seating[(i + r) % n]!))
 }
 
 export interface DuplicateHand {
   groupIndex: number
   rotation: number
+  /** Base seating order used by this group (multiplier k, or 0 for a seeded shuffle). */
+  order: number
   /** Deck seed, shared by every rotation in the group. */
   seed: number
   /** Player ids in seat order for this rotation. */
-  seating: string[]
+  readonly seating: readonly string[]
 }
 
-/** One seed group: the same deck played once per rotation. */
+/** Stable key for resume and reporting: "<groupIndex>:<rotation>". */
+export function handKey(hand: Pick<DuplicateHand, 'groupIndex' | 'rotation'>): string {
+  return `${hand.groupIndex}:${hand.rotation}`
+}
+
+/** One seed group: the same deck played once per rotation of the group's base seating. */
 export function duplicateGroup(masterSeed: string, groupIndex: number, players: readonly string[]): DuplicateHand[] {
+  if (!Number.isInteger(groupIndex) || groupIndex < 0 || groupIndex > 0x7fffffff) {
+    throw new Error('groupIndex must be an integer in [0, 2^31)')
+  }
+  if (players.length < 2) throw new Error('duplicate needs at least 2 players')
+  if (new Set(players).size !== players.length) throw new Error('player ids must be unique')
   // Namespace hash + group counter: distinct groups always get distinct decks (no hash collisions).
+  // (Another namespace's counter range could overlap this one with probability ~groups / 2^32.)
   const seed = (deriveSeed(masterSeed, 'groups') + groupIndex) >>> 0
-  return seatRotations(players).map((seating, rotation) => ({ groupIndex, rotation, seed, seating }))
+  const { seating, order } = baseSeating(players, groupIndex, deriveSeed(masterSeed, 'seating', groupIndex))
+  return seatRotations(seating).map((s, rotation) => ({ groupIndex, rotation, order, seed, seating: s }))
 }
 
 export interface CashFormat {
@@ -2337,7 +2422,7 @@ export function cashHandConfig(hand: DuplicateHand, format: CashFormat = STUDY_C
 - [ ] **Step 4: Run tests to verify they pass**
 
 Run: `pnpm --filter @ab/engine exec vitest run test/duplicate.test.ts`
-Expected: PASS, 4 tests.
+Expected: PASS, 8 tests.
 
 - [ ] **Step 5: Commit**
 
@@ -2430,7 +2515,7 @@ export * from './duplicate'
 - [ ] **Step 4: Run the full suite and typecheck from the root**
 
 Run: `pnpm test && pnpm typecheck`
-Expected: 8 test files, 86 tests passed; typecheck clean.
+Expected: 8 test files, 90 tests passed; typecheck clean.
 
 - [ ] **Step 5: Commit**
 
@@ -2443,7 +2528,7 @@ git commit -m "feat(engine): public exports and random-play invariant tests"
 
 ## Done when
 
-- `pnpm test` passes 86 tests across 8 files; `pnpm typecheck` is clean.
-- `@ab/engine` exports: cards/rng/evaluate helpers, `createHand`, `applyAction`, `legalActions`, `potSize`, `buildMenu`, tournament functions (`createTournament`, `nextHandConfig`, `recordHand`, `endTournament`, `liveTurboConfig`, `currentLevel`, `levelIndex`), and duplicate functions (`seatRotations`, `duplicateGroup`, `cashHandConfig`, `STUDY_CASH`).
+- `pnpm test` passes 90 tests across 8 files; `pnpm typecheck` is clean.
+- `@ab/engine` exports: cards/rng/evaluate helpers, `createHand`, `applyAction`, `legalActions`, `potSize`, `buildMenu`, tournament functions (`createTournament`, `nextHandConfig`, `recordHand`, `endTournament`, `liveTurboConfig`, `currentLevel`, `levelIndex`), and duplicate functions (`seatRotations`, `baseSeating`, `neighbourBlockSize`, `duplicateGroup`, `handKey`, `cashHandConfig`, `STUDY_CASH`).
 - Next: Plan 2 (players, table runner, event log) builds on these exports.
 

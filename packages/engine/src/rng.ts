@@ -1,5 +1,3 @@
-import type { Card } from './cards'
-
 /** Mulberry32: small, fast, deterministic 32-bit PRNG. Returns floats in [0, 1). */
 export function mulberry32(seed: number): () => number {
   let a = seed >>> 0
@@ -34,8 +32,8 @@ export function deriveSeed(...parts: Array<string | number>): number {
 }
 
 /** Fisher–Yates shuffle driven by a seed. Never mutates its input. */
-export function shuffle(cards: readonly Card[], seed: number): Card[] {
-  const out = [...cards]
+export function shuffle<T>(items: readonly T[], seed: number): T[] {
+  const out = [...items]
   const rand = mulberry32(seed)
   for (let i = out.length - 1; i > 0; i--) {
     const j = Math.floor(rand() * (i + 1))
