@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Run the pre-registered duplicate study: seed groups with neighbour-balanced seating, played by the real players (or free mocks), with a hard budget cap checked before every decision, crash/budget-safe resume, and a CI-based stopping rule over whole neighbour blocks. Ships `pnpm study prereg|run|status`.
+**Goal:** Run the pre-registered duplicate study: seed groups with neighbour-balanced seating, played by the real players (or free mocks), with a budget cap checked before every hand and decision, crash/budget-safe resume, and a CI-based stopping rule over whole neighbour blocks. Ships `pnpm study prereg|run|status`.
 
 **Architecture:** A new package `apps/study` (`@ab/study`). `parseStudyConfig` validates a JSON study file. `preregistration` builds the record hashed into the study's game config before hand 1 (everything that affects results; not budget or concurrency, so a study can be topped up and resumed). `runStudy` plays hands in group order with N workers through `playHand`, tags each hand with its place in the duplicate schedule, and after every completed hand checks the stopping rule (95% Student t CIs of bb/100) over the **completed prefix** of groups in whole neighbour blocks (no cherry-picking), logging each check. Hands cut short by the budget cap are excluded and replayed as a new attempt on resume. Small core additions: `DuplicateInfo` on `hand_started`, and `study_checkpoint` / `study_ended` events.
 
@@ -19,6 +19,9 @@
 - **Duplicate:** each seed group plays one deck once per seat rotation (5 hands for 5 players) on a base seating that varies by group; every block of 4 groups balances who sits next to whom (`neighbourBlockSize`). Results use whole blocks only.
 - **Hand ids:** `"<group>:<rotation>#<attempt>"`. A hand is valid if it reached `hand_ended` and no decision in it was auto-played because the budget cap was hit (`fallbackReason === 'auto: budget cap reached'`). Invalid attempts are simply superseded by the next attempt on resume; nothing is deleted.
 - **Stopping rule:** every `checkEvery` completed groups, over the completed prefix (groups 0..k-1 all valid), truncated to whole blocks: stop when every player's 95% **Student t** CI (df = blocks − 1) half-width of bb/100 is ≤ target; never before `minGroups`, which must be ≥ 10 neighbour blocks (40 groups for 5 players) unless the study has a fixed size (`minGroups == maxGroups`); at most `maxGroups`. Every check is logged as a `study_checkpoint` event.
+- **Check schedule is data-only:** the rule is evaluated at every boundary (each multiple of `checkEvery`, plus `maxGroups`) in order, over exactly the groups before that boundary, and the first met boundary ends the study; results (and `study_ended.analysedGroups`) use that boundary, not hands that finished later. Resume continues after the last logged check (catching up on any a crash skipped); a met check that never reached `study_ended` still ends the study. A met rule wins over a budget cap or interruption. So the stopping point depends neither on concurrency nor on where a run was interrupted (review finding).
+- **One runner per study:** `EventStore.claimGame` atomically refuses a study already marked `running`; `--takeover` resumes one a crash left running.
+- **Budget cap:** checked before every hand and decision; with N tables up to N decisions already in flight can finish past it, and a call abandoned on timeout can still be billed, so it is a cap with small, bounded overshoot (logged at start).
 - **Why t, not a bootstrap:** a statistics review (fat-tailed simulations) found the percentile bootstrap covers only ~84–90% at 5–10 blocks and, with width-based stopping, published "95%" CIs could cover ~70%. Student t over blocks stays near 95%. The bootstrap is kept as a reported sensitivity check.
 - **bb/100:** per group, a player's net over all rotations ÷ rotations ÷ big blind × 100 (each player plays one hand per rotation); block value = mean of its groups; the t CI and the bootstrap both work on block values.
 - **Pre-registration:** `configHash(preregistration(...))` is stored as the study game's config hash. Resuming with a different record is refused. Budget and concurrency are deliberately not in it.
@@ -44,8 +47,8 @@
 ### Task 1: Study hands in the core event stream
 
 **Files:**
-- Modify: `packages/core/src/events.ts`, `packages/core/src/runner.ts`
-- Test: `packages/core/test/runner.test.ts`
+- Modify: `packages/core/src/events.ts`, `packages/core/src/runner.ts`, `packages/core/src/store.ts`
+- Test: `packages/core/test/runner.test.ts`, `packages/core/test/store.test.ts`
 
 - [ ] **Step 1: Write the failing test**
 
@@ -59,10 +62,25 @@ In `packages/core/test/runner.test.ts`, add immediately before `it('rejects a co
   })
 ```
 
+In `packages/core/test/store.test.ts`, add immediately before `it('persists to a file', ...)`:
+```ts
+  it('lets only one run claim a game unless it takes over', () => {
+    const store = new EventStore()
+    store.createGame('s', 'study', {})
+    expect(() => store.claimGame('s')).toThrow(/already running/)
+    store.setStatus('s', 'interrupted')
+    store.claimGame('s')
+    expect(store.game('s')).toMatchObject({ status: 'running', endedAt: null })
+    expect(() => store.claimGame('s')).toThrow(/already running/)
+    store.claimGame('s', true)
+    expect(() => store.claimGame('nope')).toThrow(/no game/)
+  })
+```
+
 - [ ] **Step 2: Run it to verify it fails**
 
-Run: `pnpm --filter @ab/core exec vitest run test/runner.test.ts`
-Expected: FAIL (`duplicate` missing from `hand_started`).
+Run: `pnpm --filter @ab/core exec vitest run test/runner.test.ts test/store.test.ts`
+Expected: FAIL (`duplicate` missing from `hand_started`; `claimGame` is not a function).
 
 - [ ] **Step 3: Implement**
 
@@ -94,20 +112,28 @@ and add two new members to `EventBody` after the `game_ended` member:
 ```ts
   | {
       type: 'study_checkpoint'
-      /** Groups used (completed prefix in whole neighbour blocks) and blocks. */
+      /**
+       * The check's boundary: groups 0..groups-1 (a multiple of checkEvery, or maxGroups). Checks run at
+       * every boundary in order, whatever the concurrency or resumes, and each is logged once.
+       */
       groups: number
       blocks: number
       costUsd: number
       /** 95% Student t CI of bb/100 per player; null where not yet defined (fewer than 2 blocks). */
       players: Array<{ playerId: string; bb100: number | null; low: number | null; high: number | null; halfWidth: number | null }>
-      /** Whether this check stopped the study. */
+      /** Whether the stopping rule was met here (it then ends the study, even after a budget cap). */
       stop: boolean
     }
   | {
       type: 'study_ended'
       reason: StudyEndReason
-      /** Seed groups completed in order from group 0 (the prefix the results use). */
+      /** Seed groups completed in order from group 0. */
       groupsCompleted: number
+      /**
+       * Groups the results use: the stopping boundary for 'ci_target' (hands still in flight when
+       * the rule was met are not included), otherwise groupsCompleted cut to whole neighbour blocks.
+       */
+      analysedGroups: number
       handsPlayed: number
       costUsd: number
     }
@@ -123,17 +149,37 @@ and in the `hand_started` append, after the `posts: ...` property add:
     ...(opts.duplicate ? { duplicate: opts.duplicate } : {}),
 ```
 
+In `packages/core/src/store.ts`, add to `EventStore` immediately before the `interruptRunningGames` doc comment (so two processes can never run one study at once):
+```ts
+  /**
+   * Atomically marks an existing game 'running', so two processes can't run it at once. Refuses a
+   * game that is already 'running' (another process has it, or a crash left it so) unless `takeover`.
+   */
+  claimGame(id: string, takeover = false): void {
+    this.db
+      .transaction(() => {
+        const row = this.db.prepare('SELECT status FROM games WHERE id = ?').get(id) as { status: GameStatus } | undefined
+        if (!row) throw new Error(`no game ${id}`)
+        if (row.status === 'running' && !takeover) {
+          throw new Error(`game ${id} is already running (another process, or a crash left it so); if no other run is active, take it over`)
+        }
+        this.db.prepare("UPDATE games SET status = 'running', ended_at = NULL WHERE id = ?").run(id)
+      })
+      .immediate()
+  }
+```
+
 - [ ] **Step 4: Run tests and typecheck**
 
 Run: `pnpm --filter @ab/core exec vitest run && pnpm --filter @ab/core exec tsc --noEmit`
-Expected: PASS (34 tests); typecheck clean.
+Expected: PASS (35 tests); typecheck clean.
 
 - [ ] **Step 5: Commit**
 
 
 ```bash
-git add packages/core/src/events.ts packages/core/src/runner.ts packages/core/test/runner.test.ts
-git -c user.email=jobinb6444@gmail.com -c user.name=0xjba commit -m "feat(core): duplicate info on study hands; study_ended event" -m "Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
+git add packages/core/src packages/core/test
+git -c user.email=jobinb6444@gmail.com -c user.name=0xjba commit -m "feat(core): duplicate info on study hands; study events; claimGame" -m "Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
 ```
 
 
@@ -253,7 +299,7 @@ Expected: FAIL, cannot resolve `../src/config`.
 `apps/study/src/config.ts`:
 
 ```ts
-import { DEFAULT_MENU_CONFIG, MAX_PLAYERS, neighbourBlockSize, STUDY_CASH, type CashFormat } from '@ab/engine'
+import { MAX_PLAYERS, neighbourBlockSize, STUDY_CASH, type CashFormat } from '@ab/engine'
 import type { PlayerSpec } from '@ab/players'
 
 /** A study, as written in a JSON file. Everything here except budget and concurrency is pre-registered. */
@@ -268,7 +314,11 @@ export interface StudyConfig {
   format: CashFormat
   /** Per-decision time limit. */
   decisionTimeoutMs: number
-  /** Hard spending cap (USD), checked before every decision. */
+  /**
+   * Spending cap (USD), checked before every hand and every decision. With several tables, decisions
+   * already in flight when it is reached still finish (at most `concurrency` of them), and a call the
+   * runner gave up on (timeout) may still be billed, so leave some headroom.
+   */
   budgetUsd: number
   /** Stop when every player's 95% t CI half-width for bb/100 is at most this. */
   targetHalfWidthBb100: number
@@ -366,9 +416,6 @@ function parseFormat(raw: unknown): CashFormat {
   }
   if (format.smallBlind > format.bigBlind || format.bigBlind % format.smallBlind !== 0) {
     throw new Error('study config: "format.bigBlind" must be a multiple of "format.smallBlind"')
-  }
-  if (format.bigBlind % DEFAULT_MENU_CONFIG.chipUnit !== 0 && format.bigBlind % format.smallBlind !== 0) {
-    throw new Error(`study config: "format.bigBlind" must be a multiple of ${DEFAULT_MENU_CONFIG.chipUnit} or of the small blind`)
   }
   return format
 }
@@ -703,12 +750,13 @@ git -c user.email=jobinb6444@gmail.com -c user.name=0xjba commit -m "feat(study)
 `apps/study/test/run.test.ts` (all free: bots and mocks):
 
 ```ts
-import { EventStore, type GameEvent } from '@ab/core'
+import { EventStore, type EventBody, type GameEvent } from '@ab/core'
 import { CallingStation, MockLlm, RandomBot, TagBot, type Player } from '@ab/players'
 import { describe, expect, it } from 'vitest'
 import { parseStudyConfig, type StudyConfig } from '../src/config'
 import { preregistration } from '../src/prereg'
-import { BUDGET_CAP_REASON, readStoreProgress } from '../src/progress'
+import { BUDGET_CAP_REASON, emptyProgress, handKeyOf, readProgress, readStoreProgress } from '../src/progress'
+import { summarize } from '../src/results'
 import { runStudy } from '../src/run'
 
 const ids = ['jev', 'pill', 'block', 'drip', 'nimbus']
@@ -731,10 +779,48 @@ function config(over: Record<string, unknown> = {}): StudyConfig {
   })
 }
 
-const run = (c: StudyConfig, players: Player[], store: EventStore, signal?: AbortSignal) =>
-  runStudy({ config: c, players, store, prereg: preregistration(c, c.lineup), ...(signal ? { signal } : {}) })
+const run = (c: StudyConfig, players: Player[], store: EventStore, signal?: AbortSignal, takeover?: boolean) =>
+  runStudy({ config: c, players, store, prereg: preregistration(c, c.lineup), ...(signal ? { signal } : {}), ...(takeover ? { takeover } : {}) })
 
 const tags = () => ids.map((id) => new TagBot(id))
+const mixed = () => [new TagBot('jev'), new CallingStation('pill'), new MockLlm('block'), new TagBot('drip'), new CallingStation('nimbus')]
+
+type Of<T extends GameEvent['type']> = Extract<GameEvent, { type: T }>
+const eventsOf = <T extends GameEvent['type']>(store: EventStore, type: T) => store.events('pilot').filter((e): e is Of<T> => e.type === type)
+const checks = (store: EventStore) => eventsOf(store, 'study_checkpoint').map((c) => [c.groups, c.stop])
+
+/** Calls `trip` on the player's `after`-th decision (to interrupt a run mid-way). */
+function tripwire(p: Player, after: number, trip: () => void): Player {
+  let calls = 0
+  return { id: p.id, kind: p.kind, model: p.model, decide: (obs, signal) => (++calls === after && trip(), p.decide(obs, signal)) }
+}
+
+/** Answers after a varying delay (deterministic), so parallel tables finish out of order. */
+function jitter(p: Player): Player {
+  let calls = 0
+  return {
+    id: p.id,
+    kind: p.kind,
+    model: p.model,
+    decide: async (obs, signal) => {
+      await new Promise((r) => setTimeout(r, (++calls * 7) % 5))
+      return p.decide(obs, signal)
+    },
+  }
+}
+
+/** Copies a study's events, minus those `drop` rejects, into a new store left 'running' (a crash). */
+function crashCopy(from: EventStore, drop: (e: GameEvent, i: number, all: GameEvent[]) => boolean): EventStore {
+  const to = new EventStore()
+  to.createGame('pilot', 'study', from.game('pilot')!.config)
+  const all = from.events('pilot')
+  all.forEach((e, i) => {
+    if (drop(e, i, all)) return
+    const { gameId: _g, seq: _s, ts: _t, ...body } = e
+    to.append('pilot', body as EventBody)
+  })
+  return to
+}
 
 describe('runStudy', () => {
   it('duplicate play cancels luck: identical players break exactly even', async () => {
@@ -776,7 +862,7 @@ describe('runStudy', () => {
     expect(out.summary).toMatchObject({ groups: 16, blocks: 4 })
     expect(out.summary.players.reduce((s, p) => s + p.bb100.mean, 0)).toBeCloseTo(0, 6) // zero-sum
     const last = store.events('pilot').at(-1)!
-    expect(last).toMatchObject({ type: 'study_ended', reason: 'max_groups', groupsCompleted: 16, handsPlayed: 80 })
+    expect(last).toMatchObject({ type: 'study_ended', reason: 'max_groups', groupsCompleted: 16, analysedGroups: 16, handsPlayed: 80 })
   })
 
   it('stops at the budget cap, excludes cut-off hands, and replays them when resumed with more budget', async () => {
@@ -815,7 +901,6 @@ describe('runStudy', () => {
   })
 
   it('gives the same results with parallel tables as with one', async () => {
-    const mixed = () => [new TagBot('jev'), new CallingStation('pill'), new MockLlm('block'), new TagBot('drip'), new CallingStation('nimbus')]
     const a = await run(config({ concurrency: 1 }), mixed(), new EventStore())
     const b = await run(config({ concurrency: 4 }), mixed(), new EventStore())
     expect(b.summary.players.map((p) => p.bb100.mean)).toEqual(a.summary.players.map((p) => p.bb100.mean))
@@ -832,6 +917,71 @@ describe('runStudy', () => {
     expect(second.reason).toBe('ci_target')
   })
 
+  it('checks the stopping rule at the same boundaries whatever the concurrency', async () => {
+    const c = { minGroups: 40, maxGroups: 80, checkEvery: 8, targetHalfWidthBb100: 0.001 }
+    const one = new EventStore()
+    const many = new EventStore()
+    const a = await run(config({ ...c, concurrency: 1 }), mixed(), one)
+    const b = await run(config({ ...c, concurrency: 16 }), mixed().map(jitter), many)
+    expect(checks(one)).toEqual(Array.from({ length: 10 }, (_, i) => [8 * (i + 1), false]))
+    expect(checks(many)).toEqual(checks(one))
+    expect(b.reason).toBe(a.reason)
+    expect(b.summary).toEqual(a.summary)
+  })
+
+  it('resumes the check schedule where it left off', async () => {
+    const store = new EventStore()
+    const ac = new AbortController()
+    const players = tags().map((p, i) => (i === 0 ? tripwire(p, 28, () => ac.abort()) : p))
+    const c = config({ checkEvery: 8 })
+    const first = await run(c, players, store, ac.signal)
+    expect(first.reason).toBe('interrupted')
+    expect(first.groupsCompleted).toBeGreaterThan(4) // past a block, short of the first check at 8
+    expect(first.groupsCompleted).toBeLessThan(8)
+    const second = await run(c, tags(), store)
+    expect(second.reason).toBe('ci_target')
+    expect(checks(store)).toEqual([[8, false], [16, true]])
+  })
+
+  it('ends a study whose stopping rule was met before a crash, without playing on', async () => {
+    const done = new EventStore()
+    await run(config({ targetHalfWidthBb100: 0.001 }), tags(), done)
+    // Crash after the met check was logged, before study_ended.
+    const crashed = crashCopy(done, (e) => e.type === 'study_ended')
+    await expect(run(config({ targetHalfWidthBb100: 0.001 }), tags(), crashed)).rejects.toThrow(/already running/)
+    const hands = eventsOf(crashed, 'hand_started').length
+    const out = await run(config({ targetHalfWidthBb100: 0.001 }), tags(), crashed, undefined, true)
+    expect(out.reason).toBe('ci_target')
+    expect(eventsOf(crashed, 'hand_started')).toHaveLength(hands)
+    expect(crashed.events('pilot').at(-1)).toMatchObject({ type: 'study_ended', reason: 'ci_target', analysedGroups: 16 })
+    // Crash after the last hand, before its check was logged: the check is caught up on resume.
+    const early = crashCopy(done, (e, i, all) => e.type === 'study_ended' || (e.type === 'study_checkpoint' && i === all.length - 2))
+    const again = await run(config({ targetHalfWidthBb100: 0.001 }), tags(), early, undefined, true)
+    expect(again.reason).toBe('ci_target')
+    expect(checks(early)).toEqual([[4, false], [8, false], [12, false], [16, true]])
+  })
+
+  it('refuses a pre-registration made for a different config', async () => {
+    const c = config()
+    await expect(runStudy({ config: c, players: tags(), store: new EventStore(), prereg: preregistration(config({ minGroups: 8, maxGroups: 8 }), c.lineup) })).rejects.toThrow(/not for study config/)
+    expect(() => preregistration(c, c.lineup, { study: {} })).toThrow(/overwrite/)
+  })
+
+  it('deals every rotation of a group the same cards, and seats each player once in each seat', async () => {
+    const store = new EventStore()
+    await run(config({ maxGroups: 4, minGroups: 4 }), tags(), store)
+    const starts = eventsOf(store, 'hand_started')
+    const dealt = new Map(eventsOf(store, 'cards_dealt').map((e) => [e.handId, e.holes]))
+    for (let g = 0; g < 4; g++) {
+      const group = starts.filter((s) => s.duplicate!.groupIndex === g)
+      expect(group).toHaveLength(5)
+      expect(new Set(group.map((s) => s.duplicate!.seed)).size).toBe(1)
+      const bySeat = group.map((s) => s.seats.map((seat) => dealt.get(s.handId)![seat.playerId]!.join('')))
+      for (const cards of bySeat.slice(1)) expect(cards).toEqual(bySeat[0]) // seat i gets the same hole cards
+      for (let seat = 0; seat < 5; seat++) expect(new Set(group.map((s) => s.seats[seat]!.playerId)).size).toBe(5)
+    }
+  })
+
   it('pre-registers everything that affects results, but not budget or concurrency', () => {
     const c = config()
     const record = preregistration(c, c.lineup) as { study: Record<string, unknown>; prompts: Record<string, string> }
@@ -839,6 +989,41 @@ describe('runStudy', () => {
     expect(record.study).not.toHaveProperty('concurrency')
     expect(record.study).toMatchObject({ masterSeed: 'm', targetHalfWidthBb100: 1000, decisionTimeoutMs: 1000 })
     expect(record.prompts.llmSystem).toContain('win this hand')
+  })
+})
+
+describe('study results and progress', () => {
+  it('computes bb/100 per group from the nets, averaged over whole neighbour blocks', () => {
+    const c = config({ minGroups: 8, maxGroups: 8 })
+    const p = emptyProgress()
+    // Group g: jev wins (g + 1) big blinds from pill in every rotation, so jev's group bb/100 is 100 (g + 1).
+    for (let g = 0; g < 8; g++) for (let r = 0; r < 5; r++) p.valid.set(handKeyOf(g, r), { jev: (g + 1) * 100, pill: -(g + 1) * 100 })
+    const full = summarize(p, c, 8)
+    expect(full).toMatchObject({ groups: 8, blocks: 2 })
+    const jev = full.players[0]!
+    expect(jev.bb100.mean).toBeCloseTo(450, 9) // blocks: 250 and 650
+    expect(jev.bb100.halfWidth).toBeCloseTo(12.7062047 * 200, 3) // t(0.975, 1) x sd 282.84 / sqrt 2
+    expect(jev.hands).toBe(40)
+    expect(full.players[1]!.bb100.mean).toBeCloseTo(-450, 9)
+    expect(full.players[2]!.bb100.mean).toBe(0)
+    const partial = summarize(p, c, 7) // only the first whole block
+    expect(partial).toMatchObject({ groups: 4, blocks: 1 })
+    expect(partial.players[0]!.bb100).toMatchObject({ mean: 250, halfWidth: Infinity })
+  })
+
+  it('counts a hand once when a crash cut its first attempt short', () => {
+    const e = (body: Record<string, unknown>) => ({ gameId: 'pilot', seq: 0, ts: 0, ...body }) as GameEvent
+    const dup = (attempt: number) => ({ groupIndex: 0, rotation: 0, order: 1, seed: 7, attempt })
+    const p = readProgress([
+      e({ type: 'hand_started', handId: '0:0#1', duplicate: dup(1) }),
+      e({ type: 'hand_started', handId: '0:0#2', duplicate: dup(2) }),
+      e({ type: 'hand_ended', handId: '0:0#2', net: { jev: 5 }, stacks: {} }),
+      e({ type: 'study_checkpoint', groups: 4, blocks: 1, costUsd: 0, players: [], stop: false }),
+    ])
+    expect(p.attempts.get('0:0')).toBe(2)
+    expect(p.valid.get('0:0')).toEqual({ jev: 5 })
+    expect(p.handsPlayed).toBe(1)
+    expect(p.lastCheckpoint).toEqual({ groups: 4, stop: false })
   })
 })
 ```
@@ -868,10 +1053,12 @@ export interface StudyProgress {
   valid: Map<string, Record<string, number>>
   handsPlayed: number
   lastEnd: StudyEndReason | null
+  /** The last logged stopping-rule check: resume continues from its boundary. */
+  lastCheckpoint: { groups: number; stop: boolean } | null
 }
 
 export function emptyProgress(): StudyProgress {
-  return { attempts: new Map(), valid: new Map(), handsPlayed: 0, lastEnd: null }
+  return { attempts: new Map(), valid: new Map(), handsPlayed: 0, lastEnd: null, lastCheckpoint: null }
 }
 
 /**
@@ -893,6 +1080,8 @@ export function readProgress(events: readonly GameEvent[]): StudyProgress {
       p.handsPlayed++
       const h = byHandId.get(e.handId)
       if (h && !h.capped && !p.valid.has(h.key)) p.valid.set(h.key, e.net)
+    } else if (e.type === 'study_checkpoint') {
+      p.lastCheckpoint = { groups: e.groups, stop: e.stop }
     } else if (e.type === 'study_ended') {
       p.lastEnd = e.reason
     }
@@ -976,6 +1165,7 @@ export function summarize(p: StudyProgress, config: StudyConfig, prefixGroups: n
 `apps/study/src/prereg.ts`:
 
 ```ts
+import { canonicalJson } from '@ab/core'
 import { DEFAULT_MENU_CONFIG, neighbourBlockSize } from '@ab/engine'
 import { ACTION_INSTRUCTIONS, JEV_INPUT_PRICE_PER_MTOK, SYSTEM_PROMPT, WIN_INSTRUCTIONS, type PlayerSpec } from '@ab/players'
 import type { StudyConfig } from './config'
@@ -986,11 +1176,10 @@ import type { StudyConfig } from './config'
  * run gets, so topping up the budget and resuming doesn't change the study.
  */
 export function preregistration(config: StudyConfig, adaptedLineup: PlayerSpec[], extra: Record<string, unknown> = {}): Record<string, unknown> {
-  const { budgetUsd: _budget, concurrency: _concurrency, lineup: _lineup, ...rest } = config
-  return {
+  const record = {
     kind: 'artificialBluff study',
     version: 1,
-    study: { ...rest, lineup: adaptedLineup },
+    study: { ...preregisteredConfig(config), lineup: adaptedLineup },
     seating: { design: 'duplicate, cyclic rotations of a per-group base order', neighbourBlock: neighbourBlockSize(adaptedLineup.length) },
     menu: DEFAULT_MENU_CONFIG,
     prompts: { llmSystem: SYSTEM_PROMPT, jevAction: ACTION_INSTRUCTIONS, jevWin: WIN_INSTRUCTIONS },
@@ -1007,8 +1196,27 @@ export function preregistration(config: StudyConfig, adaptedLineup: PlayerSpec[]
     intervals:
       'per-player 95% t CIs over neighbour blocks are marginal, not simultaneous; pairwise claims use paired ' +
       'contrasts with a Holm correction; percentile bootstrap CIs are reported as a sensitivity check',
-    ...extra,
   }
+  const clash = Object.keys(extra).filter((k) => k in record)
+  if (clash.length) throw new Error(`pre-registration: extra key(s) would overwrite the record: ${clash.join(', ')}`)
+  return { ...record, ...extra }
+}
+
+/** The config fields that are pre-registered (all but budget, concurrency and the unadapted line-up). */
+function preregisteredConfig(config: StudyConfig): Record<string, unknown> {
+  const { budgetUsd: _budget, concurrency: _concurrency, lineup: _lineup, ...rest } = config
+  return rest
+}
+
+/** Throws unless `record` is the pre-registration of `config` (same fields and line-up ids). */
+export function assertPreregMatches(record: Record<string, unknown>, config: StudyConfig): void {
+  const study = record.study as ({ lineup?: Array<{ id?: unknown }> } & Record<string, unknown>) | undefined
+  const { lineup = [], ...fields } = study ?? {}
+  const same =
+    study !== undefined &&
+    canonicalJson(fields) === canonicalJson(preregisteredConfig(config)) &&
+    canonicalJson(lineup.map((s) => s.id)) === canonicalJson(config.lineup.map((s) => s.id))
+  if (!same) throw new Error(`the pre-registration record is not for study config ${config.id}`)
 }
 ```
 
@@ -1019,7 +1227,8 @@ import { configHash, playHand, type EventStore, type StudyEndReason } from '@ab/
 import { cashHandConfig, duplicateGroup, type DuplicateHand } from '@ab/engine'
 import type { Player } from '@ab/players'
 import type { StudyConfig } from './config'
-import { BUDGET_CAP_REASON, completedPrefix, handKeyOf, readStoreProgress } from './progress'
+import { assertPreregMatches } from './prereg'
+import { completedPrefix, emptyProgress, handKeyOf, readStoreProgress } from './progress'
 import { summarize, type StudySummary } from './results'
 
 export interface RunStudyOptions {
@@ -1027,10 +1236,12 @@ export interface RunStudyOptions {
   /** Players for the line-up, in any order (matched by id). */
   players: Player[]
   store: EventStore
-  /** The pre-registration record (see `preregistration`); its hash must not change across resumes. */
+  /** The pre-registration record of `config` (see `preregistration`); its hash must not change across resumes. */
   prereg: Record<string, unknown>
   /** Stops scheduling new hands; hands in flight finish. */
   signal?: AbortSignal
+  /** Run a study left marked 'running' (a crash). Never while another process is running it. */
+  takeover?: boolean
   /** Called each time the stopping rule is checked. */
   onCheckpoint?: (summary: StudySummary, costUsd: number) => void
   now?: () => number
@@ -1041,6 +1252,7 @@ export interface StudyOutcome {
   reason: StudyEndReason
   /** Completed prefix of groups (before truncating to whole blocks). */
   groupsCompleted: number
+  /** Results over the analysed groups (see the study_ended event's analysedGroups). */
   summary: StudySummary
   costUsd: number
   configHash: string
@@ -1049,7 +1261,9 @@ export interface StudyOutcome {
 /**
  * Runs (or resumes) a duplicate study. Hands are played in group order by `concurrency` workers.
  * Results always use the completed prefix of groups in whole neighbour blocks, so the stopping rule
- * can't pick favourable groups. Hands cut short by the budget cap don't count and are replayed
+ * can't pick favourable groups. The rule is checked at every boundary (each multiple of checkEvery,
+ * and maxGroups) in order, so where a study stops depends only on the data, never on concurrency or
+ * on where a run was interrupted. Hands cut short by the budget cap don't count and are replayed
  * (as a new attempt) when the study is resumed with more budget.
  */
 export async function runStudy(opts: RunStudyOptions): Promise<StudyOutcome> {
@@ -1058,59 +1272,72 @@ export async function runStudy(opts: RunStudyOptions): Promise<StudyOutcome> {
   const players = new Map(opts.players.map((p) => [p.id, p]))
   for (const spec of config.lineup) if (!players.has(spec.id)) throw new Error(`no player for line-up seat ${spec.id}`)
   const ids = config.lineup.map((s) => s.id)
+  assertPreregMatches(opts.prereg, config)
 
   const hash = configHash(opts.prereg)
   const existing = store.game(config.id)
   if (existing) {
     if (existing.kind !== 'study') throw new Error(`${config.id} is not a study`)
     if (existing.configHash !== hash) throw new Error(`study ${config.id} was pre-registered with a different config (hash ${existing.configHash.slice(0, 12)}…); use a new id`)
-  } else {
-    store.createGame(config.id, 'study', opts.prereg)
   }
-  const progress = readStoreProgress(store, config.id)
-  const summaryNow = () => summarize(progress, config, completedPrefix(progress, n, config.maxGroups))
-  if (progress.lastEnd === 'ci_target' || progress.lastEnd === 'max_groups') {
-    return { reason: progress.lastEnd, groupsCompleted: completedPrefix(progress, n, config.maxGroups), summary: summaryNow(), costUsd: store.gameCost(config.id), configHash: hash }
+  const p = existing ? readStoreProgress(store, config.id) : emptyProgress()
+  if (p.lastEnd === 'ci_target' || p.lastEnd === 'max_groups') {
+    const analysed = p.lastEnd === 'ci_target' ? p.lastCheckpoint!.groups : config.maxGroups
+    return { reason: p.lastEnd, groupsCompleted: completedPrefix(p, n, config.maxGroups), summary: summarize(p, config, analysed), costUsd: store.gameCost(config.id), configHash: hash }
   }
-  if (existing) store.setStatus(config.id, 'running')
+  if (existing) store.claimGame(config.id, opts.takeover)
+  else store.createGame(config.id, 'study', opts.prereg)
   const sink = store.sink(config.id)
-  sink.append({ type: 'game_started', kind: 'study', configHash: hash, players: opts.players.map((p) => ({ id: p.id, kind: p.kind, model: p.model })) })
+  sink.append({ type: 'game_started', kind: 'study', configHash: hash, players: ids.map((id) => players.get(id)!).map((pl) => ({ id: pl.id, kind: pl.kind, model: pl.model })) })
 
   const overBudget = () => store.gameCost(config.id) >= config.budgetUsd
   let stop: StudyEndReason | null = null
   let failure: unknown = null
-  let checkedAt = completedPrefix(progress, n, config.maxGroups)
+  // Resume the check schedule after the last logged check; a met rule that was logged but never
+  // reached study_ended (crash) still ends the study.
+  let checkedAt = p.lastCheckpoint?.groups ?? 0
+  let stopAt: number | null = p.lastCheckpoint?.stop ? p.lastCheckpoint.groups : null
+  if (stopAt !== null) stop = 'ci_target'
 
-  function checkpoint(): void {
-    const prefix = completedPrefix(progress, n, config.maxGroups)
-    if (prefix < checkedAt + config.checkEvery && prefix < config.maxGroups) return
-    checkedAt = prefix - (prefix % config.checkEvery)
-    const summary = summarize(progress, config, prefix)
-    const costUsd = store.gameCost(config.id)
-    const met = prefix >= config.minGroups && summary.players.every((p) => p.bb100.halfWidth <= config.targetHalfWidthBb100)
-    const finite = (x: number) => (Number.isFinite(x) ? x : null)
-    sink.append({
-      type: 'study_checkpoint',
-      groups: summary.groups,
-      blocks: summary.blocks,
-      costUsd,
-      players: summary.players.map((p) => ({
-        playerId: p.playerId,
-        bb100: finite(p.bb100.mean),
-        low: finite(p.bb100.low),
-        high: finite(p.bb100.high),
-        halfWidth: finite(p.bb100.halfWidth),
-      })),
-      stop: met && stop === null,
-    })
-    opts.onCheckpoint?.(summary, costUsd)
-    if (met) stop ??= 'ci_target'
+  /** Checks the rule at every boundary the completed prefix has reached, in order; stops at the first met. */
+  function checkpoints(): void {
+    const prefix = completedPrefix(p, n, config.maxGroups)
+    while (stopAt === null) {
+      const boundary = Math.min(checkedAt + config.checkEvery, config.maxGroups)
+      if (boundary <= checkedAt || boundary > prefix) return
+      checkedAt = boundary
+      const summary = summarize(p, config, boundary)
+      const costUsd = store.gameCost(config.id)
+      const met = boundary >= config.minGroups && summary.players.every((pl) => pl.bb100.halfWidth <= config.targetHalfWidthBb100)
+      const finite = (x: number) => (Number.isFinite(x) ? x : null)
+      sink.append({
+        type: 'study_checkpoint',
+        groups: boundary,
+        blocks: summary.blocks,
+        costUsd,
+        players: summary.players.map((pl) => ({
+          playerId: pl.playerId,
+          bb100: finite(pl.bb100.mean),
+          low: finite(pl.bb100.low),
+          high: finite(pl.bb100.high),
+          halfWidth: finite(pl.bb100.halfWidth),
+        })),
+        stop: met,
+      })
+      opts.onCheckpoint?.(summary, costUsd)
+      if (met) {
+        stopAt = boundary
+        // Decided by the data, so it takes precedence over a budget cap or an interruption.
+        stop = 'ci_target'
+      }
+    }
   }
+  checkpoints() // catch up on checks a crash skipped
 
   function* tasks(): Generator<DuplicateHand> {
     for (let g = 0; g < config.maxGroups; g++) {
       for (const hand of duplicateGroup(config.masterSeed, g, ids)) {
-        if (!progress.valid.has(handKeyOf(hand.groupIndex, hand.rotation))) yield hand
+        if (!p.valid.has(handKeyOf(hand.groupIndex, hand.rotation))) yield hand
       }
     }
   }
@@ -1131,8 +1358,8 @@ export async function runStudy(opts: RunStudyOptions): Promise<StudyOutcome> {
       if (next.done) return
       const hand = next.value
       const key = handKeyOf(hand.groupIndex, hand.rotation)
-      const attempt = (progress.attempts.get(key) ?? 0) + 1
-      progress.attempts.set(key, attempt)
+      const attempt = (p.attempts.get(key) ?? 0) + 1
+      p.attempts.set(key, attempt)
       let capped = false
       try {
         const result = await playHand({
@@ -1148,25 +1375,26 @@ export async function runStudy(opts: RunStudyOptions): Promise<StudyOutcome> {
           ...(opts.now ? { now: opts.now } : {}),
           ...(opts.sleep ? { sleep: opts.sleep } : {}),
         })
-        progress.handsPlayed++
-        if (!capped) progress.valid.set(key, result.net)
-        checkpoint()
+        p.handsPlayed++
+        if (!capped) p.valid.set(key, result.net)
+        checkpoints()
       } catch (e) {
         failure ??= e
-        stop = 'interrupted'
+        stop ??= 'interrupted'
         return
       }
     }
   }
 
   await Promise.all(Array.from({ length: config.concurrency }, () => worker()))
-  const groupsCompleted = completedPrefix(progress, n, config.maxGroups)
+  const groupsCompleted = completedPrefix(p, n, config.maxGroups)
   const reason: StudyEndReason = stop ?? (groupsCompleted >= config.maxGroups ? 'max_groups' : 'interrupted')
+  const summary = summarize(p, config, stopAt ?? groupsCompleted)
   const costUsd = store.gameCost(config.id)
-  sink.append({ type: 'study_ended', reason, groupsCompleted, handsPlayed: progress.handsPlayed, costUsd })
+  sink.append({ type: 'study_ended', reason, groupsCompleted, analysedGroups: summary.groups, handsPlayed: p.handsPlayed, costUsd })
   store.setStatus(config.id, reason === 'interrupted' ? 'interrupted' : 'ended')
   if (failure) throw failure
-  return { reason, groupsCompleted, summary: summaryNow(), costUsd, configHash: hash }
+  return { reason, groupsCompleted, summary, costUsd, configHash: hash }
 }
 ```
 
@@ -1190,7 +1418,7 @@ Key points:
 - [ ] **Step 4: Run tests and typecheck**
 
 Run: `pnpm --filter @ab/study exec vitest run && pnpm --filter @ab/study exec tsc --noEmit`
-Expected: PASS (24 tests); typecheck clean.
+Expected: PASS (31 tests); typecheck clean.
 
 - [ ] **Step 5: Commit**
 
@@ -1334,6 +1562,8 @@ export interface CommandDeps {
   env: PlayerEnv
   log: (line: string) => void
   signal?: AbortSignal
+  /** Resume a study a crash left marked 'running' (never while another process runs it). */
+  takeover?: boolean
 }
 
 /** Prints the pre-registration record and its hash without running anything. */
@@ -1354,12 +1584,14 @@ export async function runCommand(config: StudyConfig, mock: boolean, store: Even
   if (mock) deps.log('mock mode: no API calls are made; costs shown are simulated')
   deps.log(`study ${c.id}: ${players.map((p) => `${p.id}=${p.model}`).join(', ')}`)
   deps.log(`pre-registration hash ${configHash(prereg)}; budget $${c.budgetUsd}; ${c.concurrency} table(s)`)
+  if (c.concurrency > 1) deps.log(`note: up to ${c.concurrency} decisions already in flight can finish after the budget is reached`)
   const outcome = await runStudy({
     config: c,
     players,
     store,
     prereg,
     ...(deps.signal ? { signal: deps.signal } : {}),
+    ...(deps.takeover ? { takeover: true } : {}),
     onCheckpoint: (summary, cost) => formatSummary(summary, cost).forEach(deps.log),
   })
   deps.log(`ended: ${outcome.reason}`)
@@ -1388,7 +1620,8 @@ export function statusCommand(config: StudyConfig, mock: boolean, store: EventSt
  * pnpm study prereg <config.json> [--mock]    print the pre-registration record and hash
  * pnpm study run    <config.json> [--mock]    run or resume a study (real runs spend money)
  * pnpm study status <config.json> [--mock]    progress, cost and current bb/100 intervals
- * Options: --db <path> (default data/studies.db). Keys come from .env (see .env.example).
+ * Options: --db <path> (default data/studies.db); --takeover resumes a study a crash left marked
+ * running (only if no other run of it is active). Keys come from .env (see .env.example).
  */
 import { EventStore } from '@ab/core'
 import { mkdirSync } from 'node:fs'
@@ -1397,10 +1630,11 @@ import { loadStudyConfig, preregCommand, runCommand, statusCommand } from './com
 
 const [command, configPath, ...rest] = process.argv.slice(2)
 const mock = rest.includes('--mock')
+const takeover = rest.includes('--takeover')
 const dbIndex = rest.indexOf('--db')
 const dbPath = dbIndex >= 0 ? rest[dbIndex + 1]! : 'data/studies.db'
 if (!command || !configPath || !['prereg', 'run', 'status'].includes(command)) {
-  console.error('usage: pnpm study <prereg|run|status> <config.json> [--mock] [--db path]')
+  console.error('usage: pnpm study <prereg|run|status> <config.json> [--mock] [--db path] [--takeover]')
   process.exit(2)
 }
 try {
@@ -1424,7 +1658,7 @@ if (command === 'prereg') {
       console.log('stopping after the hands in progress…')
       ac.abort()
     })
-    await runCommand(config, mock, store, { ...deps, signal: ac.signal })
+    await runCommand(config, mock, store, { ...deps, signal: ac.signal, takeover })
   }
   store.close()
 }
@@ -1489,7 +1723,7 @@ In the root `package.json` `scripts`, add:
 - [ ] **Step 4: Run tests, typecheck and a free mock study**
 
 Run: `pnpm --filter @ab/study exec vitest run && pnpm typecheck`
-Expected: PASS (28 tests); typecheck clean everywhere.
+Expected: PASS (35 tests); typecheck clean everywhere.
 
 Run: `pnpm study run studies/smoke.example.json --mock --db data/study-mock.db`
 Expected: "mock mode: no API calls…", the pre-registration hash, checkpoint tables, then `ended: ci_target` (identical mock strategies break exactly even, so every CI is 0 wide) with 8 groups (a fixed-size study). Costs shown are simulated.
@@ -1497,7 +1731,7 @@ Expected: "mock mode: no API calls…", the pre-registration hash, checkpoint ta
 - [ ] **Step 5: Full verification and commit**
 
 Run: `pnpm test && pnpm typecheck`
-Expected: engine 104, players 44, core 34, study 28; typecheck clean.
+Expected: engine 104, players 44, core 35, study 35; typecheck clean.
 
 
 ```bash
@@ -1517,7 +1751,7 @@ git -c user.email=jobinb6444@gmail.com -c user.name=0xjba commit -m "feat(study)
 
 ## Done when
 
-- `pnpm test` passes (engine 104, players 44, core 34, study 28); `pnpm typecheck` clean.
+- `pnpm test` passes (engine 104, players 44, core 35, study 35); `pnpm typecheck` clean.
 - `pnpm study run studies/smoke.example.json --mock` completes for free.
 - Next: Plan 3b reads the study's events (and live games') to produce the report: bb/100 with CIs, cost, latency, calibration (A: main-pot share; C: expected main-pot share at decision), fallback rates, play style, CSV/JSON exports and a static HTML report.
 
