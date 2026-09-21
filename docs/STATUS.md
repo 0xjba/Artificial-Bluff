@@ -21,7 +21,7 @@ Last updated: 2026-09-21
 | # | Plan | Status |
 |---|---|---|
 | 1 | Monorepo + game engine (`packages/engine`) | ✅ Merged to master (9de0579), 99 tests |
-| 2 | Players (Jev, LLM, bots, mock), table runner, SQLite event log | Built and reviewed on `feat/plan-2-players` (181 tests); final review: ready to merge (final fixes in progress) |
+| 2 | Players (Jev, LLM, bots, mock), table runner, SQLite event log | Built and reviewed on `feat/plan-2-players` (181 tests); final review: ready to merge |
 | 3 | Study runner (duplicate, budget cap, resume, CI stop) + report/charts | Not written yet |
 | 4 | Live server (WebSocket, replays, admin start) + web (Broadcast UI) + mascots (bloub) | Not written yet |
 
@@ -51,7 +51,7 @@ Last updated: 2026-09-21
 - [x] Task 9: Table runner (929c010 + f5c874b + usage-check follow-up; spec ✅ quality ✅ (opus, 3k-hand replay from events clean) — timeout latency = limit, misbehaving-player guards, empty-error auto count, currentBet)
 - [x] Task 10: Live tournament driver (0f6bc7b + d62a4c3; spec ✅ quality ✅ — mid-game errors end game as interrupted, validated before writing, meta can't override recorded settings)
 - [x] Task 11: pnpm demo / pnpm smoke (74d25e3; spec ✅; quality folded into final review)
-- [ ] Final branch review (opus): ready to merge; fixes — spend checked before every decision, API keys ES-private, onEvent hook for Plan 4, docs
+- [x] Final branch review (opus): READY TO MERGE (fixes 6dc3f9e: spend checked before every decision, API keys ES-private, onEvent hook; docs cf132bc)
 
 ## Key decisions (summary; spec is authoritative)
 
