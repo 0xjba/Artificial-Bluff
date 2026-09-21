@@ -17,12 +17,16 @@ export interface Facts {
   bigBlind: number
   /** All chips in the middle, including this street's bets. */
   pot: number
+  /** Chips needed to call, capped at your stack (a call for less is all-in). */
   toCall: number
-  /** toCall / (pot + toCall) as a percentage, one decimal; 0 when nothing to call. */
+  /**
+   * toCall / (winnable pot + toCall) as a percentage, one decimal; 0 when nothing to call.
+   * The winnable pot counts each player's chips only up to what you can match.
+   */
   potOddsPct: number
-  /** min(your stack, largest live opponent stack), in big blinds, one decimal. */
+  /** Effective stack at the start of this street (smaller of yours and the largest live opponent's), in big blinds, one decimal. */
   effectiveStackBb: number
-  /** Effective stack / pot, one decimal; null preflop. */
+  /** Effective stack / pot at the start of this street, one decimal; null preflop. Fixed for the whole street. */
   spr: number | null
 }
 
@@ -33,7 +37,6 @@ export interface ObservedOption {
 
 /** Everything a player sees at a decision. Identical for every kind of player. */
 export interface Observation {
-  handId: string | null
   street: Street
   position: Position
   hole: Card[]

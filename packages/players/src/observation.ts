@@ -1,4 +1,4 @@
-import { buildMenu, positions, potSize, type HandState, type MenuOption } from '@ab/engine'
+import { buildMenu, legalActions, positions, potSize, type HandState, type MenuOption } from '@ab/engine'
 import type { Observation, SeatView } from './types'
 
 const round1 = (x: number) => Math.round(x * 10) / 10
@@ -36,13 +36,17 @@ export function buildObservation(state: HandState, menu: MenuOption[] = buildMen
   })
 
   const pot = potSize(state)
-  const toCall = Math.max(0, state.currentBet - me.streetCommitted)
+  const toCall = legalActions(state).callAmount
+  // Only chips up to what this player can match are winnable; any excess goes back to its owner.
+  const reach = me.handCommitted + toCall
+  const winnablePot = state.seats.reduce((sum, s) => sum + Math.min(s.handCommitted, reach), 0)
+  // Stacks and pot as they were when this street began, so SPR and effective stack don't drift mid-street.
   const opponents = state.seats.filter((s) => s !== me && !s.folded)
   const biggestOpponent = Math.max(0, ...opponents.map((s) => s.stack + s.streetCommitted))
   const effective = Math.min(me.stack + me.streetCommitted, biggestOpponent)
+  const potAtStreetStart = pot - state.seats.reduce((sum, s) => sum + s.streetCommitted, 0)
 
   return {
-    handId: state.config.handId ?? null,
     street: state.street,
     position: names[state.toAct]!,
     hole: [...me.hole],
@@ -54,9 +58,9 @@ export function buildObservation(state: HandState, menu: MenuOption[] = buildMen
       bigBlind,
       pot,
       toCall,
-      potOddsPct: toCall > 0 ? round1((100 * toCall) / (pot + toCall)) : 0,
+      potOddsPct: toCall > 0 ? round1((100 * toCall) / (winnablePot + toCall)) : 0,
       effectiveStackBb: round1(effective / bigBlind),
-      spr: state.street === 'preflop' ? null : round1(effective / Math.max(1, pot)),
+      spr: state.street === 'preflop' ? null : round1(effective / Math.max(1, potAtStreetStart)),
     },
     options: menu.map((o) => ({ id: o.id, label: o.label })),
   }
