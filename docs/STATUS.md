@@ -60,7 +60,7 @@ Last updated: 2026-09-21
 - [x] Task 2: Study package and config (6c6ec35; spec ✅ diff)
 - [x] Task 3: Bootstrap CIs (f8dfb58; spec ✅ diff). Quality review (opus) → switch to Student t CIs, ≥10-block minimum, checkpoint events, strict config — follow-up fix in progress
 - [x] Task 4 (f7c2b56; spec ✅; opus review → follow-up fix in progress): Study runner (progress, results, prereg, run)
-- [ ] Task 5: pnpm study CLI + example studies (expect engine 104, players 44, core 35, study 35)
+- [x] Task 5 (80b8083; spec ✅): pnpm study CLI + example studies (expect engine 104, players 44, core 35, study 35)
 
 ## Key decisions (summary; spec is authoritative)
 
@@ -114,6 +114,8 @@ Last updated: 2026-09-21
 ## Execution log
 
 - 2026-09-21: Plan 3a Task 1-3 stats follow-up committed (f0b5424, byte-identical to reference). Task 4 committed (f7c2b56, spec ✅). Opus review of Task 4: approve with fixes → deterministic check schedule (every boundary in order; resume from last checkpoint; results pinned to the stop boundary via study_ended.analysedGroups), ci_target wins over budget_cap, claimGame + --takeover (no double runs), prereg must match config, budget overshoot documented, dead format check removed, 7 new tests. Prototyped in reference: engine 104, players 44, core 35, study 35. Follow-up fix to be applied on branch next, then Task 5.
+- 2026-09-21: Task 5 committed (80b8083, identical to reference). Opus re-review of Task 4 fixes: approve with fixes → read progress after claimGame; early return uses study_ended.analysedGroups; minGroups multiple of checkEvery. Not done (by design): checking Player kind/model against the pre-registered seat (tests deliberately use bots in mock seats; the CLI builds players from the same line-up). Reference: core 35, study 35.
+- TODO (minor, from review): budget-cap-then-ci_target test; stronger concurency-skip test (checkEvery 4, ~200 groups).
 - TODO (minor, from review): record code version (git SHA) with a study without breaking resume (e.g. in game_started, not the prereg hash); explain in the report that in-flight hands after a CI stop are logged but not analysed.
 
 - 2026-09-21: Decision (from stats review of Plan 3a): stopping rule and published CIs use Student t over neighbour blocks (bootstrap only as sensitivity check); CI rule never fires before 10 blocks (40 groups) unless fixed-size; every check logged; pairwise claims need paired contrasts + Holm (Plan 3b). Flag to user.
