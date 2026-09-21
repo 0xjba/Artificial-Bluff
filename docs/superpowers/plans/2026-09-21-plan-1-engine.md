@@ -434,6 +434,15 @@ describe('evaluateHand', () => {
     expect(() => evaluateHand(hand('As Ks Qs Js'))).toThrow(/5-7/)
   })
 
+  it('rejects malformed cards instead of mis-evaluating them', () => {
+    expect(() => evaluateHand(hand('ts Ks Qs Js As'))).toThrow(/malformed/)
+    expect(() => evaluateHand(hand('10s Ks Qs Js As'))).toThrow(/malformed/)
+  })
+
+  it('reports an exact tie as 0', () => {
+    expect(compareHands(value('As Kd 2c 3d 7h 8s 9c'), value('Ac Kh 2c 3d 7h 8s 9c'))).toBe(0)
+  })
+
   // Every case the salvaged Solidity HandEvaluator got wrong (see SALVAGE.md).
   describe('regressions from the on-chain evaluator', () => {
     it('ranks a six-high straight above the wheel', () => {
@@ -494,7 +503,7 @@ declare module 'phe' {
 
 ```ts
 import { evaluateCards, handRank, rankDescription } from 'phe'
-import type { Card } from './cards'
+import { isCard, type Card } from './cards'
 
 export type HandCategory =
   | 'straight_flush'
@@ -532,6 +541,9 @@ export function evaluateHand(cards: readonly Card[]): HandValue {
   if (cards.length < 5 || cards.length > 7) {
     throw new Error(`evaluateHand needs 5-7 cards, got ${cards.length}`)
   }
+  // phe does no validation and silently mis-evaluates bad strings, so check every card.
+  const bad = cards.find((c) => !isCard(c))
+  if (bad !== undefined) throw new Error(`evaluateHand got a malformed card: ${bad}`)
   if (new Set(cards).size !== cards.length) {
     throw new Error(`evaluateHand got duplicate cards: ${cards.join(' ')}`)
   }
@@ -549,7 +561,7 @@ export function compareHands(a: HandValue, b: HandValue): number {
 - [ ] **Step 5: Run tests to verify they pass**
 
 Run: `pnpm --filter @ab/engine exec vitest run test/evaluate.test.ts`
-Expected: PASS, 9 tests (the 20,000-hand cross-check takes about 1 s).
+Expected: PASS, 11 tests (the 20,000-hand cross-check takes about 1 s).
 
 - [ ] **Step 6: Commit**
 
@@ -2150,7 +2162,7 @@ export * from './duplicate'
 - [ ] **Step 4: Run the full suite and typecheck from the root**
 
 Run: `pnpm test && pnpm typecheck`
-Expected: 8 test files, 64 tests passed; typecheck clean.
+Expected: 8 test files, 66 tests passed; typecheck clean.
 
 - [ ] **Step 5: Commit**
 
@@ -2163,7 +2175,7 @@ git commit -m "feat(engine): public exports and random-play invariant tests"
 
 ## Done when
 
-- `pnpm test` passes 64 tests across 8 files; `pnpm typecheck` is clean.
+- `pnpm test` passes 66 tests across 8 files; `pnpm typecheck` is clean.
 - `@ab/engine` exports: cards/rng/evaluate helpers, `createHand`, `applyAction`, `legalActions`, `potSize`, `buildMenu`, tournament functions (`createTournament`, `nextHandConfig`, `recordHand`, `endTournament`, `liveTurboConfig`, `currentLevel`, `levelIndex`), and duplicate functions (`seatRotations`, `duplicateGroup`, `cashHandConfig`, `STUDY_CASH`).
 - Next: Plan 2 (players, table runner, event log) builds on these exports.
 
