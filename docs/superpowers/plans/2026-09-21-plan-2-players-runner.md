@@ -275,7 +275,7 @@ add `handId: tournamentHandId(t.handNumber),` as the last property of the object
 - [ ] **Step 4: Run tests and typecheck**
 
 Run: `pnpm --filter @ab/engine exec vitest run && pnpm --filter @ab/engine typecheck`
-Expected: PASS (103 tests); typecheck clean.
+Expected: PASS (104 tests); typecheck clean.
 
 - [ ] **Step 5: Commit**
 
