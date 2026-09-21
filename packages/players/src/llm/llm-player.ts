@@ -35,14 +35,17 @@ export class LlmPlayer implements Player {
   readonly kind = 'llm' as const
   readonly id: string
   readonly model: string
+  /** ES-private so the API key can't leak through JSON.stringify or console.log of a player. */
+  readonly #options: LlmPlayerOptions
 
-  constructor(private readonly options: LlmPlayerOptions) {
+  constructor(options: LlmPlayerOptions) {
+    this.#options = options
     this.id = options.id
     this.model = options.model
   }
 
   private request(messages: ChatMessage[], obs: Observation): ChatRequest {
-    const o = this.options
+    const o = this.#options
     const reasoning = o.reasoning ?? 'off'
     return {
       model: o.model,
@@ -66,7 +69,7 @@ export class LlmPlayer implements Player {
       if (attempt > 0) usage.retries++
       let res
       try {
-        res = await chatCompletion(this.options.openrouter, this.request(messages, obs), signal)
+        res = await chatCompletion(this.#options.openrouter, this.request(messages, obs), signal)
       } catch (e) {
         return { ok: false, error: (e as Error).message, kind: 'infra', usage, model: servedBy }
       }

@@ -121,6 +121,23 @@ describe('playHand', () => {
     expect(decisions(sink.events)[0]).toMatchObject({ playerId: 'u', currentBet: 100, toCall: 100, chipsIn: 100 })
   })
 
+  it('stops asking players once stopSpending returns true, finishing the hand as check-or-fold', async () => {
+    const asked = new Scripted('x', () => ({ ok: true, decision: { optionId: 'call', winProbability: null, confidence: null, optionProbabilities: null, reasoning: null }, usage: NO_USAGE, model: 'm' }))
+    let spent = 0
+    const sink = memorySink()
+    await playHand({
+      config: config(['b', 's', 'bb', 'x']),
+      players: byId([new CallingStation('b'), new CallingStation('s'), new CallingStation('bb'), asked]),
+      sink,
+      decisionTimeoutMs: 100,
+      stopSpending: () => spent++ >= 0,
+    })
+    const all = decisions(sink.events)
+    expect(all.every((d) => d.fallbackKind === 'auto' && d.fallbackReason === 'auto: budget cap reached')).toBe(true)
+    expect(asked.calls).toBe(0)
+    expect(sink.events.at(-1)!.type).toBe('hand_ended')
+  })
+
   it('records what a timed-out player had already spent', async () => {
     // Resolves with its spend only when aborted (like an LLM whose first attempt was billed).
     const slow: Player = {

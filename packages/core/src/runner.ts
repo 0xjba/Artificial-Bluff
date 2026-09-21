@@ -26,6 +26,12 @@ export interface PlayHandOptions {
   maxConsecutiveFallbacks?: number
   /** After a timeout, how long to wait for the aborted player to report what it spent. Default 250 ms. */
   timeoutGraceMs?: number
+  /**
+   * Checked before every decision. Once it returns true (e.g. the budget cap is reached), the rest
+   * of the hand is played as check-or-fold without asking any player, so overspend is at most one
+   * decision rather than one hand.
+   */
+  stopSpending?: () => boolean
   menu?: Partial<MenuConfig>
   now?: () => number
   sleep?: (ms: number) => Promise<void>
@@ -136,9 +142,11 @@ export async function playHand(opts: PlayHandOptions): Promise<HandResult> {
     opts.sink.append({ type: 'turn_started', handId, playerId: seat.id, options: obs.options })
 
     const started = now()
-    const auto = (consecutiveFallbacks.get(seat.id) ?? 0) >= maxFallbacks
+    const capped = opts.stopSpending?.() ?? false
+    const auto = capped || (consecutiveFallbacks.get(seat.id) ?? 0) >= maxFallbacks
+    const autoReason = capped ? 'auto: budget cap reached' : 'auto: too many failures'
     const asked: Asked = auto
-      ? { result: { ok: false, error: 'auto: too many failures', kind: 'infra', usage: NO_USAGE, model: player.model }, timedOut: false }
+      ? { result: { ok: false, error: autoReason, kind: 'infra', usage: NO_USAGE, model: player.model }, timedOut: false }
       : await ask(player, obs, opts.decisionTimeoutMs, opts.timeoutGraceMs ?? 250)
     const res = asked.result
     // A timeout counts as exactly the time limit, however quickly the player reacts to the abort,
