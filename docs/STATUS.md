@@ -58,9 +58,9 @@ Last updated: 2026-09-21
 
 - [x] Task 1: Study hands in the core event stream (9226d6e; spec ✅ diff)
 - [x] Task 2: Study package and config (6c6ec35; spec ✅ diff)
-- [x] Task 3: Bootstrap CIs (f8dfb58; spec ✅ diff; quality review of Tasks 1-3 (opus: coverage, optional stopping) in progress)
+- [x] Task 3: Bootstrap CIs (f8dfb58; spec ✅ diff). Quality review (opus) → switch to Student t CIs, ≥10-block minimum, checkpoint events, strict config — follow-up fix in progress
 - [ ] Task 4: Study runner (progress, results, prereg, run)
-- [ ] Task 5: pnpm study CLI + example studies (expect engine 104, players 44, core 34, study 19)
+- [ ] Task 5: pnpm study CLI + example studies (expect engine 104, players 44, core 34, study 28)
 
 ## Key decisions (summary; spec is authoritative)
 
@@ -112,6 +112,8 @@ Last updated: 2026-09-21
 - Scratch bloub preview (custom colours, Mascots.vue) lived in the session scratchpad; recreate in Plan 4.
 
 ## Execution log
+
+- 2026-09-21: Decision (from stats review of Plan 3a): stopping rule and published CIs use Student t over neighbour blocks (bootstrap only as sensitivity check); CI rule never fires before 10 blocks (40 groups) unless fixed-size; every check logged; pairwise claims need paired contrasts + Holm (Plan 3b). Flag to user.
 
 - 2026-09-21: Plan 2 built on feat/plan-2-players — 11 tasks, each spec (diff vs verified reference) + quality reviewed (opus for the fairness-critical ones). Reviews caught: short-stack toCall/pot-odds and drifting SPR, bot folding aces, AA=KK, LLM truncation/reasoning-token/percentage-rescaling/win-wording issues, Jev asymmetric retries + unsourced price, SQLITE_BUSY lost events with concurrent writers, non-canonical config hashes, runner crash paths and latency skew, stuck 'running' games, soft budget cap, API keys visible on player objects.
 

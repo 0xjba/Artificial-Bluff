@@ -4,7 +4,7 @@
 
 **Goal:** Run the pre-registered duplicate study: seed groups with neighbour-balanced seating, played by the real players (or free mocks), with a hard budget cap checked before every decision, crash/budget-safe resume, and a CI-based stopping rule over whole neighbour blocks. Ships `pnpm study prereg|run|status`.
 
-**Architecture:** A new package `apps/study` (`@ab/study`). `parseStudyConfig` validates a JSON study file. `preregistration` builds the record hashed into the study's game config before hand 1 (everything that affects results; not budget or concurrency, so a study can be topped up and resumed). `runStudy` plays hands in group order with N workers through `playHand`, tags each hand with its place in the duplicate schedule, and after every completed hand checks the stopping rule over the **completed prefix** of groups in whole neighbour blocks (no cherry-picking). Hands cut short by the budget cap are excluded and replayed as a new attempt on resume. Two small core additions: `DuplicateInfo` on `hand_started`, and a `study_ended` event.
+**Architecture:** A new package `apps/study` (`@ab/study`). `parseStudyConfig` validates a JSON study file. `preregistration` builds the record hashed into the study's game config before hand 1 (everything that affects results; not budget or concurrency, so a study can be topped up and resumed). `runStudy` plays hands in group order with N workers through `playHand`, tags each hand with its place in the duplicate schedule, and after every completed hand checks the stopping rule (95% Student t CIs of bb/100) over the **completed prefix** of groups in whole neighbour blocks (no cherry-picking), logging each check. Hands cut short by the budget cap are excluded and replayed as a new attempt on resume. Small core additions: `DuplicateInfo` on `hand_started`, and `study_checkpoint` / `study_ended` events.
 
 **Tech Stack:** as Plans 1–2 (TypeScript strict, Vitest, better-sqlite3 via `@ab/core`, `tsx` for the CLI).
 
@@ -18,8 +18,9 @@
 
 - **Duplicate:** each seed group plays one deck once per seat rotation (5 hands for 5 players) on a base seating that varies by group; every block of 4 groups balances who sits next to whom (`neighbourBlockSize`). Results use whole blocks only.
 - **Hand ids:** `"<group>:<rotation>#<attempt>"`. A hand is valid if it reached `hand_ended` and no decision in it was auto-played because the budget cap was hit (`fallbackReason === 'auto: budget cap reached'`). Invalid attempts are simply superseded by the next attempt on resume; nothing is deleted.
-- **Stopping rule:** every `checkEvery` completed groups, over the completed prefix (groups 0..k-1 all valid), truncated to whole blocks: stop when every player's 95% bootstrap CI half-width of bb/100 is ≤ target; never before `minGroups`; at most `maxGroups`.
-- **bb/100:** per group, a player's net over all rotations ÷ rotations ÷ big blind × 100 (each player plays one hand per rotation); block value = mean of its groups; bootstrap resamples blocks.
+- **Stopping rule:** every `checkEvery` completed groups, over the completed prefix (groups 0..k-1 all valid), truncated to whole blocks: stop when every player's 95% **Student t** CI (df = blocks − 1) half-width of bb/100 is ≤ target; never before `minGroups`, which must be ≥ 10 neighbour blocks (40 groups for 5 players) unless the study has a fixed size (`minGroups == maxGroups`); at most `maxGroups`. Every check is logged as a `study_checkpoint` event.
+- **Why t, not a bootstrap:** a statistics review (fat-tailed simulations) found the percentile bootstrap covers only ~84–90% at 5–10 blocks and, with width-based stopping, published "95%" CIs could cover ~70%. Student t over blocks stays near 95%. The bootstrap is kept as a reported sensitivity check.
+- **bb/100:** per group, a player's net over all rotations ÷ rotations ÷ big blind × 100 (each player plays one hand per rotation); block value = mean of its groups; the t CI and the bootstrap both work on block values.
 - **Pre-registration:** `configHash(preregistration(...))` is stored as the study game's config hash. Resuming with a different record is refused. Budget and concurrency are deliberately not in it.
 - **Money:** never run `pnpm study run` without `--mock` unless the user explicitly says so. `--mock` swaps paid seats for free mocks under `<id>-mock`.
 
@@ -27,12 +28,12 @@
 
 | File | Responsibility |
 |---|---|
-| `packages/core/src/events.ts` (modify) | `DuplicateInfo` on `hand_started`; `StudyEndReason`; `study_ended` event |
+| `packages/core/src/events.ts` (modify) | `DuplicateInfo` on `hand_started`; `StudyEndReason`; `study_checkpoint` and `study_ended` events |
 | `packages/core/src/runner.ts` (modify) | `playHand({ duplicate })` records it on `hand_started` |
 | `apps/study/src/config.ts` | `StudyConfig`, `parseStudyConfig` |
-| `apps/study/src/stats.ts` | `bootstrapMean` |
+| `apps/study/src/stats.ts` | Student t CIs (stopping + published), `bootstrapMean` (sensitivity check) |
 | `apps/study/src/progress.ts` | Rebuild progress from events (resume); completed prefix |
-| `apps/study/src/results.ts` | bb/100 per player with block-bootstrap CIs |
+| `apps/study/src/results.ts` | bb/100 per player: t CI over neighbour blocks, plus bootstrap sensitivity CI |
 | `apps/study/src/prereg.ts` | The pre-registration record |
 | `apps/study/src/run.ts` | `runStudy` |
 | `apps/study/src/commands.ts`, `cli.ts` | `pnpm study prereg|run|status [--mock]` |
@@ -89,8 +90,19 @@ In the `hand_started` member of `EventBody`, after the `posts: ...` line add:
       /** Study hands only. */
       duplicate?: DuplicateInfo
 ```
-and add a new member to `EventBody` after the `game_ended` member:
+and add two new members to `EventBody` after the `game_ended` member:
 ```ts
+  | {
+      type: 'study_checkpoint'
+      /** Groups used (completed prefix in whole neighbour blocks) and blocks. */
+      groups: number
+      blocks: number
+      costUsd: number
+      /** 95% Student t CI of bb/100 per player; null where not yet defined (fewer than 2 blocks). */
+      players: Array<{ playerId: string; bb100: number | null; low: number | null; high: number | null; halfWidth: number | null }>
+      /** Whether this check stopped the study. */
+      stop: boolean
+    }
   | {
       type: 'study_ended'
       reason: StudyEndReason
@@ -177,11 +189,12 @@ import { describe, expect, it } from 'vitest'
 import { parseStudyConfig } from '../src/config'
 
 const lineup = ['jev', 'pill', 'block', 'drip', 'nimbus'].map((id) => ({ id, kind: 'mock' as const }))
-const base = { id: 'pilot', lineup, masterSeed: 'm', budgetUsd: 5, targetHalfWidthBb100: 10, minGroups: 8, maxGroups: 40 }
+const base = { id: 'pilot', lineup, masterSeed: 'm', budgetUsd: 5, targetHalfWidthBb100: 10, minGroups: 40, maxGroups: 200 }
 
 describe('parseStudyConfig', () => {
-  it('fills defaults', () => {
-    expect(parseStudyConfig(base)).toMatchObject({
+  it('fills defaults and ignores _-prefixed notes', () => {
+    expect(parseStudyConfig({ ...base, _note: 'hello' })).toEqual({
+      ...base,
       format: { smallBlind: 50, bigBlind: 100, stackInBigBlinds: 100 },
       decisionTimeoutMs: 20_000,
       checkEvery: 20,
@@ -190,18 +203,42 @@ describe('parseStudyConfig', () => {
     })
   })
 
-  it('requires group counts in whole neighbour blocks (4 for 5 players)', () => {
-    expect(() => parseStudyConfig({ ...base, minGroups: 6 })).toThrow(/multiple of the neighbour block \(4 for 5 players\)/)
-    expect(() => parseStudyConfig({ ...base, checkEvery: 10 })).toThrow(/checkEvery/)
-    expect(() => parseStudyConfig({ ...base, minGroups: 44 })).toThrow(/cannot exceed/)
+  it('rejects unknown keys, so typos cannot silently fall back to defaults', () => {
+    expect(() => parseStudyConfig({ ...base, checkevery: 4 })).toThrow(/unknown key\(s\): checkevery/)
+    expect(() => parseStudyConfig({ ...base, format: { smallBlind: 50, bigBlind: 100, stackInBigBlinds: 100, ante: 10 } })).toThrow(/unknown format key/)
   })
 
-  it('rejects bad values', () => {
+  it('requires group counts in whole neighbour blocks (4 for 5 players)', () => {
+    expect(() => parseStudyConfig({ ...base, minGroups: 42 })).toThrow(/multiple of the neighbour block \(4 for 5 players\)/)
+    expect(() => parseStudyConfig({ ...base, checkEvery: 10 })).toThrow(/checkEvery/)
+    expect(() => parseStudyConfig({ ...base, minGroups: 44, maxGroups: 40 })).toThrow(/cannot exceed/)
+  })
+
+  it('requires at least 10 blocks before the CI rule may stop, unless the study has a fixed size', () => {
+    expect(() => parseStudyConfig({ ...base, minGroups: 8 })).toThrow(/at least 10 neighbour blocks \(40 groups for 5 players\)/)
+    expect(parseStudyConfig({ ...base, minGroups: 8, maxGroups: 8 }).minGroups).toBe(8)
+  })
+
+  it('validates every line-up seat', () => {
+    const seat = (s: Record<string, unknown>) => ({ ...base, lineup: [...lineup.slice(0, 4), s] })
+    expect(() => parseStudyConfig(seat({ id: 'x', kind: 'banana' }))).toThrow(/kind must be/)
+    expect(() => parseStudyConfig(seat({ id: 'x', kind: 'llm' }))).toThrow(/model is required/)
+    expect(() => parseStudyConfig(seat({ id: 'x', kind: 'bot', bot: 'calling_station' }))).toThrow(/bot must be/)
+    expect(() => parseStudyConfig(seat({ id: '', kind: 'mock' }))).toThrow(/simple name/)
+    expect(() => parseStudyConfig(seat({ id: 'x', kind: 'llm', model: 'm', reasoning: 'high' }))).toThrow(/reasoning/)
+    // Unknown seat keys are dropped rather than pre-registered.
+    expect(parseStudyConfig(seat({ id: 'x', kind: 'llm', model: 'm', color: 'red' })).lineup[4]).toEqual({ id: 'x', kind: 'llm', model: 'm' })
+    expect(() => parseStudyConfig({ ...base, lineup: Array.from({ length: 11 }, (_, i) => ({ id: `p${i}`, kind: 'mock' })) })).toThrow(/2 to 10 players/)
+  })
+
+  it('validates the format and other values', () => {
+    expect(() => parseStudyConfig({ ...base, format: { smallBlind: 100, bigBlind: 50, stackInBigBlinds: 100 } })).toThrow(/multiple of "format.smallBlind"/)
     expect(() => parseStudyConfig({ ...base, id: 'no spaces allowed' })).toThrow(/id/)
     expect(() => parseStudyConfig({ ...base, budgetUsd: 0 })).toThrow(/budgetUsd/)
     expect(() => parseStudyConfig({ ...base, budgetUsd: Number.NaN })).toThrow(/budgetUsd/)
     expect(() => parseStudyConfig({ ...base, lineup: [lineup[0], lineup[0]] })).toThrow(/unique/)
     expect(() => parseStudyConfig({ ...base, concurrency: 50 })).toThrow(/concurrency/)
+    expect(() => parseStudyConfig({ ...base, bootstrapResamples: 200 })).toThrow(/bootstrapResamples/)
   })
 })
 ```
@@ -216,10 +253,10 @@ Expected: FAIL, cannot resolve `../src/config`.
 `apps/study/src/config.ts`:
 
 ```ts
-import { neighbourBlockSize, STUDY_CASH, type CashFormat } from '@ab/engine'
+import { DEFAULT_MENU_CONFIG, MAX_PLAYERS, neighbourBlockSize, STUDY_CASH, type CashFormat } from '@ab/engine'
 import type { PlayerSpec } from '@ab/players'
 
-/** A study, as written in a JSON file. Everything here is pre-registered (hashed before hand 1). */
+/** A study, as written in a JSON file. Everything here except budget and concurrency is pre-registered. */
 export interface StudyConfig {
   /** Study id; also the game id in the event store. */
   id: string
@@ -233,9 +270,12 @@ export interface StudyConfig {
   decisionTimeoutMs: number
   /** Hard spending cap (USD), checked before every decision. */
   budgetUsd: number
-  /** Stop when every player's 95% CI half-width for bb/100 is at most this. */
+  /** Stop when every player's 95% t CI half-width for bb/100 is at most this. */
   targetHalfWidthBb100: number
-  /** Never stop on the CI before this many groups (a multiple of the neighbour block). */
+  /**
+   * Never stop on the CI before this many groups. Must be at least 10 neighbour blocks (40 groups
+   * for 5 players), unless the study has a fixed size (minGroups == maxGroups).
+   */
   minGroups: number
   /** Stop after this many groups (a multiple of the neighbour block). */
   maxGroups: number
@@ -243,9 +283,18 @@ export interface StudyConfig {
   checkEvery: number
   /** Hands played at once. */
   concurrency: number
-  /** Bootstrap resamples for the CIs. */
+  /** Bootstrap resamples for the sensitivity-check CIs. */
   bootstrapResamples: number
 }
+
+/** Minimum number of neighbour blocks before the CI stopping rule may fire. */
+export const MIN_BLOCKS_BEFORE_STOPPING = 10
+
+const KEYS = new Set([
+  'id', 'lineup', 'masterSeed', 'format', 'decisionTimeoutMs', 'budgetUsd', 'targetHalfWidthBb100',
+  'minGroups', 'maxGroups', 'checkEvery', 'concurrency', 'bootstrapResamples',
+])
+const NAME = /^[a-z0-9][a-z0-9._-]*$/i
 
 type Raw = Record<string, unknown>
 
@@ -255,50 +304,121 @@ function num(raw: Raw, key: string, fallback?: number): number {
   return v
 }
 
-function int(raw: Raw, key: string, min: number, fallback?: number): number {
+function int(raw: Raw, key: string, min: number, fallback?: number, max = Number.MAX_SAFE_INTEGER): number {
   const v = num(raw, key, fallback)
-  if (!Number.isInteger(v) || v < min) throw new Error(`study config: "${key}" must be an integer ≥ ${min}`)
+  if (!Number.isInteger(v) || v < min || v > max) throw new Error(`study config: "${key}" must be an integer from ${min} to ${max}`)
   return v
 }
 
-/** Parses and validates a study config (from JSON), filling defaults. */
+/** Validates one line-up seat and returns it with only its known fields. */
+function parseSeat(raw: unknown, index: number): PlayerSpec {
+  const where = `lineup[${index}]`
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) throw new Error(`study config: ${where} must be an object`)
+  const s = raw as Raw
+  if (typeof s.id !== 'string' || !NAME.test(s.id)) throw new Error(`study config: ${where}.id must be a simple name`)
+  const model = () => {
+    if (typeof s.model !== 'string' || s.model.trim() === '') throw new Error(`study config: ${where}.model is required for kind "${String(s.kind)}"`)
+    return s.model
+  }
+  switch (s.kind) {
+    case 'jev':
+      return { id: s.id, kind: 'jev', model: model() }
+    case 'llm': {
+      const seat: PlayerSpec = { id: s.id, kind: 'llm', model: model() }
+      if (s.reasoning !== undefined) {
+        if (s.reasoning !== 'off' && s.reasoning !== 'low' && s.reasoning !== 'omit') throw new Error(`study config: ${where}.reasoning must be "off", "low" or "omit"`)
+        seat.reasoning = s.reasoning
+      }
+      for (const flag of ['structuredOutput', 'sendTemperature'] as const) {
+        if (s[flag] !== undefined) {
+          if (typeof s[flag] !== 'boolean') throw new Error(`study config: ${where}.${flag} must be true or false`)
+          seat[flag] = s[flag]
+        }
+      }
+      return seat
+    }
+    case 'bot': {
+      if (s.bot !== 'random' && s.bot !== 'calling-station' && s.bot !== 'tag') throw new Error(`study config: ${where}.bot must be "random", "calling-station" or "tag"`)
+      if (s.seed !== undefined && !Number.isInteger(s.seed)) throw new Error(`study config: ${where}.seed must be an integer`)
+      return { id: s.id, kind: 'bot', bot: s.bot, ...(s.seed !== undefined ? { seed: s.seed as number } : {}) }
+    }
+    case 'mock': {
+      if (s.model !== undefined && (typeof s.model !== 'string' || s.model === '')) throw new Error(`study config: ${where}.model must be a non-empty string`)
+      const price = s.inputPricePerMTok
+      if (price !== undefined && (typeof price !== 'number' || !Number.isFinite(price) || price < 0)) throw new Error(`study config: ${where}.inputPricePerMTok must be ≥ 0`)
+      return { id: s.id, kind: 'mock', ...(s.model !== undefined ? { model: s.model as string } : {}), ...(price !== undefined ? { inputPricePerMTok: price as number } : {}) }
+    }
+    default:
+      throw new Error(`study config: ${where}.kind must be "jev", "llm", "bot" or "mock"`)
+  }
+}
+
+function parseFormat(raw: unknown): CashFormat {
+  if (raw === undefined) return { ...STUDY_CASH }
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) throw new Error('study config: "format" must be an object')
+  const f = raw as Raw
+  const extra = Object.keys(f).filter((k) => !['smallBlind', 'bigBlind', 'stackInBigBlinds'].includes(k))
+  if (extra.length) throw new Error(`study config: unknown format key(s): ${extra.join(', ')}`)
+  const format = {
+    smallBlind: int(f, 'smallBlind', 1),
+    bigBlind: int(f, 'bigBlind', 1),
+    stackInBigBlinds: int(f, 'stackInBigBlinds', 1),
+  }
+  if (format.smallBlind > format.bigBlind || format.bigBlind % format.smallBlind !== 0) {
+    throw new Error('study config: "format.bigBlind" must be a multiple of "format.smallBlind"')
+  }
+  if (format.bigBlind % DEFAULT_MENU_CONFIG.chipUnit !== 0 && format.bigBlind % format.smallBlind !== 0) {
+    throw new Error(`study config: "format.bigBlind" must be a multiple of ${DEFAULT_MENU_CONFIG.chipUnit} or of the small blind`)
+  }
+  return format
+}
+
+/**
+ * Parses and validates a study config (from JSON), filling defaults. Unknown keys are errors (keys
+ * starting with "_", e.g. "_note", are ignored and not pre-registered), so a typo can't silently
+ * fall back to a default that then gets pre-registered.
+ */
 export function parseStudyConfig(input: unknown): StudyConfig {
   if (!input || typeof input !== 'object' || Array.isArray(input)) throw new Error('study config must be a JSON object')
   const raw = input as Raw
-  if (typeof raw.id !== 'string' || !/^[a-z0-9][a-z0-9._-]*$/i.test(raw.id)) throw new Error('study config: "id" must be a simple name')
+  const unknown = Object.keys(raw).filter((k) => !k.startsWith('_') && !KEYS.has(k))
+  if (unknown.length) throw new Error(`study config: unknown key(s): ${unknown.join(', ')}`)
+  if (typeof raw.id !== 'string' || !NAME.test(raw.id)) throw new Error('study config: "id" must be a simple name')
   if (typeof raw.masterSeed !== 'string' || raw.masterSeed === '') throw new Error('study config: "masterSeed" must be a non-empty string')
-  if (!Array.isArray(raw.lineup) || raw.lineup.length < 2) throw new Error('study config: "lineup" needs at least 2 players')
-  const lineup = raw.lineup as PlayerSpec[]
-  const ids = lineup.map((p) => p?.id)
-  if (ids.some((id) => typeof id !== 'string') || new Set(ids).size !== ids.length) throw new Error('study config: lineup ids must be unique strings')
-
-  const format = (raw.format ?? STUDY_CASH) as CashFormat
-  for (const k of ['smallBlind', 'bigBlind', 'stackInBigBlinds'] as const) {
-    if (!Number.isInteger(format[k]) || format[k] <= 0) throw new Error(`study config: "format.${k}" must be a positive integer`)
+  if (!Array.isArray(raw.lineup) || raw.lineup.length < 2 || raw.lineup.length > MAX_PLAYERS) {
+    throw new Error(`study config: "lineup" needs 2 to ${MAX_PLAYERS} players`)
   }
+  const lineup = raw.lineup.map(parseSeat)
+  if (new Set(lineup.map((p) => p.id)).size !== lineup.length) throw new Error('study config: lineup ids must be unique')
 
   const block = neighbourBlockSize(lineup.length)
   const config: StudyConfig = {
     id: raw.id,
     lineup,
     masterSeed: raw.masterSeed,
-    format,
-    decisionTimeoutMs: int(raw, 'decisionTimeoutMs', 1000, 20_000),
+    format: parseFormat(raw.format),
+    decisionTimeoutMs: int(raw, 'decisionTimeoutMs', 1000, 20_000, 300_000),
     budgetUsd: num(raw, 'budgetUsd'),
     targetHalfWidthBb100: num(raw, 'targetHalfWidthBb100'),
     minGroups: int(raw, 'minGroups', block),
     maxGroups: int(raw, 'maxGroups', block),
     checkEvery: int(raw, 'checkEvery', block, 20),
-    concurrency: int(raw, 'concurrency', 1, 2),
-    bootstrapResamples: int(raw, 'bootstrapResamples', 200, 2000),
+    concurrency: int(raw, 'concurrency', 1, 2, 16),
+    bootstrapResamples: int(raw, 'bootstrapResamples', 1000, 2000),
   }
   if (config.budgetUsd <= 0) throw new Error('study config: "budgetUsd" must be positive')
   if (config.targetHalfWidthBb100 <= 0) throw new Error('study config: "targetHalfWidthBb100" must be positive')
-  if (config.concurrency > 16) throw new Error('study config: "concurrency" must be at most 16')
   for (const k of ['minGroups', 'maxGroups', 'checkEvery'] as const) {
     if (config[k] % block !== 0) throw new Error(`study config: "${k}" must be a multiple of the neighbour block (${block} for ${lineup.length} players)`)
   }
   if (config.minGroups > config.maxGroups) throw new Error('study config: "minGroups" cannot exceed "maxGroups"')
+  if (config.minGroups < MIN_BLOCKS_BEFORE_STOPPING * block && config.minGroups !== config.maxGroups) {
+    throw new Error(
+      `study config: "minGroups" must be at least ${MIN_BLOCKS_BEFORE_STOPPING} neighbour blocks ` +
+        `(${MIN_BLOCKS_BEFORE_STOPPING * block} groups for ${lineup.length} players) so the CI stopping rule can't fire on too little data, ` +
+        'unless the study has a fixed size (minGroups == maxGroups)',
+    )
+  }
   return config
 }
 ```
@@ -306,7 +426,7 @@ export function parseStudyConfig(input: unknown): StudyConfig {
 - [ ] **Step 5: Run tests**
 
 Run: `pnpm --filter @ab/study exec vitest run && pnpm --filter @ab/study exec tsc --noEmit`
-Expected: PASS (3 tests); typecheck clean.
+Expected: PASS (6 tests); typecheck clean.
 
 - [ ] **Step 6: Commit**
 
@@ -319,7 +439,7 @@ git -c user.email=jobinb6444@gmail.com -c user.name=0xjba commit -m "feat(study)
 
 ---
 
-### Task 3: Bootstrap confidence intervals
+### Task 3: Confidence intervals (Student t; bootstrap as a sensitivity check)
 
 **Files:**
 - Create: `apps/study/src/stats.ts`
@@ -332,38 +452,84 @@ git -c user.email=jobinb6444@gmail.com -c user.name=0xjba commit -m "feat(study)
 ```ts
 import { deriveSeed, mulberry32 } from '@ab/engine'
 import { describe, expect, it } from 'vitest'
-import { bootstrapMean } from '../src/stats'
+import { bootstrapMean, studentTQuantile, tInterval } from '../src/stats'
 
-describe('bootstrapMean', () => {
-  it('is deterministic for a seed and brackets the mean', () => {
+/** Student t with 3 df (fat-tailed, like poker results). */
+function t3(rand: () => number): number {
+  const normal = () => {
+    const u = Math.max(rand(), 1e-12)
+    return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * rand())
+  }
+  const z = normal()
+  const chi = normal() ** 2 + normal() ** 2 + normal() ** 2
+  return z / Math.sqrt(chi / 3)
+}
+
+describe('studentTQuantile', () => {
+  it('matches published t tables', () => {
+    expect(studentTQuantile(0.975, 1)).toBeCloseTo(12.7062, 3)
+    expect(studentTQuantile(0.975, 4)).toBeCloseTo(2.776445, 5)
+    expect(studentTQuantile(0.975, 9)).toBeCloseTo(2.262157, 5)
+    expect(studentTQuantile(0.975, 29)).toBeCloseTo(2.04523, 5)
+    expect(studentTQuantile(0.975, 1000)).toBeCloseTo(1.962339, 4)
+    expect(studentTQuantile(0.5, 7)).toBeCloseTo(0, 6)
+  })
+})
+
+describe('tInterval', () => {
+  it('computes mean ± t × standard error', () => {
+    const ci = tInterval([1, 2, 3, 4, 5])
+    // sd = 1.5811, se = 0.7071, t(0.975, 4) = 2.7764
+    expect(ci.mean).toBe(3)
+    expect(ci.halfWidth).toBeCloseTo(2.776445 * 0.707107, 4)
+    expect(ci.low).toBeCloseTo(3 - ci.halfWidth, 10)
+  })
+
+  it('keeps about 95% coverage at 10 fat-tailed blocks (the regime a study stops in)', () => {
+    let covered = 0
+    for (let trial = 0; trial < 2000; trial++) {
+      const rand = mulberry32(deriveSeed('cov-t', trial))
+      const blocks = Array.from({ length: 10 }, () => t3(rand))
+      const ci = tInterval(blocks)
+      if (ci.low <= 0 && 0 <= ci.high) covered++
+    }
+    expect(covered / 2000).toBeGreaterThan(0.93)
+  })
+
+  it('is zero-width for identical values and infinite with fewer than two', () => {
+    expect(tInterval([2, 2, 2]).halfWidth).toBe(0)
+    expect(tInterval([3]).halfWidth).toBe(Number.POSITIVE_INFINITY)
+  })
+
+  it('rejects non-finite values', () => {
+    expect(() => tInterval([1, Number.NaN])).toThrow(/finite/)
+  })
+})
+
+describe('bootstrapMean (sensitivity check only)', () => {
+  it('is deterministic for a seed, brackets the mean, and uses symmetric tails', () => {
     const values = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
     const a = bootstrapMean(values, 2000, 's')
     expect(bootstrapMean(values, 2000, 's')).toEqual(a)
     expect(a.mean).toBe(5.5)
     expect(a.low).toBeLessThan(5.5)
     expect(a.high).toBeGreaterThan(5.5)
-    expect(a.halfWidth).toBeCloseTo((a.high - a.low) / 2)
   })
 
-  it('has roughly the right coverage on synthetic data (about 95%)', () => {
-    // True mean 0, sd 1, n = 40: the CI should contain 0 in roughly 95% of 400 trials.
+  it('undercovers at 10 fat-tailed blocks, which is why the study uses t', () => {
     let covered = 0
-    for (let t = 0; t < 400; t++) {
-      const rand = mulberry32(deriveSeed('cov', t))
-      const values = Array.from({ length: 40 }, () => {
-        // Box-Muller normal
-        const u = Math.max(rand(), 1e-12)
-        return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * rand())
-      })
-      const ci = bootstrapMean(values, 1000, `b${t}`)
+    for (let trial = 0; trial < 500; trial++) {
+      const rand = mulberry32(deriveSeed('cov-b', trial))
+      const blocks = Array.from({ length: 10 }, () => t3(rand))
+      const ci = bootstrapMean(blocks, 1000, `b${trial}`)
       if (ci.low <= 0 && 0 <= ci.high) covered++
     }
-    expect(covered / 400).toBeGreaterThan(0.9)
-    expect(covered / 400).toBeLessThan(0.98)
+    expect(covered / 500).toBeLessThan(0.93)
   })
 
-  it('reports an infinite interval with fewer than two values', () => {
-    expect(bootstrapMean([3], 1000, 's').halfWidth).toBe(Number.POSITIVE_INFINITY)
+  it('validates its inputs', () => {
+    expect(() => bootstrapMean([1, 2], 10, 's')).toThrow(/resamples/)
+    expect(() => bootstrapMean([1, 2], 1000, 's', 1.5)).toThrow(/level/)
   })
 })
 ```
@@ -388,11 +554,112 @@ export interface Interval {
   halfWidth: number
 }
 
-/** Mean of `values` with a percentile bootstrap CI (resampling the values with replacement). */
-export function bootstrapMean(values: readonly number[], resamples: number, seed: string, level = 0.95): Interval {
+const INFINITE = (mean: number): Interval => ({
+  mean,
+  low: Number.NEGATIVE_INFINITY,
+  high: Number.POSITIVE_INFINITY,
+  halfWidth: Number.POSITIVE_INFINITY,
+})
+
+function checkInputs(values: readonly number[], level: number): void {
+  if (!(level > 0 && level < 1)) throw new Error('level must be between 0 and 1')
+  if (values.some((v) => !Number.isFinite(v))) throw new Error('values must be finite numbers')
+}
+
+/** log Γ(x) (Lanczos approximation). */
+function logGamma(x: number): number {
+  const c = [76.18009172947146, -86.50532032941677, 24.01409824083091, -1.231739572450155, 0.1208650973866179e-2, -0.5395239384953e-5]
+  let y = x
+  const tmp = x + 5.5 - (x + 0.5) * Math.log(x + 5.5)
+  let ser = 1.000000000190015
+  for (const k of c) ser += k / ++y
+  return -tmp + Math.log((2.5066282746310005 * ser) / x)
+}
+
+/** Continued fraction for the incomplete beta function (Numerical Recipes betacf). */
+function betaContinuedFraction(a: number, b: number, x: number): number {
+  const tiny = 1e-300
+  let c = 1
+  let d = 1 - ((a + b) * x) / (a + 1)
+  if (Math.abs(d) < tiny) d = tiny
+  d = 1 / d
+  let h = d
+  for (let m = 1; m <= 300; m++) {
+    const m2 = 2 * m
+    let aa = (m * (b - m) * x) / ((a + m2 - 1) * (a + m2))
+    d = 1 + aa * d
+    if (Math.abs(d) < tiny) d = tiny
+    c = 1 + aa / c
+    if (Math.abs(c) < tiny) c = tiny
+    d = 1 / d
+    h *= d * c
+    aa = (-(a + m) * (a + b + m) * x) / ((a + m2) * (a + m2 + 1))
+    d = 1 + aa * d
+    if (Math.abs(d) < tiny) d = tiny
+    c = 1 + aa / c
+    if (Math.abs(c) < tiny) c = tiny
+    d = 1 / d
+    const delta = d * c
+    h *= delta
+    if (Math.abs(delta - 1) < 1e-14) break
+  }
+  return h
+}
+
+/** Regularized incomplete beta I_x(a, b). */
+function incompleteBeta(x: number, a: number, b: number): number {
+  if (x <= 0) return 0
+  if (x >= 1) return 1
+  const front = Math.exp(logGamma(a + b) - logGamma(a) - logGamma(b) + a * Math.log(x) + b * Math.log(1 - x))
+  return x < (a + 1) / (a + b + 2) ? (front * betaContinuedFraction(a, b, x)) / a : 1 - (front * betaContinuedFraction(b, a, 1 - x)) / b
+}
+
+/** Student t CDF with `df` degrees of freedom. */
+export function studentTCdf(t: number, df: number): number {
+  const tail = 0.5 * incompleteBeta(df / (df + t * t), df / 2, 0.5)
+  return t >= 0 ? 1 - tail : tail
+}
+
+/** Student t quantile (inverse CDF) by bisection; accurate to ~1e-10. */
+export function studentTQuantile(p: number, df: number): number {
+  if (!(p > 0 && p < 1)) throw new Error('p must be between 0 and 1')
+  if (!(df > 0)) throw new Error('df must be positive')
+  let lo = -1e4
+  let hi = 1e4
+  for (let i = 0; i < 200; i++) {
+    const mid = (lo + hi) / 2
+    if (studentTCdf(mid, df) < p) lo = mid
+    else hi = mid
+    if (hi - lo < 1e-12) break
+  }
+  return (lo + hi) / 2
+}
+
+/**
+ * Mean with a Student t CI (df = n - 1). Used for the stopping rule and the published CIs: it keeps
+ * close to nominal coverage at the small block counts a study stops at, where percentile bootstraps
+ * are too narrow.
+ */
+export function tInterval(values: readonly number[], level = 0.95): Interval {
+  checkInputs(values, level)
   const n = values.length
   const mean = n ? values.reduce((a, b) => a + b, 0) / n : Number.NaN
-  if (n < 2) return { mean, low: Number.NEGATIVE_INFINITY, high: Number.POSITIVE_INFINITY, halfWidth: Number.POSITIVE_INFINITY }
+  if (n < 2) return INFINITE(mean)
+  const variance = values.reduce((s, v) => s + (v - mean) ** 2, 0) / (n - 1)
+  const halfWidth = studentTQuantile(1 - (1 - level) / 2, n - 1) * Math.sqrt(variance / n)
+  return { mean, low: mean - halfWidth, high: mean + halfWidth, halfWidth }
+}
+
+/**
+ * Mean of `values` with a percentile bootstrap CI (resampling the values with replacement).
+ * Reported as a sensitivity check only: it undercovers at small counts.
+ */
+export function bootstrapMean(values: readonly number[], resamples: number, seed: string, level = 0.95): Interval {
+  checkInputs(values, level)
+  if (!Number.isInteger(resamples) || resamples < 100) throw new Error('resamples must be an integer ≥ 100')
+  const n = values.length
+  const mean = n ? values.reduce((a, b) => a + b, 0) / n : Number.NaN
+  if (n < 2) return INFINITE(mean)
   const rand = mulberry32(deriveSeed('bootstrap', seed))
   const means = new Array<number>(resamples)
   for (let r = 0; r < resamples; r++) {
@@ -401,10 +668,10 @@ export function bootstrapMean(values: readonly number[], resamples: number, seed
     means[r] = sum / n
   }
   means.sort((a, b) => a - b)
-  const tail = (1 - level) / 2
-  const pick = (q: number) => means[Math.min(resamples - 1, Math.max(0, Math.floor(q * resamples)))]!
-  const low = pick(tail)
-  const high = pick(1 - tail)
+  // Symmetric order statistics: k from each end.
+  const k = Math.max(1, Math.floor((resamples + 1) * ((1 - level) / 2) + 1e-9))
+  const low = means[k - 1]!
+  const high = means[resamples - k]!
   return { mean, low, high, halfWidth: (high - low) / 2 }
 }
 ```
@@ -412,14 +679,14 @@ export function bootstrapMean(values: readonly number[], resamples: number, seed
 - [ ] **Step 4: Run tests**
 
 Run: `pnpm --filter @ab/study exec vitest run`
-Expected: PASS (6 tests).
+Expected: PASS (14 tests).
 
 - [ ] **Step 5: Commit**
 
 
 ```bash
 git add apps/study/src/stats.ts apps/study/test/stats.test.ts
-git -c user.email=jobinb6444@gmail.com -c user.name=0xjba commit -m "feat(study): percentile bootstrap CIs" -m "Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
+git -c user.email=jobinb6444@gmail.com -c user.name=0xjba commit -m "feat(study): Student t and bootstrap CIs" -m "Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
 ```
 
 
@@ -453,11 +720,12 @@ function config(over: Record<string, unknown> = {}): StudyConfig {
     masterSeed: 'm',
     budgetUsd: 100,
     targetHalfWidthBb100: 1000,
-    minGroups: 8,
+    // Fixed size (min == max) unless a test overrides: the CI rule then only fires at the end.
+    minGroups: 16,
     maxGroups: 16,
     checkEvery: 4,
     concurrency: 1,
-    bootstrapResamples: 500,
+    bootstrapResamples: 1000,
     decisionTimeoutMs: 1000,
     ...over,
   })
@@ -473,8 +741,21 @@ describe('runStudy', () => {
     const store = new EventStore()
     const out = await run(config({ targetHalfWidthBb100: 0.001 }), tags(), store)
     expect(out.reason).toBe('ci_target') // every CI is exactly [0, 0]
-    expect(out.groupsCompleted).toBe(8) // stops at minGroups
+    expect(out.groupsCompleted).toBe(16)
     for (const p of out.summary.players) expect(p.bb100).toMatchObject({ mean: 0, halfWidth: 0 })
+  })
+
+  it('never stops on the CI before minGroups, and logs every check', async () => {
+    const store = new EventStore()
+    const out = await run(config({ minGroups: 40, maxGroups: 80, checkEvery: 20, targetHalfWidthBb100: 0.001 }), tags(), store)
+    expect(out.reason).toBe('ci_target')
+    expect(out.groupsCompleted).toBe(40) // CI was already 0-wide at 20 groups, but 40 is the minimum
+    const checks = store.events('pilot').filter((e): e is Extract<GameEvent, { type: 'study_checkpoint' }> => e.type === 'study_checkpoint')
+    expect(checks.map((c) => [c.groups, c.stop])).toEqual([
+      [20, false],
+      [40, true],
+    ])
+    expect(checks[1]!.players[0]).toMatchObject({ playerId: 'jev', bb100: 0, halfWidth: 0 })
   })
 
   it('records the duplicate schedule on every hand', async () => {
@@ -640,12 +921,14 @@ export function completedPrefix(p: StudyProgress, players: number, maxGroups: nu
 import { neighbourBlockSize } from '@ab/engine'
 import type { StudyConfig } from './config'
 import { handKeyOf, type StudyProgress } from './progress'
-import { bootstrapMean, type Interval } from './stats'
+import { bootstrapMean, tInterval, type Interval } from './stats'
 
 export interface PlayerResult {
   playerId: string
-  /** Big blinds won per 100 hands, with a 95% bootstrap CI over neighbour blocks. */
+  /** Big blinds won per 100 hands, with a 95% Student t CI over neighbour blocks (stopping rule, published). */
   bb100: Interval
+  /** The same with a percentile bootstrap CI, reported only as a sensitivity check. */
+  bb100Bootstrap: Interval
   hands: number
 }
 
@@ -680,7 +963,9 @@ export function summarize(p: StudyProgress, config: StudyConfig, prefixGroups: n
     }
     return {
       playerId: spec.id,
-      bb100: bootstrapMean(blockValues, config.bootstrapResamples, `${config.masterSeed}:${spec.id}`),
+      bb100: tInterval(blockValues),
+      // Same seed for every player: resamples are joint, keeping the players' zero-sum correlation.
+      bb100Bootstrap: bootstrapMean(blockValues, config.bootstrapResamples, config.masterSeed),
       hands: groups * n,
     }
   })
@@ -716,8 +1001,12 @@ export function preregistration(config: StudyConfig, adaptedLineup: PlayerSpec[]
     },
     stopping:
       'every checkEvery groups: over the completed prefix of groups in whole neighbour blocks, stop when every ' +
-      "player's 95% bootstrap CI half-width of bb/100 is at most targetHalfWidthBb100; never before minGroups; " +
-      'at most maxGroups; hands cut short by the budget cap are excluded and replayed on resume',
+      "player's 95% Student t CI (df = blocks - 1) half-width of bb/100 is at most targetHalfWidthBb100; never " +
+      'before minGroups (at least 10 blocks unless the study has a fixed size); at most maxGroups; every check is ' +
+      'logged as a study_checkpoint event; hands cut short by the budget cap are excluded and replayed on resume',
+    intervals:
+      'per-player 95% t CIs over neighbour blocks are marginal, not simultaneous; pairwise claims use paired ' +
+      'contrasts with a Holm correction; percentile bootstrap CIs are reported as a sensitivity check',
     ...extra,
   }
 }
@@ -797,10 +1086,25 @@ export async function runStudy(opts: RunStudyOptions): Promise<StudyOutcome> {
     if (prefix < checkedAt + config.checkEvery && prefix < config.maxGroups) return
     checkedAt = prefix - (prefix % config.checkEvery)
     const summary = summarize(progress, config, prefix)
-    opts.onCheckpoint?.(summary, store.gameCost(config.id))
-    if (prefix >= config.minGroups && summary.players.every((p) => p.bb100.halfWidth <= config.targetHalfWidthBb100)) {
-      stop ??= 'ci_target'
-    }
+    const costUsd = store.gameCost(config.id)
+    const met = prefix >= config.minGroups && summary.players.every((p) => p.bb100.halfWidth <= config.targetHalfWidthBb100)
+    const finite = (x: number) => (Number.isFinite(x) ? x : null)
+    sink.append({
+      type: 'study_checkpoint',
+      groups: summary.groups,
+      blocks: summary.blocks,
+      costUsd,
+      players: summary.players.map((p) => ({
+        playerId: p.playerId,
+        bb100: finite(p.bb100.mean),
+        low: finite(p.bb100.low),
+        high: finite(p.bb100.high),
+        halfWidth: finite(p.bb100.halfWidth),
+      })),
+      stop: met && stop === null,
+    })
+    opts.onCheckpoint?.(summary, costUsd)
+    if (met) stop ??= 'ci_target'
   }
 
   function* tasks(): Generator<DuplicateHand> {
@@ -886,7 +1190,7 @@ Key points:
 - [ ] **Step 4: Run tests and typecheck**
 
 Run: `pnpm --filter @ab/study exec vitest run && pnpm --filter @ab/study exec tsc --noEmit`
-Expected: PASS (15 tests); typecheck clean.
+Expected: PASS (24 tests); typecheck clean.
 
 - [ ] **Step 5: Commit**
 
@@ -932,7 +1236,7 @@ const config = parseStudyConfig({
   maxGroups: 4,
   checkEvery: 4,
   concurrency: 2,
-  bootstrapResamples: 500,
+  bootstrapResamples: 1000,
 })
 
 describe('study commands (mock mode: free, no network, no keys)', () => {
@@ -1185,15 +1489,15 @@ In the root `package.json` `scripts`, add:
 - [ ] **Step 4: Run tests, typecheck and a free mock study**
 
 Run: `pnpm --filter @ab/study exec vitest run && pnpm typecheck`
-Expected: PASS (19 tests); typecheck clean everywhere.
+Expected: PASS (28 tests); typecheck clean everywhere.
 
 Run: `pnpm study run studies/smoke.example.json --mock --db data/study-mock.db`
-Expected: "mock mode: no API calls…", the pre-registration hash, checkpoint tables, then `ended: ci_target` (identical mock strategies break exactly even, so every CI is 0 wide) with 8 groups. Costs shown are simulated.
+Expected: "mock mode: no API calls…", the pre-registration hash, checkpoint tables, then `ended: ci_target` (identical mock strategies break exactly even, so every CI is 0 wide) with 8 groups (a fixed-size study). Costs shown are simulated.
 
 - [ ] **Step 5: Full verification and commit**
 
 Run: `pnpm test && pnpm typecheck`
-Expected: engine 104, players 44, core 34, study 19; typecheck clean.
+Expected: engine 104, players 44, core 34, study 28; typecheck clean.
 
 
 ```bash
@@ -1213,7 +1517,7 @@ git -c user.email=jobinb6444@gmail.com -c user.name=0xjba commit -m "feat(study)
 
 ## Done when
 
-- `pnpm test` passes (engine 104, players 44, core 34, study 19); `pnpm typecheck` clean.
+- `pnpm test` passes (engine 104, players 44, core 34, study 28); `pnpm typecheck` clean.
 - `pnpm study run studies/smoke.example.json --mock` completes for free.
 - Next: Plan 3b reads the study's events (and live games') to produce the report: bb/100 with CIs, cost, latency, calibration (A: main-pot share; C: expected main-pot share at decision), fallback rates, play style, CSV/JSON exports and a static HTML report.
 

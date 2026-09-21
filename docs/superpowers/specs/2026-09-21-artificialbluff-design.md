@@ -175,11 +175,15 @@ Budget and concurrency are not part of the pre-registration (they only decide ho
 - **Budget:** running cost; stop launching groups when the next could exceed the cap; in-flight groups finish;
   incomplete groups excluded.
 - **Resume:** re-running skips completed (seed, rotation) pairs.
-- **Stopping:** every 20 groups (a multiple of the 4-group neighbour block), compute 95% bootstrap CIs of bb/100;
-  stop when all half-widths ≤ target (not before the minimum, itself a multiple of 4), or at the cap. The budget cap
-  also stops only at complete blocks where possible. The seating scheme is part of the pre-registered config.
-- **Bootstrap unit:** resample whole neighbour blocks (4 groups for 5 players; computed via `neighbourBlockSize`), so
-  every resample keeps the neighbour balance exact.
+- **Stopping:** every `checkEvery` groups (a multiple of the neighbour block), over the completed prefix of groups in
+  whole blocks, compute each player's 95% **Student t** CI (df = blocks − 1) of bb/100; stop when all half-widths ≤ target.
+  Never before `minGroups`, which must be ≥ 10 blocks (40 groups for 5 players) unless the study has a fixed size.
+  Every check is logged (`study_checkpoint`). The budget cap stops a run; cut-off hands are replayed on resume.
+  (A statistics review found percentile-bootstrap CIs cover only ~84–90% at 5–10 fat-tailed blocks, and ~70% after
+  width-based stopping; t CIs stay near 95%.)
+- **CI unit:** neighbour blocks (4 groups for 5 players; `neighbourBlockSize`). The published CI is the t interval;
+  a percentile bootstrap over blocks is reported as a sensitivity check. Per-player CIs are marginal, not
+  simultaneous: pairwise claims (e.g. Jev vs a model) use paired contrasts with a Holm correction (Plan 3b).
 - **Stages:** `--players mock` ($0) → smoke ~100 hands (~$1) → main (cap ~$25).
 
 **Outputs:** static HTML report, CSV/JSON of every decision, and the same charts on the site's `/research` page:
