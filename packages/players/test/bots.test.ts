@@ -1,4 +1,4 @@
-import { applyAction, buildMenu, createHand, type HandState } from '@ab/engine'
+import { applyAction, buildMenu, createHand, fullDeck, type Card, type HandState } from '@ab/engine'
 import { describe, expect, it } from 'vitest'
 import { CallingStation, preflopStrength, RandomBot, TagBot } from '../src/bots'
 import { MockLlm } from '../src/mock'
@@ -37,8 +37,34 @@ describe('bots', () => {
 
   it('rank preflop hands sensibly', () => {
     expect(preflopStrength(['As', 'Ad'])).toBe(1)
+    const order = [['As', 'Ad'], ['Ks', 'Kd'], ['As', 'Ks'], ['As', 'Kd'], ['2s', '2d'], ['7c', '2d']] as const
+    const scores = order.map((h) => preflopStrength([...h]))
+    for (let i = 1; i < scores.length; i++) expect(scores[i]).toBeLessThan(scores[i - 1]!)
     expect(preflopStrength(['As', 'Ks'])).toBeGreaterThan(preflopStrength(['7c', '2d']))
     expect(preflopStrength(['7c', '2d'])).toBeLessThan(0.3)
+  })
+
+  it('TAG shoves a premium hand when all-in is the only raise left', async () => {
+    // BB has 450 (4.5 bb) with aces and faces an open to 300: a full raise (to 500) is more than
+    // it has, so the menu offers only fold, call and all-in.
+    // Deal order from left of the button: SB, BB, UTG, BTN, twice.
+    const top: Card[] = ['Kc', 'As', '2d', '7h', 'Kd', 'Ad', '3d', '8h']
+    let s = createHand({
+      seats: [{ id: 'btn', stack: 10_000 }, { id: 'sb', stack: 10_000 }, { id: 'bb', stack: 450 }, { id: 'utg', stack: 10_000 }],
+      buttonIndex: 0,
+      smallBlind: 50,
+      bigBlind: 100,
+      seed: 1,
+      deck: [...top, ...fullDeck().filter((c) => !top.includes(c))],
+    })
+    s = applyAction(s, { type: 'raise', to: 300 }) // UTG opens
+    s = applyAction(s, { type: 'fold' }) // BTN
+    s = applyAction(s, { type: 'fold' }) // SB
+    const obs = buildObservation(s)
+    expect(obs.hole).toEqual(['As', 'Ad'])
+    expect(obs.options.map((o) => o.id)).toEqual(['fold', 'call', 'all_in'])
+    const res = await new TagBot('bb').decide(obs, signal)
+    expect(res.ok && res.decision.optionId).toBe('all_in')
   })
 
   it('calling station never folds or raises', async () => {
@@ -69,6 +95,12 @@ describe('MockLlm', () => {
     expect(results[0]!.ok).toBe(true)
     expect(results[1]!.ok).toBe(false)
     expect(results[2]!.ok && results[2]!.decision.optionId).toBe('not_an_option')
+  })
+
+  it('rejects immediately if already aborted', async () => {
+    const ac = new AbortController()
+    ac.abort()
+    await expect(new MockLlm('m').decide(obsFor(), ac.signal)).rejects.toThrow(/aborted/)
   })
 
   it('stops when aborted', async () => {

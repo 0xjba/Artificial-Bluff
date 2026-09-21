@@ -82,6 +82,9 @@ export interface Player {
   readonly kind: PlayerKind
   /** Model id (or bot name) as configured. */
   readonly model: string
-  /** Must resolve (never reject for ordinary failures) and should stop work when `signal` aborts. */
+  /**
+   * Must resolve for ordinary failures (returning `ok: false` with any usage incurred). Once `signal`
+   * aborts (timeout), it should stop work and may reject: the runner has already recorded a timeout.
+   */
   decide(obs: Observation, signal: AbortSignal): Promise<DecideResult>
 }
