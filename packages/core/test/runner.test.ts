@@ -231,6 +231,13 @@ describe('playHand', () => {
     expect(decisions(sink.events)[0]!.latencyMs).toBe(300)
   })
 
+  it('records study hands\' place in the duplicate schedule on hand_started', async () => {
+    const sink = memorySink()
+    const duplicate = { groupIndex: 3, rotation: 2, order: 4, seed: 123, attempt: 1 }
+    await playHand({ config: config(['a', 'b']), players: byId([new CallingStation('a'), new CallingStation('b')]), sink, decisionTimeoutMs: 100, duplicate })
+    expect(sink.events[0]).toMatchObject({ type: 'hand_started', duplicate })
+  })
+
   it('rejects a config with a seat that has no player', async () => {
     await expect(playHand({ config: config(['a', 'b']), players: byId([new CallingStation('a')]), sink: memorySink(), decisionTimeoutMs: 10 })).rejects.toThrow(/no player for seat b/)
   })

@@ -3,6 +3,21 @@ import type { PlayerKind } from '@ab/players'
 
 export type GameKind = 'live' | 'study'
 
+/** Where a study hand sits in the duplicate schedule. */
+export interface DuplicateInfo {
+  groupIndex: number
+  rotation: number
+  /** Base seating order of the group (multiplier k, or 0 for a seeded shuffle). */
+  order: number
+  /** Deck seed shared by the group's rotations. */
+  seed: number
+  /** 1 for the first try; a hand interrupted (crash, budget cap) is replayed with the next attempt. */
+  attempt: number
+}
+
+/** Why a study stopped: CI target met, all groups played, budget reached, or stopped early. */
+export type StudyEndReason = 'ci_target' | 'max_groups' | 'budget_cap' | 'interrupted'
+
 export interface PlayerInfo {
   id: string
   kind: PlayerKind
@@ -69,6 +84,8 @@ export type EventBody =
       bigBlind: number
       seats: Array<{ playerId: string; stack: number; position: Position }>
       posts: Array<{ playerId: string; blind: 'sb' | 'bb'; amount: number }>
+      /** Study hands only. */
+      duplicate?: DuplicateInfo
     }
   | { type: 'cards_dealt'; handId: string | null; holes: Record<string, Card[]> }
   | { type: 'turn_started'; handId: string | null; playerId: string; options: Array<{ id: OptionId; label: string }> }
@@ -88,6 +105,14 @@ export type EventBody =
       stacks: Record<string, number>
       eliminated: string[]
       handsPlayed: number
+    }
+  | {
+      type: 'study_ended'
+      reason: StudyEndReason
+      /** Seed groups completed in order from group 0 (the prefix the results use). */
+      groupsCompleted: number
+      handsPlayed: number
+      costUsd: number
     }
 
 export type EventType = EventBody['type']
