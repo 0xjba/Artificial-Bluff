@@ -65,6 +65,21 @@ describe('tournament', () => {
     expect(() => nextHandConfig(t)).toThrow(/complete/)
   })
 
+  it('rejects a hand result that does not match the live players or loses chips', () => {
+    let t = createTournament(['a', 'b', 'c'], liveTurboConfig('s'))
+    expect(() => recordHand(t, result({ a: 4500, b: 4500 }))).toThrow(/do not match/)
+    expect(() => recordHand(t, result({ a: 3000, b: 3000, c: 3000, x: 0 }))).toThrow(/do not match/)
+    expect(() => recordHand(t, result({ a: 3000, b: 3000, c: 2000 }))).toThrow(/conserve chips/)
+    t = recordHand(t, result({ a: 0, b: 4500, c: 4500 }))
+    // 'a' is out: a result that includes 'a' again (e.g. a stale result) must be rejected.
+    expect(() => recordHand(t, result({ a: 100, b: 4400, c: 4500 }))).toThrow(/do not match/)
+  })
+
+  it('allows at most 10 players', () => {
+    const eleven = Array.from({ length: 11 }, (_, i) => `p${i}`)
+    expect(() => createTournament(eleven, liveTurboConfig('s'))).toThrow(/at most 10/)
+  })
+
   it('can be ended early for the budget cap', () => {
     const t = endTournament(createTournament(['a', 'b'], liveTurboConfig('s')), 'budget_cap')
     expect(t.complete).toBe(true)

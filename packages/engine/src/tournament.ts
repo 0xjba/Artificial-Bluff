@@ -1,3 +1,4 @@
+import { MAX_PLAYERS } from './hand'
 import { deriveSeed } from './rng'
 import type { HandConfig, HandResult } from './types'
 
@@ -42,6 +43,7 @@ export type EndReason = 'last_player' | 'hand_cap' | 'budget_cap' | 'interrupted
 export interface TournamentPlayer {
   id: string
   stack: number
+  /** 0-based index of the hand in which the player busted (i.e. `handNumber` before that hand was recorded). */
   eliminatedAtHand: number | null
 }
 
@@ -62,6 +64,7 @@ export interface TournamentState {
 
 export function createTournament(playerIds: string[], config: TournamentConfig): TournamentState {
   if (playerIds.length < 2) throw new Error('a tournament needs at least 2 players')
+  if (playerIds.length > MAX_PLAYERS) throw new Error(`a tournament allows at most ${MAX_PLAYERS} players`)
   if (new Set(playerIds).size !== playerIds.length) throw new Error('player ids must be unique')
   return {
     config,
@@ -117,6 +120,16 @@ function chipLeader(t: TournamentState): string {
 /** Applies a finished hand's stacks, eliminates busted players, rotates the button, checks for the end. */
 export function recordHand(prev: TournamentState, result: HandResult): TournamentState {
   if (prev.complete) throw new Error('tournament is complete')
+  // The result must come from the hand nextHandConfig dealt: exactly the live players, chips conserved.
+  const dealt = prev.players.filter((p) => p.stack > 0)
+  const ids = Object.keys(result.stacks)
+  if (ids.length !== dealt.length || !dealt.every((p) => p.id in result.stacks)) {
+    throw new Error(`hand result players [${ids.join(', ')}] do not match live players [${dealt.map((p) => p.id).join(', ')}]`)
+  }
+  const before = dealt.reduce((sum, p) => sum + p.stack, 0)
+  const after = Object.values(result.stacks).reduce((sum, v) => sum + v, 0)
+  if (before !== after) throw new Error(`hand result does not conserve chips: ${before} before, ${after} after`)
+
   const t = structuredClone(prev)
   const startStacks = new Map(t.players.map((p) => [p.id, p.stack]))
   for (const p of t.players) if (p.id in result.stacks) p.stack = result.stacks[p.id]!
