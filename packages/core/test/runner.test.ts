@@ -85,6 +85,7 @@ describe('playHand', () => {
       (() => ({ ok: true })) as unknown as Player['decide'],
       () => Promise.reject(undefined),
       () => Promise.reject(null),
+      (async () => ({ ok: true, decision: { optionId: 'fold' }, usage: {}, model: 'm' })) as unknown as Player['decide'],
     ]
     for (const decide of bad) {
       const sink = memorySink()
