@@ -21,6 +21,8 @@ export interface ChatResult {
   finishReason: string | null
   /** True when the model refused (non-empty `refusal` field). */
   refused: boolean
+  /** Provider error reported inside a 200 response (no choices), or null. */
+  error: string | null
   /** Model that actually served the request. */
   model: string
   promptTokens: number
@@ -71,6 +73,7 @@ export async function chatCompletion(
   if (!res.ok) throw new OpenRouterError(res.status, text)
   // A 200 whose body isn't JSON (e.g. a gateway page) may still have been billed; cost is unknown then.
   const body = JSON.parse(text) as {
+    error?: { message?: string } | string
     model?: string
     choices?: Array<{ finish_reason?: string | null; message?: { content?: string | null; refusal?: string | null } }>
     usage?: {
@@ -85,6 +88,7 @@ export async function chatCompletion(
     content: choice?.message?.content ?? '',
     finishReason: choice?.finish_reason ?? null,
     refused: Boolean(choice?.message?.refusal),
+    error: body.error ? (typeof body.error === 'string' ? body.error : (body.error.message ?? 'provider error')) : null,
     model: body.model ?? request.model,
     promptTokens: body.usage?.prompt_tokens ?? 0,
     completionTokens: body.usage?.completion_tokens ?? 0,

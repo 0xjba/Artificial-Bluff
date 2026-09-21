@@ -160,6 +160,14 @@ describe('LlmPlayer', () => {
     expect(retry.at(-1)!.content).toMatch(/the reply was a refusal/)
   })
 
+  it('treats a provider error inside a 200 as an infrastructure failure, without a retry', async () => {
+    const body = JSON.stringify({ error: { message: 'upstream overloaded' }, usage: { prompt_tokens: 400, completion_tokens: 0, cost: 0.0005 } })
+    const fake = fakeFetch([{ body }])
+    const res = await make(fake.fn).decide(obs, signal)
+    expect(res).toMatchObject({ ok: false, kind: 'infra', error: 'provider error: upstream overloaded', usage: { costUsd: 0.0005, retries: 0 } })
+    expect(fake.requests).toHaveLength(1)
+  })
+
   it('returns an infrastructure failure (not a throw) on HTTP errors', async () => {
     const fake = fakeFetch([{ status: 500, body: 'upstream down' }])
     const res = await make(fake.fn).decide(obs, signal)
