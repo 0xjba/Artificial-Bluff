@@ -113,7 +113,8 @@ export function buildMenu(state: HandState, config: Partial<MenuConfig> = {}): M
     }
 
     const kept: number[] = []
-    const tooClose = (to: number) => kept.some((k) => Math.abs(to - k) <= minGap * k)
+    // Also drop sizes within minGap of all-in: the all-in option covers them.
+    const tooClose = (to: number) => max - to <= minGap * to || kept.some((k) => Math.abs(to - k) <= minGap * k)
     for (const [id, to] of candidates) {
       if (to < min || to >= max || tooClose(to)) continue
       kept.push(to)

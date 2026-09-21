@@ -104,6 +104,28 @@ describe('buildMenu', () => {
     expect(amounts).not.toContain(725)
   })
 
+  it('drops sizes within 5% of all-in', () => {
+    // Heads-up 75/150: raise to 600 and call, so the flop pot is 1,200 with 1,865 behind.
+    // pot_150 would be Bet 1,800, within 5% of All-in 1,865, so it must be dropped.
+    let s = createHand({
+      seats: [
+        { id: 'a', stack: 2465 },
+        { id: 'b', stack: 2465 },
+      ],
+      buttonIndex: 0,
+      smallBlind: 75,
+      bigBlind: 150,
+      seed: 1,
+    })
+    s = play(s, { type: 'raise', to: 600 }, { type: 'call' })
+    const menu = buildMenu(s)
+    expect(menu.map((o) => o.label)).not.toContain('Bet 1,800')
+    const allIn = (menu.find((o) => o.id === 'all_in')!.action as { to: number }).to
+    for (const o of menu) {
+      if (o.action.type === 'raise' && o.id !== 'all_in') expect(allIn - o.action.to).toBeGreaterThan(0.05 * o.action.to)
+    }
+  })
+
   it('rejects a bad chipUnit', () => {
     expect(() => buildMenu(start([1000, 1000]), { chipUnit: 0 })).toThrow(/chipUnit/)
   })
