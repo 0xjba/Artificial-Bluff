@@ -58,10 +58,42 @@ describe('JevPlayer', () => {
     expect(req.body.state).toEqual(JSON.parse(JSON.stringify({ ...obs, options: undefined })))
   })
 
-  it('returns a failure (not a throw) on API errors', async () => {
-    const fake = fakeFetch([{ status: 401, body: { error: 'bad key' } }])
-    const jev = new JevPlayer({ id: 'jev', model: 'jev-1.13.0', client: { apiKey: 'test', fetch: fake.fn }, maxRetries: 0 })
-    const res = await jev.decide(obs, signal)
-    expect(res).toMatchObject({ ok: false, kind: 'infra' })
+  const quiet = { apiKey: 'test', logLevel: 'off' as const }
+
+  it('returns an infrastructure failure (not a throw) on API errors, without retrying', async () => {
+    for (const status of [401, 429, 500]) {
+      const fake = fakeFetch([{ status, body: { error: 'nope' } }, { status: 200, body: okBody }])
+      const jev = new JevPlayer({ id: 'jev', model: 'jev-1.13.0', client: { ...quiet, fetch: fake.fn } })
+      const res = await jev.decide(obs, signal)
+      expect(res).toMatchObject({ ok: false, kind: 'infra' })
+      expect(fake.requests).toHaveLength(1) // same as the LLM seats: no infrastructure retry
+    }
+  })
+
+  it('treats an answer outside the offered options, or a missing win probability, as an API fault', async () => {
+    const offOption = { ...okBody, answers: { ...okBody.answers, action: { ...okBody.answers.action, choice: 'raise' } } }
+    const noWin = { ...okBody, answers: { action: okBody.answers.action } }
+    for (const body of [offOption, noWin]) {
+      const fake = fakeFetch([{ status: 200, body }])
+      const jev = new JevPlayer({ id: 'jev', model: 'jev-1.13.0', client: { ...quiet, fetch: fake.fn } })
+      expect(await jev.decide(obs, signal)).toMatchObject({ ok: false, kind: 'infra' })
+    }
+  })
+
+  it('keeps only offered options in the probabilities and records the model that answered', async () => {
+    const extra = { ...okBody, model: 'jev-1.13.1', answers: { ...okBody.answers, action: { ...okBody.answers.action, probabilities: { ...okBody.answers.action.probabilities, raise: 0.2 } } } }
+    const fake = fakeFetch([{ status: 200, body: extra }])
+    const res = await new JevPlayer({ id: 'jev', model: 'jev-1.13.0', client: { ...quiet, fetch: fake.fn } }).decide(obs, signal)
+    expect(res.ok && res.decision.optionProbabilities).toEqual({ fold: 0.1, call: 0.6, all_in: 0.3 })
+    expect(res.model).toBe('jev-1.13.1')
+  })
+
+  it('stops when the runner aborts', async () => {
+    const hang = async (_url: string, init?: RequestInit) =>
+      new Promise<Response>((_resolve, reject) => init!.signal!.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError'))))
+    const ac = new AbortController()
+    const pending = new JevPlayer({ id: 'jev', model: 'jev-1.13.0', client: { ...quiet, fetch: hang } }).decide(obs, ac.signal)
+    ac.abort()
+    expect(await pending).toMatchObject({ ok: false, kind: 'infra' })
   })
 })

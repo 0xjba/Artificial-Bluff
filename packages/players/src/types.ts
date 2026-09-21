@@ -52,7 +52,11 @@ export interface Decision {
   optionId: OptionId
   /** Stated probability of winning this hand, 0-1, or null if the player gives none. */
   winProbability: number | null
-  /** Confidence that the chosen action is best, 0-1, or null. */
+  /**
+   * 0-1, or null. Not comparable across player kinds: for Jev it is TypeSafe's confidence (how
+   * concentrated its option probabilities are); for LLMs it is self-reported certainty that the
+   * action is best. Report them separately.
+   */
   confidence: number | null
   /** Probability per offered option (Jev), or null. */
   optionProbabilities: Partial<Record<OptionId, number>> | null
