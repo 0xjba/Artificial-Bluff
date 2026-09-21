@@ -51,7 +51,7 @@ export interface DecisionEvent {
 export type FallbackKind = 'model' | 'infra' | 'timeout' | 'auto'
 
 export type EventBody =
-  | { type: 'game_started'; kind: GameKind; players: PlayerInfo[] }
+  | { type: 'game_started'; kind: GameKind; players: PlayerInfo[]; /** Pre-registration hash of the game config. */ configHash: string }
   | {
       type: 'hand_started'
       handId: string | null

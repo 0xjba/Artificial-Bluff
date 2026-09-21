@@ -1,6 +1,11 @@
+import { spawn } from 'node:child_process'
+import { mkdtempSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import type { DecisionEvent } from '../src/events'
-import { configHash, EventStore } from '../src/store'
+import { canonicalJson, configHash, EventStore, SCHEMA_VERSION } from '../src/store'
 
 const decision = (over: Partial<DecisionEvent> = {}): DecisionEvent => ({
   type: 'decision', handId: 'hand-0', street: 'preflop', playerId: 'jev', position: 'BTN', model: 'jev-1.13.0',
@@ -21,7 +26,7 @@ describe('EventStore', () => {
     const store = new EventStore()
     const game = store.createGame('g1', 'live', { z: 1, a: 2 }, 1000)
     expect(game).toMatchObject({ id: 'g1', kind: 'live', status: 'running', config: { a: 2, z: 1 }, createdAt: 1000 })
-    const e1 = store.append('g1', { type: 'game_started', kind: 'live', players: [] }, 2000)
+    const e1 = store.append('g1', { type: 'game_started', kind: 'live', players: [], configHash: 'x' }, 2000)
     const e2 = store.append('g1', decision(), 3000)
     expect([e1.seq, e2.seq]).toEqual([1, 2])
     expect(store.events('g1').map((e) => [e.seq, e.type, e.ts])).toEqual([
@@ -56,16 +61,69 @@ describe('EventStore', () => {
   })
 
   it('persists to a file', async () => {
-    const { mkdtempSync } = await import('node:fs')
-    const { tmpdir } = await import('node:os')
-    const { join } = await import('node:path')
     const path = join(mkdtempSync(join(tmpdir(), 'ab-')), 'events.db')
     const a = new EventStore(path)
     a.createGame('g', 'study', { x: 1 })
-    a.append('g', { type: 'game_started', kind: 'study', players: [] })
+    a.append('g', { type: 'game_started', kind: 'study', players: [], configHash: 'x' })
     a.close()
     const b = new EventStore(path)
     expect(b.events('g')).toHaveLength(1)
     b.close()
   })
+
+  it('only accepts values JSON represents faithfully', () => {
+    expect(canonicalJson({ b: 1, a: [true, null, 'x'], skip: undefined })).toBe('{"a":[true,null,"x"],"b":1}')
+    for (const bad of [{ n: Number.NaN }, { n: Infinity }, { d: new Date(0) }, { m: new Map() }, { f: () => 1 }, { a: [1, undefined] }, { b: 10n }]) {
+      expect(() => canonicalJson(bad)).toThrow(/canonicalJson/)
+    }
+  })
+
+  it('rejects a bad config or event before writing anything', () => {
+    const store = new EventStore()
+    expect(() => store.createGame('g', 'live', { f: () => 1 })).toThrow(/function/)
+    expect(store.games()).toEqual([])
+    store.createGame('g', 'live', {})
+    expect(() => store.append('g', decision({ latencyMs: Infinity }))).toThrow(/finite/)
+    expect(store.events('g')).toEqual([])
+    expect(store.db.prepare('SELECT COUNT(*) AS n FROM decisions').get()).toEqual({ n: 0 })
+  })
+
+  it('refuses to update an unknown game and stamps the schema version', () => {
+    const store = new EventStore()
+    expect(() => store.setStatus('nope', 'ended')).toThrow(/no game nope/)
+    expect(store.db.pragma('user_version', { simple: true })).toBe(SCHEMA_VERSION)
+  })
+
+  it('refuses a database from newer code', () => {
+    const path = join(mkdtempSync(join(tmpdir(), 'ab-')), 'events.db')
+    const a = new EventStore(path)
+    a.db.pragma(`user_version = ${SCHEMA_VERSION + 1}`)
+    a.close()
+    expect(() => new EventStore(path)).toThrow(/newer than this code/)
+  })
+
+  it('does not lose events when several processes write to one file', async () => {
+    const path = join(mkdtempSync(join(tmpdir(), 'ab-')), 'events.db')
+    const setup = new EventStore(path)
+    for (const g of ['a', 'b', 'c']) setup.createGame(g, 'study', {})
+    setup.close()
+    const here = dirname(fileURLToPath(import.meta.url))
+    const tsx = join(here, '../../../node_modules/.bin/tsx')
+    const writer = join(here, 'fixtures/concurrent-writer.ts')
+    const run = (gameId: string) =>
+      new Promise<number>((resolve) => {
+        const child = spawn(tsx, [writer, path, gameId, '400'], { stdio: 'ignore' })
+        child.on('exit', (code) => resolve(code ?? 1))
+      })
+    // Two writers on game a (contending for seq) and one each on b and c.
+    expect(await Promise.all([run('a'), run('a'), run('b'), run('c')])).toEqual([0, 0, 0, 0])
+    const store = new EventStore(path)
+    const counts = store.db.prepare('SELECT game_id AS g, COUNT(*) AS n, MAX(seq) AS max FROM events GROUP BY game_id ORDER BY game_id').all()
+    expect(counts).toEqual([
+      { g: 'a', n: 800, max: 800 },
+      { g: 'b', n: 400, max: 400 },
+      { g: 'c', n: 400, max: 400 },
+    ])
+    store.close()
+  }, 60_000)
 })
