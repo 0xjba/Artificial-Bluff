@@ -28,13 +28,13 @@ Last updated: 2026-09-21
 
 - [x] Task 1: Monorepo scaffold (1cf942d; spec ✅ quality ✅)
 - [ ] Task 2: Cards and seeded shuffling
-- [x] Task 3: Hand evaluation (5d7836d + fix 2363c46; spec ✅ quality ✅ — added malformed-card rejection + tie test)
-- [ ] Task 4: Engine types and side pots
+- [x] Task 3: Hand evaluation (934e67a + fix 2f20d34; spec ✅ quality ✅ — added malformed-card rejection + tie test)
+- [x] Task 4: Engine types and side pots (3f9f4e0 + fix 7f02a9a; spec ✅ quality ✅ — buildPots no-live-pot guard + dead-money tests)
 - [ ] Task 5: Hand state machine
 - [ ] Task 6: Shared action menu
 - [ ] Task 7: Live turbo tournament
 - [ ] Task 8: Duplicate seating
-- [ ] Task 9: Public exports + random-play invariants (expect 66 tests, 8 files)
+- [ ] Task 9: Public exports + random-play invariants (expect 68 tests, 8 files)
 
 ## Key decisions (summary; spec is authoritative)
 

@@ -746,6 +746,25 @@ describe('buildPots', () => {
     expect(pots.reduce((s, p) => s + p.amount, 0)).toBe(700)
   })
 
+  it('gives chips a folded player put in above every live player to the top live pot', () => {
+    expect(
+      buildPots([
+        { id: 'a', amount: 100, folded: false },
+        { id: 'b', amount: 100, folded: false },
+        { id: 'f', amount: 500, folded: true },
+      ]),
+    ).toEqual([{ amount: 700, eligible: ['a', 'b'] }])
+  })
+
+  it('does not crash when live players contributed nothing but a folded player did', () => {
+    expect(
+      buildPots([
+        { id: 'a', amount: 0, folded: false },
+        { id: 'f', amount: 500, folded: true },
+      ]),
+    ).toEqual([{ amount: 500, eligible: ['a'] }])
+  })
+
   it('returns an uncalled bet as a single-eligible pot', () => {
     expect(
       buildPots([
@@ -793,6 +812,8 @@ export interface Contribution {
  * Each distinct commitment level of a non-folded player closes a pot; folded chips
  * fall into whichever levels they reach. Chips above the highest live level are
  * added to the last pot (only its eligible players can win them).
+ * `eligible` keeps the order of `contributions`: pass seats starting left of the button
+ * so any winners picked from it are already in odd-chip order for `splitPot`.
  */
 export function buildPots(contributions: readonly Contribution[]): Pot[] {
   const live = contributions.filter((c) => !c.folded)
@@ -809,7 +830,11 @@ export function buildPots(contributions: readonly Contribution[]): Pot[] {
   }
   let above = 0
   for (const c of contributions) above += Math.max(0, c.amount - previous)
-  if (above > 0) pots[pots.length - 1]!.amount += above
+  if (above > 0) {
+    const last = pots[pots.length - 1]
+    if (last) last.amount += above
+    else pots.push({ amount: above, eligible: live.map((c) => c.id) })
+  }
   return pots
 }
 
@@ -832,7 +857,7 @@ export function splitPot(amount: number, winners: readonly string[]): Record<str
 - [ ] **Step 5: Run tests to verify they pass**
 
 Run: `pnpm --filter @ab/engine exec vitest run test/pots.test.ts && pnpm --filter @ab/engine exec tsc --noEmit`
-Expected: PASS, 6 tests; typecheck clean.
+Expected: PASS, 8 tests; typecheck clean.
 
 - [ ] **Step 6: Commit**
 
@@ -2162,7 +2187,7 @@ export * from './duplicate'
 - [ ] **Step 4: Run the full suite and typecheck from the root**
 
 Run: `pnpm test && pnpm typecheck`
-Expected: 8 test files, 66 tests passed; typecheck clean.
+Expected: 8 test files, 68 tests passed; typecheck clean.
 
 - [ ] **Step 5: Commit**
 
@@ -2175,7 +2200,7 @@ git commit -m "feat(engine): public exports and random-play invariant tests"
 
 ## Done when
 
-- `pnpm test` passes 66 tests across 8 files; `pnpm typecheck` is clean.
+- `pnpm test` passes 68 tests across 8 files; `pnpm typecheck` is clean.
 - `@ab/engine` exports: cards/rng/evaluate helpers, `createHand`, `applyAction`, `legalActions`, `potSize`, `buildMenu`, tournament functions (`createTournament`, `nextHandConfig`, `recordHand`, `endTournament`, `liveTurboConfig`, `currentLevel`, `levelIndex`), and duplicate functions (`seatRotations`, `duplicateGroup`, `cashHandConfig`, `STUDY_CASH`).
 - Next: Plan 2 (players, table runner, event log) builds on these exports.
 
