@@ -75,6 +75,10 @@ export class LlmPlayer implements Player {
       usage.reasoningTokens += res.reasoningTokens
       usage.costUsd += res.cost
       servedBy = res.model
+      if (res.error) {
+        // A provider failure reported inside a 200: not the model's fault, and retrying won't help.
+        return { ok: false, error: `provider error: ${res.error}`, kind: 'infra', usage, model: servedBy }
+      }
       if (res.finishReason === 'length') {
         return { ok: false, error: 'truncated: reply hit max_tokens', kind: 'model', usage, model: servedBy }
       }
