@@ -6,7 +6,9 @@
   "engines": { "node": ">=20" },
   "scripts": {
     "test": "pnpm -r test",
-    "typecheck": "pnpm -r typecheck"
+    "typecheck": "pnpm -r typecheck",
+    "demo": "tsx packages/core/scripts/demo.ts",
+    "smoke": "tsx --env-file=.env packages/core/scripts/smoke.ts"
   },
   "devDependencies": {
     "typescript": "^5.6.0",
