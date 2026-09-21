@@ -143,6 +143,9 @@ the ablation. No personality/style text in the study; live characters are displa
 - A free pre-flight against OpenRouter's model catalog rejects unknown models and sets per-model request flags
   (structured output, reasoning parameter, temperature).
 - On timeout the runner aborts the call but still records what it had already cost (short grace period).
+- Temperature 0.3 is sent only where the model accepts it. Via OpenRouter (checked 2026-09-21) Anthropic and OpenAI
+  models don't list `temperature`, so those seats run at provider default. The adapted per-seat flags are recorded
+  in each game's config; disclose in the write-up.
 
 **Same questions for both:** Jev's win Noul and the LLMs' `win_probability` use one shared condition ("win this hand,
 either at showdown or because every opponent folds"), and both get the same option semantics. Calibration outcome

@@ -46,11 +46,11 @@ Last updated: 2026-09-21
 - [x] Task 4: Bots and mock LLM (a581394 + fix e94c1d7; spec ✅ quality ✅ — TAG shoves when all-in only raise, AA>KK, mock honours prior abort)
 - [x] Task 5: LLM player via OpenRouter (aae9e10 + 46602a4 + 3212f5a; spec ✅ quality ✅ (opus) — truncation, reasoning tokens, no prob rescaling, failure kinds, shared win wording, 200-error = infra)
 - [x] Task 6: Jev player (f3cf3f0 + 1e299e5 + b4ec7a9; spec ✅ quality ✅ (opus) — symmetric no-retry, runner timeout governs, validated API answers, sourced price, malformed-response guard)
-- [ ] Task 7: Player factory and exports
+- [ ] Task 7: Player factory and exports (32909dc; spec ✅ quality ✅; live-catalog preflight clean for both line-ups; follow-up tests in progress)
 - [ ] Task 8: Core package, events, SQLite store
 - [ ] Task 9: Table runner
 - [ ] Task 10: Live tournament driver
-- [ ] Task 11: pnpm demo / pnpm smoke (expect engine 104, players 41, core 19)
+- [ ] Task 11: pnpm demo / pnpm smoke (expect engine 104, players 43, core 19)
 
 ## Key decisions (summary; spec is authoritative)
 
