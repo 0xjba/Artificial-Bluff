@@ -10,6 +10,7 @@ Last updated: 2026-09-21
 | Design spec (approved) | `docs/superpowers/specs/2026-09-21-artificialbluff-design.md` |
 | Plan 1: monorepo + engine | `docs/superpowers/plans/2026-09-21-plan-1-engine.md` |
 | Plan 2: players, runner, event log | `docs/superpowers/plans/2026-09-21-plan-2-players-runner.md` |
+| Plan 3a: study runner | `docs/superpowers/plans/2026-09-21-plan-3a-study-runner.md` |
 | Salvage report (old TEN project) | `SALVAGE.md` |
 | Salvaged raw code (git-ignored) | `salvage/` (contracts-latest, agents-latest, frontend-latest, pokerkit-harness-old) |
 | Jev / TypeSafe API docs | `docs/jev/` |
@@ -22,7 +23,7 @@ Last updated: 2026-09-21
 |---|---|---|
 | 1 | Monorepo + game engine (`packages/engine`) | ✅ Merged to master (9de0579), 99 tests |
 | 2 | Players (Jev, LLM, bots, mock), table runner, SQLite event log | ✅ Merged to master (b94a7be), 181 tests |
-| 3 | Study runner (duplicate, budget cap, resume, CI stop) + report/charts | Split: 3a study runner (writing), 3b analysis + report |
+| 3 | Study runner (duplicate, budget cap, resume, CI stop) + report/charts | 3a study runner: plan written & verified in scratch (201 tests), executing on `feat/plan-3a-study`; 3b analysis + report: not written |
 | 4 | Live server (WebSocket, replays, admin start) + web (Broadcast UI) + mascots (bloub) | Not written yet |
 
 ### Plan 1 task progress
@@ -52,6 +53,14 @@ Last updated: 2026-09-21
 - [x] Task 10: Live tournament driver (0f6bc7b + d62a4c3; spec ✅ quality ✅ — mid-game errors end game as interrupted, validated before writing, meta can't override recorded settings)
 - [x] Task 11: pnpm demo / pnpm smoke (74d25e3; spec ✅; quality folded into final review)
 - [x] Final branch review (opus): READY TO MERGE (fixes 6dc3f9e: spend checked before every decision, API keys ES-private, onEvent hook; docs cf132bc)
+
+### Plan 3a task progress
+
+- [ ] Task 1: Study hands in the core event stream (duplicate info, study_ended)
+- [ ] Task 2: Study package and config
+- [ ] Task 3: Bootstrap CIs
+- [ ] Task 4: Study runner (progress, results, prereg, run)
+- [ ] Task 5: pnpm study CLI + example studies (expect engine 104, players 44, core 34, study 19)
 
 ## Key decisions (summary; spec is authoritative)
 

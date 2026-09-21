@@ -165,8 +165,11 @@ published price; model version.
 
 ## 6. Study runner and results
 
-`pnpm study run study.config.ts`. Config: line-up, observation flags, master seed, target CI half-width, budget
-cap, concurrency, minimum seed groups.
+`pnpm study prereg|run|status studies/<name>.json [--mock]`. Config (JSON): line-up, master seed, format, decision
+timeout, target CI half-width, min/max groups, check interval, bootstrap resamples, budget cap, concurrency.
+Concurrency N means at most N hands in flight, each asking one player at a time, so at most N requests in flight;
+that is far below provider rate limits (e.g. TypeSafe 1,200 req/min), so no separate rate limiter.
+Budget and concurrency are not part of the pre-registration (they only decide how far a run gets).
 
 - **Pre-registration:** config + hash written to the log before hand 1; report quotes the hash.
 - **Budget:** running cost; stop launching groups when the next could exceed the cap; in-flight groups finish;
