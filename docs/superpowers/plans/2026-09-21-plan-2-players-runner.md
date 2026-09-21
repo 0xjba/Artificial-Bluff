@@ -2084,7 +2084,7 @@ git -c user.email=jobinb6444@gmail.com -c user.name=0xjba commit -m "feat(player
 }
 ```
 
-In the root `package.json`, add a top-level `pnpm` field (pnpm 10 blocks native build scripts unless listed):
+In the root `package.json`, add a top-level `pnpm` field (pnpm 10 blocks native build scripts unless listed), and add `"tsx": "^4.20.0"` to `devDependencies` (the store's multi-process test spawns `tsx`; Task 11's scripts use it too):
 ```json
   "pnpm": {
     "onlyBuiltDependencies": ["better-sqlite3"]
@@ -3374,7 +3374,7 @@ In the root `package.json`, add to `scripts`:
     "demo": "tsx packages/core/scripts/demo.ts",
     "smoke": "tsx --env-file=.env packages/core/scripts/smoke.ts"
 ```
-and to `devDependencies`: `"tsx": "^4.20.0"`. Append to `.gitignore`:
+(`tsx` is already a root devDependency from Task 8). Append to `.gitignore`:
 ```
 data/
 lineups/*.json

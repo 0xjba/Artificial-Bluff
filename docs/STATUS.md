@@ -47,7 +47,7 @@ Last updated: 2026-09-21
 - [x] Task 5: LLM player via OpenRouter (aae9e10 + 46602a4 + 3212f5a; spec ✅ quality ✅ (opus) — truncation, reasoning tokens, no prob rescaling, failure kinds, shared win wording, 200-error = infra)
 - [x] Task 6: Jev player (f3cf3f0 + 1e299e5 + b4ec7a9; spec ✅ quality ✅ (opus) — symmetric no-retry, runner timeout governs, validated API answers, sourced price, malformed-response guard)
 - [x] Task 7: Player factory and exports (32909dc + d1d6a09; spec ✅ quality ✅ — live-catalog preflight clean for both line-ups)
-- [ ] Task 8: Core package, events, SQLite store (8284e8b; spec ✅; quality (opus): SQLITE_BUSY with concurrent writers (critical), strict canonical JSON, schema migrations, hash in game_started — fix in progress)
+- [x] Task 8: Core package, events, SQLite store (8284e8b + a35aa52 + tsx dep; spec ✅ quality ✅ fixes (opus): no lost events with concurrent writers, strict canonical JSON, schema migrations, hash in game_started)
 - [ ] Task 9: Table runner
 - [ ] Task 10: Live tournament driver
 - [ ] Task 11: pnpm demo / pnpm smoke (expect engine 104, players 43, core 24)
