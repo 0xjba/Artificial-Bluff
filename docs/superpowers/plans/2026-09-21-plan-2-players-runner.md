@@ -418,7 +418,10 @@ export interface Player {
   readonly kind: PlayerKind
   /** Model id (or bot name) as configured. */
   readonly model: string
-  /** Must resolve (never reject for ordinary failures) and should stop work when `signal` aborts. */
+  /**
+   * Must resolve for ordinary failures (returning `ok: false` with any usage incurred). Once `signal`
+   * aborts (timeout), it should stop work and may reject: the runner has already recorded a timeout.
+   */
   decide(obs: Observation, signal: AbortSignal): Promise<DecideResult>
 }
 ```
@@ -657,7 +660,7 @@ git -c user.email=jobinb6444@gmail.com -c user.name=0xjba commit -m "feat(player
 `packages/players/test/bots.test.ts`:
 
 ```ts
-import { applyAction, buildMenu, createHand, type HandState } from '@ab/engine'
+import { applyAction, buildMenu, createHand, fullDeck, type Card, type HandState } from '@ab/engine'
 import { describe, expect, it } from 'vitest'
 import { CallingStation, preflopStrength, RandomBot, TagBot } from '../src/bots'
 import { MockLlm } from '../src/mock'
@@ -696,8 +699,34 @@ describe('bots', () => {
 
   it('rank preflop hands sensibly', () => {
     expect(preflopStrength(['As', 'Ad'])).toBe(1)
+    const order = [['As', 'Ad'], ['Ks', 'Kd'], ['As', 'Ks'], ['As', 'Kd'], ['2s', '2d'], ['7c', '2d']] as const
+    const scores = order.map((h) => preflopStrength([...h]))
+    for (let i = 1; i < scores.length; i++) expect(scores[i]).toBeLessThan(scores[i - 1]!)
     expect(preflopStrength(['As', 'Ks'])).toBeGreaterThan(preflopStrength(['7c', '2d']))
     expect(preflopStrength(['7c', '2d'])).toBeLessThan(0.3)
+  })
+
+  it('TAG shoves a premium hand when all-in is the only raise left', async () => {
+    // BB has 450 (4.5 bb) with aces and faces an open to 300: a full raise (to 500) is more than
+    // it has, so the menu offers only fold, call and all-in.
+    // Deal order from left of the button: SB, BB, UTG, BTN, twice.
+    const top: Card[] = ['Kc', 'As', '2d', '7h', 'Kd', 'Ad', '3d', '8h']
+    let s = createHand({
+      seats: [{ id: 'btn', stack: 10_000 }, { id: 'sb', stack: 10_000 }, { id: 'bb', stack: 450 }, { id: 'utg', stack: 10_000 }],
+      buttonIndex: 0,
+      smallBlind: 50,
+      bigBlind: 100,
+      seed: 1,
+      deck: [...top, ...fullDeck().filter((c) => !top.includes(c))],
+    })
+    s = applyAction(s, { type: 'raise', to: 300 }) // UTG opens
+    s = applyAction(s, { type: 'fold' }) // BTN
+    s = applyAction(s, { type: 'fold' }) // SB
+    const obs = buildObservation(s)
+    expect(obs.hole).toEqual(['As', 'Ad'])
+    expect(obs.options.map((o) => o.id)).toEqual(['fold', 'call', 'all_in'])
+    const res = await new TagBot('bb').decide(obs, signal)
+    expect(res.ok && res.decision.optionId).toBe('all_in')
   })
 
   it('calling station never folds or raises', async () => {
@@ -728,6 +757,12 @@ describe('MockLlm', () => {
     expect(results[0]!.ok).toBe(true)
     expect(results[1]!.ok).toBe(false)
     expect(results[2]!.ok && results[2]!.decision.optionId).toBe('not_an_option')
+  })
+
+  it('rejects immediately if already aborted', async () => {
+    const ac = new AbortController()
+    ac.abort()
+    await expect(new MockLlm('m').decide(obsFor(), ac.signal)).rejects.toThrow(/aborted/)
   })
 
   it('stops when aborted', async () => {
@@ -783,10 +818,12 @@ export function preflopStrength(hole: Observation['hole']): number {
   if (gap === 1) score += 2
   else if (gap === 2) score += 1
   else if (gap >= 4) score -= gap - 3
-  return Math.max(0, Math.min(1, score / 44))
+  // AA scores 48, the maximum possible, so it alone maps to 1.
+  return Math.max(0, Math.min(1, score / 48))
 }
 
-const RAISES: OptionId[] = ['open_3bb', 'reraise_2_5x', 'pot_75', 'pot_50', 'min_raise']
+/** Preferred raise sizes, then all-in when a short stack has no other raise. */
+const RAISES: OptionId[] = ['open_3bb', 'reraise_2_5x', 'pot_75', 'pot_50', 'min_raise', 'all_in']
 
 /** Rule-based tight-aggressive choice used by TagBot and MockLlm. */
 export function tagChoice(obs: Observation): { optionId: OptionId; winProbability: number } {
@@ -868,7 +905,11 @@ export interface MockLlmOptions {
   invalidEvery?: number
 }
 
-/** Free, deterministic stand-in for an LLM: TAG rules, fake reasoning, fake token usage. */
+/**
+ * Free, deterministic stand-in for an LLM: TAG rules, fake reasoning, fake token usage.
+ * Its win probabilities and confidence are crude rule-bucket constants, not estimates:
+ * never use mock games for calibration analysis.
+ */
 export class MockLlm implements Player {
   readonly kind = 'mock' as const
   private calls = 0
@@ -879,6 +920,7 @@ export class MockLlm implements Player {
   ) {}
 
   async decide(obs: Observation, signal: AbortSignal): Promise<DecideResult> {
+    if (signal.aborted) throw new Error('aborted')
     this.calls++
     const inputTokens = Math.ceil(JSON.stringify(obs).length / 4)
     const usage = {
@@ -923,7 +965,7 @@ function delay(ms: number, signal: AbortSignal): Promise<void> {
 - [ ] **Step 4: Run tests and typecheck**
 
 Run: `pnpm --filter @ab/players exec vitest run && pnpm --filter @ab/players typecheck`
-Expected: PASS (13 tests); typecheck clean.
+Expected: PASS (16 tests); typecheck clean.
 
 - [ ] **Step 5: Commit**
 
@@ -1331,7 +1373,7 @@ export class LlmPlayer implements Player {
 - [ ] **Step 4: Run tests and typecheck**
 
 Run: `pnpm --filter @ab/players exec vitest run && pnpm --filter @ab/players typecheck`
-Expected: PASS (22 tests); typecheck clean.
+Expected: PASS (25 tests); typecheck clean.
 
 - [ ] **Step 5: Commit**
 
@@ -1520,7 +1562,7 @@ The two instruction strings are part of the experiment: changing them changes wh
 - [ ] **Step 4: Run tests and typecheck**
 
 Run: `pnpm --filter @ab/players exec vitest run && pnpm --filter @ab/players typecheck`
-Expected: PASS (24 tests); typecheck clean.
+Expected: PASS (27 tests); typecheck clean.
 
 - [ ] **Step 5: Commit**
 
@@ -1654,7 +1696,7 @@ export * from './factory'
 - [ ] **Step 4: Run tests and typecheck**
 
 Run: `pnpm --filter @ab/players exec vitest run && pnpm --filter @ab/players typecheck`
-Expected: PASS (26 tests); typecheck clean.
+Expected: PASS (29 tests); typecheck clean.
 
 - [ ] **Step 5: Commit**
 
@@ -2830,7 +2872,7 @@ Expected: prints one line like `game demo-…: 67 hands, 393 decisions, 1161 eve
 - [ ] **Step 3: Full verification**
 
 Run: `pnpm test && pnpm typecheck`
-Expected: engine 104, players 26, core 18 tests pass; typecheck clean across all three packages.
+Expected: engine 104, players 29, core 18 tests pass; typecheck clean across all three packages.
 
 - [ ] **Step 4: Commit**
 
@@ -2864,7 +2906,7 @@ User decision (2026-09-21): the research line-up is used for the study and recor
 
 ## Done when
 
-- `pnpm test` passes (engine 104, players 26, core 18) and `pnpm typecheck` is clean.
+- `pnpm test` passes (engine 104, players 29, core 18) and `pnpm typecheck` is clean.
 - `pnpm demo` plays a full mock tournament into `data/demo.db` with no errors.
 - `@ab/players` exports `buildObservation`, the bots, `MockLlm`, `LlmPlayer`, `JevPlayer`, `createPlayers`; `@ab/core` exports the event types, `EventStore`, `playHand`, `runTournamentGame`.
 - Next: Plan 3 (study runner: duplicate groups, budget cap, resume, CI stop, report) builds on `playHand`, `EventStore` and `duplicateGroup`.

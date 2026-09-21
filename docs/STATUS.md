@@ -50,7 +50,7 @@ Last updated: 2026-09-21
 - [ ] Task 8: Core package, events, SQLite store
 - [ ] Task 9: Table runner
 - [ ] Task 10: Live tournament driver
-- [ ] Task 11: pnpm demo / pnpm smoke (expect engine 104, players 26, core 18)
+- [ ] Task 11: pnpm demo / pnpm smoke (expect engine 104, players 29, core 18)
 
 ## Key decisions (summary; spec is authoritative)
 
