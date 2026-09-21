@@ -31,7 +31,7 @@ Last updated: 2026-09-21
 - [x] Task 3: Hand evaluation (934e67a + fix 2f20d34; spec ✅ quality ✅ — added malformed-card rejection + tie test)
 - [x] Task 4: Engine types and side pots (3f9f4e0 + fix 7f02a9a; spec ✅ quality ✅ — buildPots no-live-pot guard + dead-money tests)
 - [x] Task 5: Hand state machine (e62c66c + fix 9072572; spec ✅ quality ✅ (opus, 30k-hand fuzz clean) — covered short blinds, TDA cumulative reopen, unknown actions throw, input validation)
-- [ ] Task 6: Shared action menu (de07b4f; spec ✅; quality review (opus) → sizing redesign: limper/caller-aware opens and re-raises, odd-blind rounding, near-duplicate drop — fix in progress)
+- [x] Task 6: Shared action menu (de07b4f + c3aa760 + 936499a; spec ✅ quality ✅ (opus, 265k-decision fuzz clean) — limper/caller-aware sizing, odd-blind rounding, near-duplicate + near-all-in drop)
 - [ ] Task 7: Live turbo tournament
 - [ ] Task 8: Duplicate seating
 - [ ] Task 9: Public exports + random-play invariants (expect 84 tests, 8 files)
