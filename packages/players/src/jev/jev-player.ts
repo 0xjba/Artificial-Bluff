@@ -31,6 +31,7 @@ export interface JevPlayerOptions {
   model: string
   /** Passed to TypeSafeClient (apiKey, fetch for tests, etc.). */
   client?: TypeSafeClientConfig
+  /** USD per 1M input tokens (default JEV_INPUT_PRICE_PER_MTOK); output is free. */
   inputPricePerMTok?: number
   /**
    * SDK per-attempt timeout (ms). Kept above the table's decision timeout so the same runner timeout
@@ -74,6 +75,9 @@ export class JevPlayer implements Player {
       )
     } catch (e) {
       return { ok: false, error: (e as Error).message, kind: 'infra', usage: NO_USAGE, model: this.model }
+    }
+    if (!res || typeof res !== 'object' || !res.usage || !res.answers) {
+      return { ok: false, error: 'malformed API response', kind: 'infra', usage: NO_USAGE, model: this.model }
     }
     const usage = {
       inputTokens: res.usage.input_tokens,

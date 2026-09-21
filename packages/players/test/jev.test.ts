@@ -88,6 +88,15 @@ describe('JevPlayer', () => {
     expect(res.model).toBe('jev-1.13.1')
   })
 
+  it('returns a failure (not a throw) on a malformed 200 response', async () => {
+    const html = async () => new Response('<html>gateway</html>', { status: 200, headers: { 'content-type': 'text/html' } })
+    const errorBody = async () => new Response(JSON.stringify({ error: 'overloaded' }), { status: 200, headers: { 'content-type': 'application/json' } })
+    for (const fetchImpl of [html, errorBody]) {
+      const res = await new JevPlayer({ id: 'jev', model: 'jev-1.13.0', client: { ...quiet, fetch: fetchImpl } }).decide(obs, signal)
+      expect(res).toMatchObject({ ok: false, kind: 'infra' })
+    }
+  })
+
   it('stops when the runner aborts', async () => {
     const hang = async (_url: string, init?: RequestInit) =>
       new Promise<Response>((_resolve, reject) => init!.signal!.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError'))))
