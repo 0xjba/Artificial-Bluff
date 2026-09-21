@@ -1,0 +1,12 @@
+.env
+.env.*
+!.env.example
+node_modules/
+.next/
+__pycache__/
+.venv/
+venv/
+.DS_Store
+*.log
+salvage/
+.claude/launch.json
