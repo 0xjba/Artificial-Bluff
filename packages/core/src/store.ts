@@ -166,6 +166,23 @@ export class EventStore {
     if (info.changes === 0) throw new Error(`no game ${id}`)
   }
 
+  /**
+   * Atomically marks an existing game 'running', so two processes can't run it at once. Refuses a
+   * game that is already 'running' (another process has it, or a crash left it so) unless `takeover`.
+   */
+  claimGame(id: string, takeover = false): void {
+    this.db
+      .transaction(() => {
+        const row = this.db.prepare('SELECT status FROM games WHERE id = ?').get(id) as { status: GameStatus } | undefined
+        if (!row) throw new Error(`no game ${id}`)
+        if (row.status === 'running' && !takeover) {
+          throw new Error(`game ${id} is already running (another process, or a crash left it so); if no other run is active, take it over`)
+        }
+        this.db.prepare("UPDATE games SET status = 'running', ended_at = NULL WHERE id = ?").run(id)
+      })
+      .immediate()
+  }
+
   /** Marks games left 'running' by a crash as 'interrupted'. Call on server start. Returns their ids. */
   interruptRunningGames(now = Date.now()): string[] {
     const rows = this.db

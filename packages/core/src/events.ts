@@ -108,20 +108,28 @@ export type EventBody =
     }
   | {
       type: 'study_checkpoint'
-      /** Groups used (completed prefix in whole neighbour blocks) and blocks. */
+      /**
+       * The check's boundary: groups 0..groups-1 (a multiple of checkEvery, or maxGroups). Checks run at
+       * every boundary in order, whatever the concurrency or resumes, and each is logged once.
+       */
       groups: number
       blocks: number
       costUsd: number
       /** 95% Student t CI of bb/100 per player; null where not yet defined (fewer than 2 blocks). */
       players: Array<{ playerId: string; bb100: number | null; low: number | null; high: number | null; halfWidth: number | null }>
-      /** Whether this check stopped the study. */
+      /** Whether the stopping rule was met here (it then ends the study, even after a budget cap). */
       stop: boolean
     }
   | {
       type: 'study_ended'
       reason: StudyEndReason
-      /** Seed groups completed in order from group 0 (the prefix the results use). */
+      /** Seed groups completed in order from group 0. */
       groupsCompleted: number
+      /**
+       * Groups the results use: the stopping boundary for 'ci_target' (hands still in flight when
+       * the rule was met are not included), otherwise groupsCompleted cut to whole neighbour blocks.
+       */
+      analysedGroups: number
       handsPlayed: number
       costUsd: number
     }

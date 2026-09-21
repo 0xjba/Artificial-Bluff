@@ -1,4 +1,4 @@
-import { DEFAULT_MENU_CONFIG, MAX_PLAYERS, neighbourBlockSize, STUDY_CASH, type CashFormat } from '@ab/engine'
+import { MAX_PLAYERS, neighbourBlockSize, STUDY_CASH, type CashFormat } from '@ab/engine'
 import type { PlayerSpec } from '@ab/players'
 
 /** A study, as written in a JSON file. Everything here except budget and concurrency is pre-registered. */
@@ -13,7 +13,11 @@ export interface StudyConfig {
   format: CashFormat
   /** Per-decision time limit. */
   decisionTimeoutMs: number
-  /** Hard spending cap (USD), checked before every decision. */
+  /**
+   * Spending cap (USD), checked before every hand and every decision. With several tables, decisions
+   * already in flight when it is reached still finish (at most `concurrency` of them), and a call the
+   * runner gave up on (timeout) may still be billed, so leave some headroom.
+   */
   budgetUsd: number
   /** Stop when every player's 95% t CI half-width for bb/100 is at most this. */
   targetHalfWidthBb100: number
@@ -111,9 +115,6 @@ function parseFormat(raw: unknown): CashFormat {
   }
   if (format.smallBlind > format.bigBlind || format.bigBlind % format.smallBlind !== 0) {
     throw new Error('study config: "format.bigBlind" must be a multiple of "format.smallBlind"')
-  }
-  if (format.bigBlind % DEFAULT_MENU_CONFIG.chipUnit !== 0 && format.bigBlind % format.smallBlind !== 0) {
-    throw new Error(`study config: "format.bigBlind" must be a multiple of ${DEFAULT_MENU_CONFIG.chipUnit} or of the small blind`)
   }
   return format
 }

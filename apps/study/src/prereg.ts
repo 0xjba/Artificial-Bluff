@@ -1,3 +1,4 @@
+import { canonicalJson } from '@ab/core'
 import { DEFAULT_MENU_CONFIG, neighbourBlockSize } from '@ab/engine'
 import { ACTION_INSTRUCTIONS, JEV_INPUT_PRICE_PER_MTOK, SYSTEM_PROMPT, WIN_INSTRUCTIONS, type PlayerSpec } from '@ab/players'
 import type { StudyConfig } from './config'
@@ -8,11 +9,10 @@ import type { StudyConfig } from './config'
  * run gets, so topping up the budget and resuming doesn't change the study.
  */
 export function preregistration(config: StudyConfig, adaptedLineup: PlayerSpec[], extra: Record<string, unknown> = {}): Record<string, unknown> {
-  const { budgetUsd: _budget, concurrency: _concurrency, lineup: _lineup, ...rest } = config
-  return {
+  const record = {
     kind: 'artificialBluff study',
     version: 1,
-    study: { ...rest, lineup: adaptedLineup },
+    study: { ...preregisteredConfig(config), lineup: adaptedLineup },
     seating: { design: 'duplicate, cyclic rotations of a per-group base order', neighbourBlock: neighbourBlockSize(adaptedLineup.length) },
     menu: DEFAULT_MENU_CONFIG,
     prompts: { llmSystem: SYSTEM_PROMPT, jevAction: ACTION_INSTRUCTIONS, jevWin: WIN_INSTRUCTIONS },
@@ -29,6 +29,25 @@ export function preregistration(config: StudyConfig, adaptedLineup: PlayerSpec[]
     intervals:
       'per-player 95% t CIs over neighbour blocks are marginal, not simultaneous; pairwise claims use paired ' +
       'contrasts with a Holm correction; percentile bootstrap CIs are reported as a sensitivity check',
-    ...extra,
   }
+  const clash = Object.keys(extra).filter((k) => k in record)
+  if (clash.length) throw new Error(`pre-registration: extra key(s) would overwrite the record: ${clash.join(', ')}`)
+  return { ...record, ...extra }
+}
+
+/** The config fields that are pre-registered (all but budget, concurrency and the unadapted line-up). */
+function preregisteredConfig(config: StudyConfig): Record<string, unknown> {
+  const { budgetUsd: _budget, concurrency: _concurrency, lineup: _lineup, ...rest } = config
+  return rest
+}
+
+/** Throws unless `record` is the pre-registration of `config` (same fields and line-up ids). */
+export function assertPreregMatches(record: Record<string, unknown>, config: StudyConfig): void {
+  const study = record.study as ({ lineup?: Array<{ id?: unknown }> } & Record<string, unknown>) | undefined
+  const { lineup = [], ...fields } = study ?? {}
+  const same =
+    study !== undefined &&
+    canonicalJson(fields) === canonicalJson(preregisteredConfig(config)) &&
+    canonicalJson(lineup.map((s) => s.id)) === canonicalJson(config.lineup.map((s) => s.id))
+  if (!same) throw new Error(`the pre-registration record is not for study config ${config.id}`)
 }

@@ -13,10 +13,12 @@ export interface StudyProgress {
   valid: Map<string, Record<string, number>>
   handsPlayed: number
   lastEnd: StudyEndReason | null
+  /** The last logged stopping-rule check: resume continues from its boundary. */
+  lastCheckpoint: { groups: number; stop: boolean } | null
 }
 
 export function emptyProgress(): StudyProgress {
-  return { attempts: new Map(), valid: new Map(), handsPlayed: 0, lastEnd: null }
+  return { attempts: new Map(), valid: new Map(), handsPlayed: 0, lastEnd: null, lastCheckpoint: null }
 }
 
 /**
@@ -38,6 +40,8 @@ export function readProgress(events: readonly GameEvent[]): StudyProgress {
       p.handsPlayed++
       const h = byHandId.get(e.handId)
       if (h && !h.capped && !p.valid.has(h.key)) p.valid.set(h.key, e.net)
+    } else if (e.type === 'study_checkpoint') {
+      p.lastCheckpoint = { groups: e.groups, stop: e.stop }
     } else if (e.type === 'study_ended') {
       p.lastEnd = e.reason
     }
