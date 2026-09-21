@@ -1862,6 +1862,16 @@ describe('preflight', () => {
     ])
   })
 
+  it('keeps explicit structuredOutput and sendTemperature settings', async () => {
+    const catalog = await fetchModelCatalog(catalogFetch)
+    const { specs } = adaptLineup([{ id: 'a', kind: 'llm', model: 'vendor/reasoner', structuredOutput: false, sendTemperature: false }], catalog)
+    expect(specs[0]).toMatchObject({ structuredOutput: false, sendTemperature: false, reasoning: 'off' })
+  })
+
+  it('fails clearly when the catalog cannot be fetched', async () => {
+    await expect(fetchModelCatalog(async () => new Response('down', { status: 503 }))).rejects.toThrow('model catalog: HTTP 503')
+  })
+
   it('reports unknown models and models without structured output', async () => {
     const catalog = await fetchModelCatalog(catalogFetch)
     const { problems } = adaptLineup(
@@ -2015,7 +2025,7 @@ export * from './factory'
 - [ ] **Step 4: Run tests and typecheck**
 
 Run: `pnpm --filter @ab/players exec vitest run && pnpm --filter @ab/players typecheck`
-Expected: PASS (41 tests); typecheck clean.
+Expected: PASS (43 tests); typecheck clean.
 
 - [ ] **Step 5: Commit**
 
@@ -3207,7 +3217,7 @@ Two line-ups (model ids current on OpenRouter as of 2026-09-21; see the cost not
     { "id": "pill", "kind": "llm", "model": "anthropic/claude-fable-5.1" },
     { "id": "block", "kind": "llm", "model": "openai/gpt-6-astra" },
     { "id": "drip", "kind": "llm", "model": "google/gemini-3.8-flash" },
-    { "id": "nimbus", "kind": "llm", "model": "meta-llama/llama-4-maverick", "reasoning": "omit" }
+    { "id": "nimbus", "kind": "llm", "model": "meta-llama/llama-4-maverick" }
   ]
 }
 ```
@@ -3221,7 +3231,7 @@ Two line-ups (model ids current on OpenRouter as of 2026-09-21; see the cost not
     { "id": "pill", "kind": "llm", "model": "anthropic/claude-sonnet-5" },
     { "id": "block", "kind": "llm", "model": "openai/gpt-5.6-sol" },
     { "id": "drip", "kind": "llm", "model": "google/gemini-3.8-flash" },
-    { "id": "nimbus", "kind": "llm", "model": "meta-llama/llama-4-maverick", "reasoning": "omit" }
+    { "id": "nimbus", "kind": "llm", "model": "meta-llama/llama-4-maverick" }
   ]
 }
 ```
@@ -3255,7 +3265,7 @@ Expected: prints one line like `game demo-…: 67 hands, 393 decisions, 1161 eve
 - [ ] **Step 3: Full verification**
 
 Run: `pnpm test && pnpm typecheck`
-Expected: engine 104, players 41, core 19 tests pass; typecheck clean across all three packages.
+Expected: engine 104, players 43, core 19 tests pass; typecheck clean across all three packages.
 
 - [ ] **Step 4: Commit**
 
@@ -3289,7 +3299,7 @@ User decision (2026-09-21): the research line-up is used for the study and recor
 
 ## Done when
 
-- `pnpm test` passes (engine 104, players 41, core 19) and `pnpm typecheck` is clean.
+- `pnpm test` passes (engine 104, players 43, core 19) and `pnpm typecheck` is clean.
 - `pnpm demo` plays a full mock tournament into `data/demo.db` with no errors.
 - `@ab/players` exports `buildObservation`, the bots, `MockLlm`, `LlmPlayer`, `JevPlayer`, `createPlayers`; `@ab/core` exports the event types, `EventStore`, `playHand`, `runTournamentGame`.
 - Next: Plan 3 (study runner: duplicate groups, budget cap, resume, CI stop, report) builds on `playHand`, `EventStore` and `duplicateGroup`.
