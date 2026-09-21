@@ -15,7 +15,7 @@ import type { HandResult } from '../src/types'
 const ids = ['jev', 'pill', 'block', 'drip', 'nimbus']
 
 function result(stacks: Record<string, number>): HandResult {
-  return { showdown: false, awards: [], hands: {}, board: [], stacks, net: {} }
+  return { handId: null, showdown: false, awards: [], hands: {}, board: [], stacks, net: {} }
 }
 
 describe('tournament', () => {
@@ -74,6 +74,15 @@ describe('tournament', () => {
     t = recordHand(t, result({ a: 0, b: 4500, c: 4500 }))
     // 'a' is out: a result that includes 'a' again (e.g. a stale result) must be rejected.
     expect(() => recordHand(t, result({ a: 100, b: 4400, c: 4500 }))).toThrow(/do not match/)
+  })
+
+  it('tags hands with an id and rejects a result from a different hand', () => {
+    let t = createTournament(['a', 'b'], liveTurboConfig('s'))
+    expect(nextHandConfig(t).handId).toBe('hand-0')
+    const first = { ...result({ a: 2000, b: 4000 }), handId: 'hand-0' }
+    t = recordHand(t, first)
+    expect(nextHandConfig(t).handId).toBe('hand-1')
+    expect(() => recordHand(t, first)).toThrow(/not for the current hand/)
   })
 
   it('allows at most 10 players', () => {
