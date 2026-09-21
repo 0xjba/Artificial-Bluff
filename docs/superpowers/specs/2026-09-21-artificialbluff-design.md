@@ -121,7 +121,13 @@ the ablation. No personality/style text in the study; live characters are displa
 - `action`: Choice over legal option ids (each described with its chip amount).
 - `win`: Noul, worded literally: "The acting player wins this pot, either at showdown or because all opponents fold."
 - Plays the top choice (sampling from probabilities is a later ablation). Records all option probabilities,
-  choice confidence, win probability.
+  choice confidence, win probability, and the model version that answered.
+- No SDK retries (the LLM seats get no infrastructure retry either); SDK timeout set above the table's decision
+  timeout so one runner timeout governs both. API answers outside the offered options are infra faults, not Jev's.
+- Cost: input tokens × $0.042/M, output free — source: TypeSafe launch post (typesafe.ai/blog/introducing-system-one-models-and-jev),
+  read 2026-09-21; recorded in each game's config.
+- Disclosure for the write-up: TypeSafe recommends decomposing "best action" into atomic questions; the benchmark
+  asks it as one Choice for parity with the LLMs. A decomposed Jev design is a separate pre-registered ablation.
 
 **LLM adapter** (OpenRouter):
 - System prompt: rules summary, option semantics, output schema. Baseline wording derived from the salvaged

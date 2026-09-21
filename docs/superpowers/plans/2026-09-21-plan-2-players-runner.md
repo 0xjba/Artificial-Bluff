@@ -389,7 +389,11 @@ export interface Decision {
   optionId: OptionId
   /** Stated probability of winning this hand, 0-1, or null if the player gives none. */
   winProbability: number | null
-  /** Confidence that the chosen action is best, 0-1, or null. */
+  /**
+   * 0-1, or null. Not comparable across player kinds: for Jev it is TypeSafe's confidence (how
+   * concentrated its option probabilities are); for LLMs it is self-reported certainty that the
+   * action is best. Report them separately.
+   */
   confidence: number | null
   /** Probability per offered option (Jev), or null. */
   optionProbabilities: Partial<Record<OptionId, number>> | null
@@ -1589,11 +1593,43 @@ describe('JevPlayer', () => {
     expect(req.body.state).toEqual(JSON.parse(JSON.stringify({ ...obs, options: undefined })))
   })
 
-  it('returns a failure (not a throw) on API errors', async () => {
-    const fake = fakeFetch([{ status: 401, body: { error: 'bad key' } }])
-    const jev = new JevPlayer({ id: 'jev', model: 'jev-1.13.0', client: { apiKey: 'test', fetch: fake.fn }, maxRetries: 0 })
-    const res = await jev.decide(obs, signal)
-    expect(res).toMatchObject({ ok: false, kind: 'infra' })
+  const quiet = { apiKey: 'test', logLevel: 'off' as const }
+
+  it('returns an infrastructure failure (not a throw) on API errors, without retrying', async () => {
+    for (const status of [401, 429, 500]) {
+      const fake = fakeFetch([{ status, body: { error: 'nope' } }, { status: 200, body: okBody }])
+      const jev = new JevPlayer({ id: 'jev', model: 'jev-1.13.0', client: { ...quiet, fetch: fake.fn } })
+      const res = await jev.decide(obs, signal)
+      expect(res).toMatchObject({ ok: false, kind: 'infra' })
+      expect(fake.requests).toHaveLength(1) // same as the LLM seats: no infrastructure retry
+    }
+  })
+
+  it('treats an answer outside the offered options, or a missing win probability, as an API fault', async () => {
+    const offOption = { ...okBody, answers: { ...okBody.answers, action: { ...okBody.answers.action, choice: 'raise' } } }
+    const noWin = { ...okBody, answers: { action: okBody.answers.action } }
+    for (const body of [offOption, noWin]) {
+      const fake = fakeFetch([{ status: 200, body }])
+      const jev = new JevPlayer({ id: 'jev', model: 'jev-1.13.0', client: { ...quiet, fetch: fake.fn } })
+      expect(await jev.decide(obs, signal)).toMatchObject({ ok: false, kind: 'infra' })
+    }
+  })
+
+  it('keeps only offered options in the probabilities and records the model that answered', async () => {
+    const extra = { ...okBody, model: 'jev-1.13.1', answers: { ...okBody.answers, action: { ...okBody.answers.action, probabilities: { ...okBody.answers.action.probabilities, raise: 0.2 } } } }
+    const fake = fakeFetch([{ status: 200, body: extra }])
+    const res = await new JevPlayer({ id: 'jev', model: 'jev-1.13.0', client: { ...quiet, fetch: fake.fn } }).decide(obs, signal)
+    expect(res.ok && res.decision.optionProbabilities).toEqual({ fold: 0.1, call: 0.6, all_in: 0.3 })
+    expect(res.model).toBe('jev-1.13.1')
+  })
+
+  it('stops when the runner aborts', async () => {
+    const hang = async (_url: string, init?: RequestInit) =>
+      new Promise<Response>((_resolve, reject) => init!.signal!.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError'))))
+    const ac = new AbortController()
+    const pending = new JevPlayer({ id: 'jev', model: 'jev-1.13.0', client: { ...quiet, fetch: hang } }).decide(obs, ac.signal)
+    ac.abort()
+    expect(await pending).toMatchObject({ ok: false, kind: 'infra' })
   })
 })
 ```
@@ -1611,12 +1647,16 @@ Expected: FAIL, cannot resolve `../src/jev/jev-player`.
 import { choice, noul, TypeSafeClient, type TypeSafeClientConfig } from '@typesafe-ai/sdk'
 import type { OptionId } from '@ab/engine'
 import { OPTION_SEMANTICS, WIN_CONDITION } from '../llm/prompt'
-import type { DecideResult, Observation, Player } from '../types'
+import { NO_USAGE, type DecideResult, type Observation, type Player } from '../types'
 
 /**
  * Question wording. Jev answers the question as literally written, so keep these exact and
  * change them only with a new pre-registration. The win definition and option semantics are the
  * same text the LLMs get, so both kinds of player answer the same questions.
+ *
+ * Disclosure: TypeSafe recommends splitting "what's the best action" into atomic questions combined
+ * in code. For parity with the LLMs, the benchmark asks it as one Choice; a decomposed design is a
+ * separate, pre-registered ablation.
  */
 export const ACTION_INSTRUCTIONS =
   `You are the player marked "you": true in this No-Limit Texas Hold'em hand ("stack" is chips behind, ` +
@@ -1624,21 +1664,31 @@ export const ACTION_INSTRUCTIONS =
   'Which action maximises your expected chips?'
 export const WIN_INSTRUCTIONS = `The player marked "you": true will ${WIN_CONDITION}.`
 
+/**
+ * USD per 1M input tokens; output tokens are free. Source: TypeSafe, "Introducing System One Models &
+ * Jev" (https://typesafe.ai/blog/introducing-system-one-models-and-jev), read 2026-09-21:
+ * "$0.042 / MTok" input, output "FREE (too cheap to meter)". Recorded in every game's config.
+ */
 export const JEV_INPUT_PRICE_PER_MTOK = 0.042
 
 export interface JevPlayerOptions {
   id: string
-  /** Pinned model version, e.g. "jev-1.13.0". */
+  /** Pinned model version, e.g. "jev-1.13.0". The model that answered is recorded per decision. */
   model: string
   /** Passed to TypeSafeClient (apiKey, fetch for tests, etc.). */
   client?: TypeSafeClientConfig
-  /** USD per 1M input tokens; output is free. */
   inputPricePerMTok?: number
-  /** Retries inside the SDK after the first attempt (HTTP 408/429/5xx and connection errors). */
-  maxRetries?: number
+  /**
+   * SDK per-attempt timeout (ms). Kept above the table's decision timeout so the same runner timeout
+   * governs Jev and the LLMs. Default 60 s.
+   */
+  timeoutMs?: number
 }
 
-/** The Jev seat: one systemOne call per decision, a Choice over options plus a win Noul. */
+/**
+ * The Jev seat: one systemOne call per decision, a Choice over the offered options plus a win Noul.
+ * No SDK retries: the LLM seats get no infrastructure retry either, so failures are treated alike.
+ */
 export class JevPlayer implements Player {
   readonly kind = 'jev' as const
   readonly id: string
@@ -1653,9 +1703,11 @@ export class JevPlayer implements Player {
 
   async decide(obs: Observation, signal: AbortSignal): Promise<DecideResult> {
     const { options, ...state } = obs
+    const offered = new Set<string>(options.map((o) => o.id))
     const criteria = Object.fromEntries(options.map((o) => [o.id, o.label]))
+    let res
     try {
-      const res = await this.client.systemOne(
+      res = await this.client.systemOne(
         {
           model: this.model,
           state: JSON.parse(JSON.stringify(state)),
@@ -1664,36 +1716,44 @@ export class JevPlayer implements Player {
             win: noul(WIN_INSTRUCTIONS),
           },
         },
-        { signal, retry: { maxRetries: this.options.maxRetries ?? 1 } },
+        { signal, timeout: this.options.timeoutMs ?? 60_000, retry: { maxRetries: 0 } },
       )
-      const usage = {
-        inputTokens: res.usage.input_tokens,
-        outputTokens: res.usage.output_tokens,
-        reasoningTokens: 0,
-        costUsd: (res.usage.input_tokens * (this.options.inputPricePerMTok ?? JEV_INPUT_PRICE_PER_MTOK)) / 1_000_000,
-        retries: 0,
-      }
-      const action = res.answers.action
-      return {
-        ok: true,
-        decision: {
-          optionId: action.choice as OptionId,
-          winProbability: res.answers.win.noul,
-          confidence: action.confidence,
-          optionProbabilities: { ...action.probabilities } as Partial<Record<OptionId, number>>,
-          reasoning: null,
-        },
-        usage,
-        model: res.model,
-      }
     } catch (e) {
-      return {
-        ok: false,
-        error: (e as Error).message,
-        kind: 'infra',
-        usage: { inputTokens: 0, outputTokens: 0, reasoningTokens: 0, costUsd: 0, retries: 0 },
-        model: this.model,
-      }
+      return { ok: false, error: (e as Error).message, kind: 'infra', usage: NO_USAGE, model: this.model }
+    }
+    const usage = {
+      inputTokens: res.usage.input_tokens,
+      outputTokens: res.usage.output_tokens,
+      reasoningTokens: 0,
+      costUsd: (res.usage.input_tokens * (this.options.inputPricePerMTok ?? JEV_INPUT_PRICE_PER_MTOK)) / 1_000_000,
+      retries: 0,
+    }
+    const action = res.answers.action
+    const win = res.answers.win?.noul
+    // TypeSafe guarantees answers come from the offered set; if the API ever breaks that, it is an
+    // infrastructure fault, not Jev's decision.
+    if (!action || !offered.has(action.choice)) {
+      return { ok: false, error: `api returned an option that was not offered: ${action?.choice}`, kind: 'infra', usage, model: res.model }
+    }
+    if (typeof win !== 'number' || !Number.isFinite(win) || win < 0 || win > 1) {
+      return { ok: false, error: 'api returned no valid win probability', kind: 'infra', usage, model: res.model }
+    }
+    const optionProbabilities = Object.fromEntries(
+      Object.entries(action.probabilities).filter(([id]) => offered.has(id)),
+    ) as Partial<Record<OptionId, number>>
+    return {
+      ok: true,
+      decision: {
+        optionId: action.choice as OptionId,
+        winProbability: win,
+        // Jev's confidence is derived from how concentrated its option probabilities are (TypeSafe's
+        // definition); the LLMs' is self-reported. Analyse them separately.
+        confidence: action.confidence,
+        optionProbabilities,
+        reasoning: null,
+      },
+      usage,
+      model: res.model,
     }
   }
 }
@@ -1704,7 +1764,7 @@ The two instruction strings are part of the experiment: changing them changes wh
 - [ ] **Step 4: Run tests and typecheck**
 
 Run: `pnpm --filter @ab/players exec vitest run && pnpm --filter @ab/players typecheck`
-Expected: PASS (33 tests); typecheck clean.
+Expected: PASS (36 tests); typecheck clean.
 
 - [ ] **Step 5: Commit**
 
@@ -1943,7 +2003,7 @@ export * from './factory'
 - [ ] **Step 4: Run tests and typecheck**
 
 Run: `pnpm --filter @ab/players exec vitest run && pnpm --filter @ab/players typecheck`
-Expected: PASS (37 tests); typecheck clean.
+Expected: PASS (40 tests); typecheck clean.
 
 - [ ] **Step 5: Commit**
 
@@ -3183,7 +3243,7 @@ Expected: prints one line like `game demo-…: 67 hands, 393 decisions, 1161 eve
 - [ ] **Step 3: Full verification**
 
 Run: `pnpm test && pnpm typecheck`
-Expected: engine 104, players 37, core 19 tests pass; typecheck clean across all three packages.
+Expected: engine 104, players 40, core 19 tests pass; typecheck clean across all three packages.
 
 - [ ] **Step 4: Commit**
 
@@ -3217,7 +3277,7 @@ User decision (2026-09-21): the research line-up is used for the study and recor
 
 ## Done when
 
-- `pnpm test` passes (engine 104, players 37, core 19) and `pnpm typecheck` is clean.
+- `pnpm test` passes (engine 104, players 40, core 19) and `pnpm typecheck` is clean.
 - `pnpm demo` plays a full mock tournament into `data/demo.db` with no errors.
 - `@ab/players` exports `buildObservation`, the bots, `MockLlm`, `LlmPlayer`, `JevPlayer`, `createPlayers`; `@ab/core` exports the event types, `EventStore`, `playHand`, `runTournamentGame`.
 - Next: Plan 3 (study runner: duplicate groups, budget cap, resume, CI stop, report) builds on `playHand`, `EventStore` and `duplicateGroup`.

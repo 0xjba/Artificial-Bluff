@@ -50,7 +50,7 @@ Last updated: 2026-09-21
 - [ ] Task 8: Core package, events, SQLite store
 - [ ] Task 9: Table runner
 - [ ] Task 10: Live tournament driver
-- [ ] Task 11: pnpm demo / pnpm smoke (expect engine 104, players 37, core 19)
+- [ ] Task 11: pnpm demo / pnpm smoke (expect engine 104, players 40, core 19)
 
 ## Key decisions (summary; spec is authoritative)
 
@@ -88,6 +88,7 @@ Last updated: 2026-09-21
 - Deferred from Plan 2 Task 3 review: list seats in action order / add playersToActAfter; compact LLM message (~180 vs ~350 tokens, same info) to cut input cost ~25% before the study is frozen.
 - Plan 3: define calibration outcome for split pots (e.g. win = net > 0, split = 0.5?) identically for all players; report Jev confidence (from option probabilities) and LLM confidence (self-reported) separately.
 - Later: record OpenRouter `provider` per decision (same slug can be served by different providers/quantisations). (Task 5 review minor)
+- Ablation idea (Task 6 review): decomposed Jev (atomic questions combined in code, TypeSafe's recommended pattern) vs single-Choice Jev. Pre-register before running.
 - Jev docs advice: atomic "gut-check" questions; no arithmetic; filter state; pin model version.
 - bloub is "an SVG recreation of the x.ai bot avatar": keep our variant clearly distinct (no black body, no circle, no rainbow rings).
 - Scratch bloub preview (custom colours, Mascots.vue) lived in the session scratchpad; recreate in Plan 4.
