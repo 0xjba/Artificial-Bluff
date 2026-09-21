@@ -9,7 +9,7 @@ import { canonicalJson, configHash, EventStore, SCHEMA_VERSION } from '../src/st
 
 const decision = (over: Partial<DecisionEvent> = {}): DecisionEvent => ({
   type: 'decision', handId: 'hand-0', street: 'preflop', playerId: 'jev', position: 'BTN', model: 'jev-1.13.0',
-  optionId: 'call', label: 'Call 100', action: { type: 'call' }, chipsIn: 100, pot: 150, toCall: 100,
+  optionId: 'call', label: 'Call 100', action: { type: 'call' }, chipsIn: 100, pot: 150, currentBet: 100, toCall: 100,
   winProbability: 0.5, confidence: 0.4, optionProbabilities: { call: 0.6, fold: 0.4 }, reasoning: null,
   latencyMs: 120, inputTokens: 500, outputTokens: 2, reasoningTokens: 0, costUsd: 0.000021, retries: 0,
   fallback: false, fallbackKind: null, fallbackReason: null,
