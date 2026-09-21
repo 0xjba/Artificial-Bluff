@@ -21,8 +21,8 @@ Last updated: 2026-09-21
 | # | Plan | Status |
 |---|---|---|
 | 1 | Monorepo + game engine (`packages/engine`) | ✅ Merged to master (9de0579), 99 tests |
-| 2 | Players (Jev, LLM, bots, mock), table runner, SQLite event log | Built and reviewed on `feat/plan-2-players` (181 tests); final review: ready to merge |
-| 3 | Study runner (duplicate, budget cap, resume, CI stop) + report/charts | Not written yet |
+| 2 | Players (Jev, LLM, bots, mock), table runner, SQLite event log | ✅ Merged to master (b94a7be), 181 tests |
+| 3 | Study runner (duplicate, budget cap, resume, CI stop) + report/charts | Split: 3a study runner (writing), 3b analysis + report |
 | 4 | Live server (WebSocket, replays, admin start) + web (Broadcast UI) + mascots (bloub) | Not written yet |
 
 ### Plan 1 task progress
@@ -95,7 +95,7 @@ Last updated: 2026-09-21
 - Line-ups (user decision 2026-09-21): research line-up (Fable 5.1, GPT-6 Astra, Gemini 3.8 Flash, Llama 4 Maverick; ~$1.60-1.80/live game at the measured ~700-token prompt) for study + recorded games; live line-up (Sonnet 5, GPT-5.6 Sol, Gemini 3.8 Flash, Llama 4 Maverick; ~$0.40/game) for everyday live games. Files: lineups/{research,live}.example.json. Real smoke test only with user go-ahead + keys.
 - Equity-hint ablation (`hints.equity`) not implemented in Plan 2; do it in Plan 3 with the ablation runs.
 - Deferred from Plan 2 Task 3 review: list seats in action order / add playersToActAfter; compact LLM message (~180 vs ~350 tokens, same info) to cut input cost ~25% before the study is frozen.
-- Plan 3: define calibration outcome for split pots (e.g. win = net > 0, split = 0.5?) identically for all players; report Jev confidence (from option probabilities) and LLM confidence (self-reported) separately.
+- DECIDED (2026-09-21): calibration outcome A = main-pot share (1, 1/k split, 0 lose/fold) headline; C = expected main-pot share at decision time (exact enumeration with all hole cards) second chart. Report Jev confidence and LLM confidence separately.
 - Later: record OpenRouter `provider` per decision (same slug can be served by different providers/quantisations). (Task 5 review minor)
 - Ablation idea (Task 6 review): decomposed Jev (atomic questions combined in code, TypeSafe's recommended pattern) vs single-Choice Jev. Pre-register before running.
 - Jev docs advice: atomic "gut-check" questions; no arithmetic; filter state; pin model version.

@@ -149,8 +149,13 @@ the ablation. No personality/style text in the study; live characters are displa
   in each game's config; disclose in the write-up.
 
 **Same questions for both:** Jev's win Noul and the LLMs' `win_probability` use one shared condition ("win this hand,
-either at showdown or because every opponent folds"), and both get the same option semantics. Calibration outcome
-for split pots: decided in Plan 3 and applied identically to all players. Note for the write-up: Jev's `confidence`
+either at showdown or because every opponent folds"), and both get the same option semantics.
+
+**Calibration outcome (user decision 2026-09-21), identical for all players:**
+- Headline (A): the player's share of the **main pot** — 1 if they win it alone, 1/k if split k ways, 0 if they lose
+  or fold at any point in the hand (including later folds). Side pots are ignored.
+- Second chart (C): the player's expected main-pot share at the moment of the decision, computed from everyone's
+  actual hole cards (exact enumeration of the remaining board), so later actions and board luck don't count. Note for the write-up: Jev's `confidence`
 is derived from its option probabilities, the LLMs' is self-reported — report them separately, not as one metric.
 
 **Bots:** Random, CallingStation, simple rule-based TAG, MockLLM (deterministic, free) for tests and $0 runs.
