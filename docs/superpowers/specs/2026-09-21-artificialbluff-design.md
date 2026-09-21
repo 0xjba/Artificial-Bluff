@@ -29,7 +29,7 @@ Jev API reference is saved in `docs/jev/`.
 | LLM access | OpenRouter |
 | Action space | One shared menu of realistic sizes, shown as chip amounts |
 | Calibration | Every player states win probability + confidence per decision; per-player curves on site, per-action analysis in report |
-| Study budget | Free mock run → ~$1 smoke (~100 hands) → main run with CI-based stop, hard cap ~$25 |
+| Study budget | Free mock run → ~$1 smoke (~100 hands) → main run with CI-based stop, budget cap ~$25 (overshoot ≤ decisions in flight) |
 | Live games | On demand, turbo structure, ~$0.50/game estimate, per-game cap; replays when idle |
 | Spectator betting | Not in v1 |
 | Brand | "artificialBluff", Broadcast direction (felt green, brass, Barlow) |
@@ -108,7 +108,7 @@ every seat (and posts SB, BB and holds the button once) with the same cards. Pur
 neighbours forever (a bias with five different opponents), so each group also varies its base seating order: group g
 seats players[(k·i) mod 5] with k = 1 + (g mod 4). Over every block of 4 groups each ordered pair of players sits side by
 side exactly once; the order id is recorded with each hand. (Non-prime player counts fall back to a seeded random base
-order per group.) The seed group is the statistical unit. Results in bb/100 with 95% bootstrap CIs over seed groups.
+order per group.) The seed group is the statistical unit. Results in bb/100 with 95% Student t CIs over neighbour blocks of seed groups (bootstrap as a sensitivity check; see §6).
 
 ## 5. Players
 
@@ -172,9 +172,10 @@ that is far below provider rate limits (e.g. TypeSafe 1,200 req/min), so no sepa
 Budget and concurrency are not part of the pre-registration (they only decide how far a run gets).
 
 - **Pre-registration:** config + hash written to the log before hand 1; report quotes the hash.
-- **Budget:** running cost; stop launching groups when the next could exceed the cap; in-flight groups finish;
-  incomplete groups excluded.
-- **Resume:** re-running skips completed (seed, rotation) pairs.
+- **Budget:** running cost, checked before every hand and every decision; decisions already in flight finish
+  (overshoot ≤ concurrency decisions); hands cut off by the cap don't count and are replayed on resume.
+- **Resume:** re-running skips completed (seed, rotation) pairs and reuses the pre-registered line-up (never
+  re-adapted to a newer model catalog, which would change the hash).
 - **Stopping:** every `checkEvery` groups (a multiple of the neighbour block), over the completed prefix of groups in
   whole blocks, compute each player's 95% **Student t** CI (df = blocks − 1) of bb/100; stop when all half-widths ≤ target.
   Never before `minGroups`, which must be ≥ 10 blocks (40 groups for 5 players) unless the study has a fixed size.
@@ -187,7 +188,8 @@ Budget and concurrency are not part of the pre-registration (they only decide ho
 - **CI unit:** neighbour blocks (4 groups for 5 players; `neighbourBlockSize`). The published CI is the t interval;
   a percentile bootstrap over blocks is reported as a sensitivity check. Per-player CIs are marginal, not
   simultaneous: pairwise claims (e.g. Jev vs a model) use paired contrasts with a Holm correction (Plan 3b).
-- **Stages:** `--players mock` ($0) → smoke ~100 hands (~$1) → main (cap ~$25).
+- **Stages:** `--mock` ($0) → smoke, 40 hands (~$1) → main (cap ~$25). Paid runs need an explicit `--live`.
+  Mock rehearsals test the plumbing, not the statistics: identical mock strategies break exactly even.
 
 **Outputs:** static HTML report, CSV/JSON of every decision, and the same charts on the site's `/research` page:
 results (bb/100 ± CI), cost ($/decision, $/100 hands), latency (p50/p95), win-probability calibration (reliability
