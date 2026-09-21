@@ -32,10 +32,12 @@ export function preflopStrength(hole: Observation['hole']): number {
   if (gap === 1) score += 2
   else if (gap === 2) score += 1
   else if (gap >= 4) score -= gap - 3
-  return Math.max(0, Math.min(1, score / 44))
+  // AA scores 48, the maximum possible, so it alone maps to 1.
+  return Math.max(0, Math.min(1, score / 48))
 }
 
-const RAISES: OptionId[] = ['open_3bb', 'reraise_2_5x', 'pot_75', 'pot_50', 'min_raise']
+/** Preferred raise sizes, then all-in when a short stack has no other raise. */
+const RAISES: OptionId[] = ['open_3bb', 'reraise_2_5x', 'pot_75', 'pot_50', 'min_raise', 'all_in']
 
 /** Rule-based tight-aggressive choice used by TagBot and MockLlm. */
 export function tagChoice(obs: Observation): { optionId: OptionId; winProbability: number } {

@@ -12,7 +12,11 @@ export interface MockLlmOptions {
   invalidEvery?: number
 }
 
-/** Free, deterministic stand-in for an LLM: TAG rules, fake reasoning, fake token usage. */
+/**
+ * Free, deterministic stand-in for an LLM: TAG rules, fake reasoning, fake token usage.
+ * Its win probabilities and confidence are crude rule-bucket constants, not estimates:
+ * never use mock games for calibration analysis.
+ */
 export class MockLlm implements Player {
   readonly kind = 'mock' as const
   private calls = 0
@@ -23,6 +27,7 @@ export class MockLlm implements Player {
   ) {}
 
   async decide(obs: Observation, signal: AbortSignal): Promise<DecideResult> {
+    if (signal.aborted) throw new Error('aborted')
     this.calls++
     const inputTokens = Math.ceil(JSON.stringify(obs).length / 4)
     const usage = {
