@@ -11,6 +11,8 @@ export interface Contribution {
  * Each distinct commitment level of a non-folded player closes a pot; folded chips
  * fall into whichever levels they reach. Chips above the highest live level are
  * added to the last pot (only its eligible players can win them).
+ * `eligible` keeps the order of `contributions`: pass seats starting left of the button
+ * so any winners picked from it are already in odd-chip order for `splitPot`.
  */
 export function buildPots(contributions: readonly Contribution[]): Pot[] {
   const live = contributions.filter((c) => !c.folded)
@@ -27,7 +29,11 @@ export function buildPots(contributions: readonly Contribution[]): Pot[] {
   }
   let above = 0
   for (const c of contributions) above += Math.max(0, c.amount - previous)
-  if (above > 0) pots[pots.length - 1]!.amount += above
+  if (above > 0) {
+    const last = pots[pots.length - 1]
+    if (last) last.amount += above
+    else pots.push({ amount: above, eligible: live.map((c) => c.id) })
+  }
   return pots
 }
 
