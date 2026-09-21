@@ -211,6 +211,7 @@ describe('rng', () => {
     expect(deriveSeed('study', 1)).toBe(deriveSeed('study', 1))
     expect(deriveSeed('study', 1)).not.toBe(deriveSeed('study', 2))
     expect(deriveSeed('a', 12)).not.toBe(deriveSeed('a1', 2))
+    expect(deriveSeed('a:1', 2)).not.toBe(deriveSeed('a', '1:2'))
   })
 
   it('shuffle spreads the ace of spades roughly evenly', () => {
@@ -285,9 +286,14 @@ export function mulberry32(seed: number): () => number {
   }
 }
 
-/** FNV-1a over a string, then a final avalanche. Turns any key into a 32-bit seed. */
+/**
+ * FNV-1a over the parts, then a final avalanche. Turns any key into a 32-bit seed.
+ * Each part is length-prefixed, so ('a:1', 2) and ('a', '1:2') cannot collide.
+ * Hashes are 32-bit: callers needing exact uniqueness over many values (hands, seed groups)
+ * derive one namespace seed and add a counter to it instead of hashing each value.
+ */
 export function deriveSeed(...parts: Array<string | number>): number {
-  const text = parts.join(':')
+  const text = parts.map((p) => `${String(p).length}:${p}`).join('')
   let h = 0x811c9dc5
   for (let i = 0; i < text.length; i++) {
     h ^= text.charCodeAt(i)
@@ -1655,7 +1661,7 @@ git commit -m "feat(engine): shared action menu with realistic bet sizes"
 
 ```ts
 import { describe, expect, it } from 'vitest'
-import { applyAction, createHand } from '../src/hand'
+import { applyAction, createHand, legalActions } from '../src/hand'
 import {
   createTournament,
   currentLevel,
@@ -1739,14 +1745,14 @@ describe('tournament', () => {
     let t: TournamentState = createTournament(ids, liveTurboConfig('full'))
     while (!t.complete) {
       let h = createHand(nextHandConfig(t))
-      // Bot: shove with any pair or an ace, otherwise check/fold.
+      // Bot: shove (or call when raising isn't allowed) with any pair or an ace, otherwise check/fold.
       while (!h.complete) {
-        const seat = h.seats[h.toAct!]!
-        const [a, b] = seat.hole
-        const strong = a![0] === b![0] || a![0] === 'A' || b![0] === 'A'
-        const toCall = h.currentBet - seat.streetCommitted
-        if (strong) h = applyAction(h, toCall >= seat.stack ? { type: 'call' } : { type: 'raise', to: seat.streetCommitted + seat.stack })
-        else h = applyAction(h, toCall === 0 ? { type: 'check' } : { type: 'fold' })
+        const [x, y] = h.seats[h.toAct!]!.hole
+        const strong = x![0] === y![0] || x![0] === 'A' || y![0] === 'A'
+        const legal = legalActions(h)
+        if (strong && legal.maxRaiseTo !== null) h = applyAction(h, { type: 'raise', to: legal.maxRaiseTo })
+        else if (strong && legal.callAmount > 0) h = applyAction(h, { type: 'call' })
+        else h = applyAction(h, legal.canCheck ? { type: 'check' } : { type: 'fold' })
       }
       t = recordHand(t, h.result!)
       expect(t.players.reduce((s, p) => s + p.stack, 0)).toBe(15_000)
@@ -1863,7 +1869,8 @@ export function nextHandConfig(t: TournamentState): HandConfig {
     buttonIndex: alive.findIndex((p) => p.id === buttonId),
     smallBlind: level.smallBlind,
     bigBlind: level.bigBlind,
-    seed: deriveSeed(t.config.seed, 'hand', t.handNumber),
+    // Namespace hash + hand counter: every hand in a tournament gets a distinct deck seed.
+    seed: (deriveSeed(t.config.seed, 'hands') + t.handNumber) >>> 0,
   }
 }
 
@@ -1969,6 +1976,8 @@ describe('duplicate', () => {
     const g1 = duplicateGroup('m', 1, players)
     expect(new Set(g0.map((h) => h.seed)).size).toBe(1)
     expect(g0[0]!.seed).not.toBe(g1[0]!.seed)
+    const seeds = Array.from({ length: 10_000 }, (_, g) => duplicateGroup('m', g, players)[0]!.seed)
+    expect(new Set(seeds).size).toBe(10_000)
   })
 
   it('deals the same cards to the same seat in every rotation', () => {
@@ -2023,7 +2032,8 @@ export interface DuplicateHand {
 
 /** One seed group: the same deck played once per rotation. */
 export function duplicateGroup(masterSeed: string, groupIndex: number, players: readonly string[]): DuplicateHand[] {
-  const seed = deriveSeed(masterSeed, 'group', groupIndex)
+  // Namespace hash + group counter: distinct groups always get distinct decks (no hash collisions).
+  const seed = (deriveSeed(masterSeed, 'groups') + groupIndex) >>> 0
   return seatRotations(players).map((seating, rotation) => ({ groupIndex, rotation, seed, seating }))
 }
 

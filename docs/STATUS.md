@@ -19,14 +19,14 @@ Last updated: 2026-09-21
 
 | # | Plan | Status |
 |---|---|---|
-| 1 | Monorepo + game engine (`packages/engine`) | Plan written; execution in progress (subagent-driven) |
+| 1 | Monorepo + game engine (`packages/engine`) | Executing on branch `feat/plan-1-engine` (subagent-driven: implementer + spec review + quality review per task) |
 | 2 | Players (Jev, LLM, bots, mock), table runner, SQLite event log | Not written yet: write after Plan 1 is built |
 | 3 | Study runner (duplicate, budget cap, resume, CI stop) + report/charts | Not written yet |
 | 4 | Live server (WebSocket, replays, admin start) + web (Broadcast UI) + mascots (bloub) | Not written yet |
 
 ### Plan 1 task progress
 
-- [ ] Task 1: Monorepo scaffold
+- [x] Task 1: Monorepo scaffold (1cf942d; spec ✅ quality ✅)
 - [ ] Task 2: Cards and seeded shuffling
 - [ ] Task 3: Hand evaluation
 - [ ] Task 4: Engine types and side pots
@@ -54,6 +54,7 @@ Last updated: 2026-09-21
 - Hosting: one small container (Fly.io or VPS)? Not chosen.
 - Exact OpenRouter model ids: chosen at run time.
 - User needs a Jev early-access API key.
+- `@ab/engine` exports TS source (no build step). Plan 4 must decide how `apps/server` runs TS in production (`tsx` vs a build with tsup). Flagged by Task 1 review.
 
 ## Todos / notes
 
