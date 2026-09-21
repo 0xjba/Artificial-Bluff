@@ -19,7 +19,7 @@
 - **Seats** are listed clockwise. `buttonIndex` points at the dealer button. Heads-up, the button posts the small blind and acts first preflop; otherwise SB and BB are the two seats after the button and the seat after the BB acts first. After the flop, the first live seat left of the button acts first.
 - **Raise amounts are "raise to"**: `{ type: 'raise', to: 600 }` means the player's total commitment *this street* becomes 600. A bet is a raise from 0.
 - **Minimum raise**: the increment must be at least the last full bet/raise on this street (the big blind if none). A player may always go all-in for less.
-- **Incomplete all-in raise**: an all-in that raises by less than a full raise does *not* reopen betting for players who already acted; they may only call or fold. Implemented by comparing each seat's `lastActionSeq` with `lastFullRaiseSeq`.
+- **Incomplete all-in raise**: an all-in that raises by less than a full raise does *not* reopen betting for players who already acted; they may only call or fold, unless several short all-ins together add up to at least a full raise (TDA Rule 43). Implemented as: a seat that already acted may raise only if its amount to call is at least `lastRaiseSize`. A player whose short all-in blind is already covered by the only other player who can act is not asked to act.
 - **Side pots**: each distinct commitment level of a non-folded player closes a pot; folded chips count in whichever levels they reach. An uncalled excess becomes a single-eligible pot, which is how it's returned.
 - **Odd chips** from a split go to winners in order starting from the first seat left of the button.
 - **Cards** are two-character strings: rank `23456789TJQKA` + suit `cdhs`, e.g. `"As"`, `"Td"`. No numeric "0 = empty" sentinel (a bug source in the old contracts).
@@ -680,8 +680,6 @@ export interface HandState {
   currentBet: number
   /** Size of the last full bet or raise on this street (the minimum raise increment). */
   lastRaiseSize: number
-  /** `seq` of the last full bet or raise on this street; -1 when none. */
-  lastFullRaiseSeq: number
   /** Index into `seats` of the player to act, or null when nobody is to act. */
   toAct: number | null
   seq: number
@@ -1129,6 +1127,74 @@ describe('hand completion', () => {
     expect(a.seats.map((s) => s.hole)).toEqual(b.seats.map((s) => s.hole))
   })
 })
+
+describe('edge cases from the rules review', () => {
+  it('heads-up: SB already covering a short all-in BB is not asked to act', () => {
+    const s = hand([1000, 30], { holes: ['7c 2d', 'As Ad'], board: '3c 8h 9s Jd Kc' })
+    expect(s.complete).toBe(true)
+    // Main pot 60 to the BB's aces; the SB's uncovered 20 comes back.
+    expect(s.result!.stacks).toEqual({ p0: 970, p1: 60 })
+  })
+
+  it('3 players: after UTG folds, SB covering a short all-in BB is not asked to act', () => {
+    let s = hand([1000, 1000, 30])
+    s = play(s, fold)
+    expect(s.complete).toBe(true)
+  })
+
+  it('heads-up: short all-in SB runs out and the BB gets its uncalled chips back', () => {
+    const s = hand([30, 1000], { holes: ['As Ad', 'Kc Kd'], board: '2c 7h 9s Jd 3c' })
+    expect(s.complete).toBe(true)
+    expect(s.result!.stacks).toEqual({ p0: 60, p1: 970 })
+  })
+
+  it('a postflop all-in bet below the big blind: next min raise adds a full BB; earlier checkers may only call', () => {
+    // Button p0, SB p1, BB p2 (150 chips). Everyone limps; flop order p1, p2, p0.
+    let s = hand([1000, 1000, 150])
+    s = play(s, call, call, check)
+    expect(s.street).toBe('flop')
+    s = play(s, check, raise(50)) // p1 checks, p2 bets all-in 50
+    expect(s.toAct).toBe(0)
+    expect(legalActions(s).minRaiseTo).toBe(150) // p0 has not acted: may raise to 50 + 100
+    s = play(s, call)
+    expect(s.toAct).toBe(1)
+    expect(legalActions(s)).toMatchObject({ callAmount: 50, minRaiseTo: null }) // p1 checked earlier
+  })
+
+  it('the big blind may raise after an incomplete all-in raise (it has not acted yet)', () => {
+    // Button p0, SB p1, BB p2, UTG p3 with 150 shoves (a 50 raise, less than a full 100).
+    let s = hand([5000, 5000, 5000, 150])
+    s = play(s, raise(150), call, call)
+    expect(s.toAct).toBe(2)
+    expect(legalActions(s).minRaiseTo).toBe(250)
+  })
+
+  it('several short all-ins that add up to a full raise reopen betting (TDA)', () => {
+    // p3 raises to 300 (+200). p0 shoves 360, p1 shoves 520: p3 now faces 220 >= 200.
+    let s = hand([360, 520, 5000, 5000])
+    s = play(s, raise(300), raise(360), raise(520), call)
+    expect(s.toAct).toBe(3)
+    expect(legalActions(s)).toMatchObject({ callAmount: 220, minRaiseTo: 720 })
+  })
+
+  it('throws on an unknown action type instead of skipping the turn', () => {
+    const s = hand([1000, 1000, 1000])
+    expect(() => applyAction(s, { type: 'allin' } as unknown as Action)).toThrow(/unknown action type/)
+  })
+
+  it('validates blinds, deck override and player count', () => {
+    const seats = [
+      { id: 'a', stack: 1000 },
+      { id: 'b', stack: 1000 },
+    ]
+    const base = { seats, buttonIndex: 0, smallBlind: 50, bigBlind: 100, seed: 1 }
+    expect(() => createHand({ ...base, smallBlind: 12.5 })).toThrow(/invalid blinds/)
+    const badDeck = arrangeDeck(0, [c('As Ad'), c('Kc Kd')]).map((x, i) => (i === 51 ? ('Xx' as Card) : x))
+    expect(() => createHand({ ...base, deck: badDeck })).toThrow(/valid cards/)
+    const eleven = Array.from({ length: 11 }, (_, i) => ({ id: `p${i}`, stack: 1000 }))
+    expect(() => createHand({ ...base, seats: eleven })).toThrow(/at most 10/)
+  })
+})
 ```
 
 - [ ] **Step 3: Run tests to verify they fail**
@@ -1141,7 +1207,7 @@ Expected: FAIL, cannot resolve `../src/hand`.
 `packages/engine/src/hand.ts`:
 
 ```ts
-import { fullDeck, type Card } from './cards'
+import { fullDeck, isCard, type Card } from './cards'
 import { evaluateHand, type HandValue } from './evaluate'
 import { buildPots, splitPot } from './pots'
 import { shuffle } from './rng'
@@ -1212,7 +1278,14 @@ function needsAction(state: HandState, seat: SeatState): boolean {
 function nextToAct(state: HandState, from: number): number | null {
   const canAct = actors(state)
   if (canAct.length === 0) return null
-  if (canAct.length === 1 && canAct[0]!.streetCommitted >= state.currentBet) return null
+  if (canAct.length === 1) {
+    // Only one player can still bet: they act only if they haven't matched the most any other
+    // live player put in (which can be less than currentBet when a short blind is all-in).
+    const lone = canAct[0]!
+    const others = liveSeats(state).filter((s) => s !== lone)
+    const target = Math.min(state.currentBet, Math.max(0, ...others.map((s) => s.streetCommitted)))
+    if (lone.streetCommitted >= target) return null
+  }
   for (const i of clockwiseFrom(from, state.seats.length)) {
     if (needsAction(state, state.seats[i]!)) return i
   }
@@ -1220,19 +1293,31 @@ function nextToAct(state: HandState, from: number): number | null {
 }
 
 function checkedDeck(deck: Card[]): Card[] {
-  if (deck.length !== 52 || new Set(deck).size !== 52) throw new Error('deck override must be 52 unique cards')
+  if (deck.length !== 52 || new Set(deck).size !== 52 || !deck.every(isCard)) {
+    throw new Error('deck override must be 52 unique valid cards')
+  }
   return [...deck]
 }
+
+export const MAX_PLAYERS = 10
 
 export function createHand(config: HandConfig): HandState {
   const n = config.seats.length
   if (n < 2) throw new Error('a hand needs at least 2 players')
+  if (n > MAX_PLAYERS) throw new Error(`a hand allows at most ${MAX_PLAYERS} players`)
   if (new Set(config.seats.map((s) => s.id)).size !== n) throw new Error('player ids must be unique')
   if (config.seats.some((s) => !Number.isInteger(s.stack) || s.stack <= 0)) {
     throw new Error('every stack must be a positive integer')
   }
   if (config.buttonIndex < 0 || config.buttonIndex >= n) throw new Error('buttonIndex out of range')
-  if (config.smallBlind <= 0 || config.bigBlind < config.smallBlind) throw new Error('invalid blinds')
+  if (
+    !Number.isInteger(config.smallBlind) ||
+    !Number.isInteger(config.bigBlind) ||
+    config.smallBlind <= 0 ||
+    config.bigBlind < config.smallBlind
+  ) {
+    throw new Error('invalid blinds: must be positive integers with bigBlind >= smallBlind')
+  }
 
   const state: HandState = {
     config: structuredClone(config),
@@ -1254,7 +1339,6 @@ export function createHand(config: HandConfig): HandState {
     complete: false,
     currentBet: 0,
     lastRaiseSize: config.bigBlind,
-    lastFullRaiseSeq: -1,
     toAct: null,
     seq: 0,
     history: [],
@@ -1287,7 +1371,9 @@ export function legalActions(state: HandState): LegalActions {
   const toCall = state.currentBet - seat.streetCommitted
   const maxTo = seat.streetCommitted + seat.stack
   const opponentsWhoCanAct = actors(state).filter((s) => s.seatIndex !== seat.seatIndex).length
-  const reopened = seat.lastActionSeq === null || state.lastFullRaiseSeq > seat.lastActionSeq
+  // TDA rule: a seat that already acted may re-raise only when facing at least a full raise,
+  // which can be built from several short all-ins together.
+  const reopened = seat.lastActionSeq === null || toCall >= state.lastRaiseSize
   const canRaise = reopened && opponentsWhoCanAct > 0 && maxTo > state.currentBet
   const minTo = state.currentBet + state.lastRaiseSize
   return {
@@ -1332,16 +1418,14 @@ export function applyAction(prev: HandState, action: Action): HandState {
       if (to < legal.minRaiseTo) throw new Error(`illegal raise: ${to} below minimum ${legal.minRaiseTo}`)
       const increment = to - state.currentBet
       const kind: ActionKind = state.currentBet === 0 ? 'bet' : 'raise'
-      const seq = record(state, i, kind, commit(seat, to - seat.streetCommitted))
-      seat.lastActionSeq = seq
-      if (increment >= state.lastRaiseSize) {
-        // A full raise reopens the betting for everyone.
-        state.lastRaiseSize = increment
-        state.lastFullRaiseSeq = seq
-      }
+      seat.lastActionSeq = record(state, i, kind, commit(seat, to - seat.streetCommitted))
+      // A full raise sets the new minimum increment; a short all-in only raises currentBet.
+      if (increment >= state.lastRaiseSize) state.lastRaiseSize = increment
       state.currentBet = to
       break
     }
+    default:
+      throw new Error(`unknown action type: ${(action as { type?: unknown }).type}`)
   }
 
   if (liveSeats(state).length === 1) {
@@ -1359,7 +1443,6 @@ function startStreet(state: HandState, street: Street): void {
   state.board.push(...draw(state, BOARD_CARDS[street]))
   state.currentBet = 0
   state.lastRaiseSize = state.config.bigBlind
-  state.lastFullRaiseSeq = -1
   for (const s of state.seats) {
     s.streetCommitted = 0
     s.lastActionSeq = null
@@ -1422,23 +1505,26 @@ function finishHand(state: HandState): void {
   state.result = result
 }
 
-/** Total chips in the middle, including the current street's bets. */
+/**
+ * Total chips put in this hand, including uncalled bets. At hand end, `result.awards`
+ * shows what was actually contested (uncalled chips come back as single-eligible pots).
+ */
 export function potSize(state: HandState): number {
   return state.seats.reduce((sum, s) => sum + s.handCommitted, 0)
 }
 ```
 
 Key points to check while reading it:
-- `nextToAct` ends the street when nobody, or only one fully-matched player, can still act.
-- `legalActions` allows a raise only if the seat hasn't acted since the last full raise (`reopened`), an opponent can still act, and the seat has chips beyond the current bet.
-- `applyAction` records a full raise (`increment >= lastRaiseSize`) as reopening; an all-in for less only raises `currentBet`.
+- `nextToAct` ends the street when nobody can act, or when the only player who can act has matched the most any other live player put in (a short all-in blind can be less than `currentBet`).
+- `legalActions` allows a raise only if the seat hasn't acted yet this street or now faces at least a full raise (TDA: several short all-ins can add up), an opponent can still act, and the seat has chips beyond the current bet.
+- `applyAction` updates `lastRaiseSize` only on a full raise (`increment >= lastRaiseSize`); an all-in for less only raises `currentBet`. Unknown action types throw.
 - `finishStreet` loops through remaining streets when nobody can bet (all-in run-out).
 - `finishHand` builds pots from `handCommitted`, evaluates only live players, and orders winners from the seat left of the button.
 
 - [ ] **Step 5: Run tests to verify they pass**
 
 Run: `pnpm --filter @ab/engine exec vitest run test/hand.test.ts && pnpm --filter @ab/engine exec tsc --noEmit`
-Expected: PASS, 22 tests; typecheck clean.
+Expected: PASS, 30 tests; typecheck clean.
 
 - [ ] **Step 6: Commit**
 
@@ -2148,7 +2234,11 @@ describe('random play invariants', () => {
         const pick = menu[Math.floor(rand() * menu.length)]!
         state = applyAction(state, pick.action)
         const inPlay = state.seats.reduce((s, x) => s + x.stack + x.handCommitted, 0)
-        if (!state.complete) expect(inPlay).toBe(total)
+        if (!state.complete) {
+          expect(inPlay).toBe(total)
+          const next = state.seats[state.toAct!]!
+          expect(next.folded || next.allIn).toBe(false)
+        }
         expect(++steps).toBeLessThan(200)
       }
       const r = state.result!
@@ -2187,7 +2277,7 @@ export * from './duplicate'
 - [ ] **Step 4: Run the full suite and typecheck from the root**
 
 Run: `pnpm test && pnpm typecheck`
-Expected: 8 test files, 68 tests passed; typecheck clean.
+Expected: 8 test files, 76 tests passed; typecheck clean.
 
 - [ ] **Step 5: Commit**
 
@@ -2200,7 +2290,7 @@ git commit -m "feat(engine): public exports and random-play invariant tests"
 
 ## Done when
 
-- `pnpm test` passes 68 tests across 8 files; `pnpm typecheck` is clean.
+- `pnpm test` passes 76 tests across 8 files; `pnpm typecheck` is clean.
 - `@ab/engine` exports: cards/rng/evaluate helpers, `createHand`, `applyAction`, `legalActions`, `potSize`, `buildMenu`, tournament functions (`createTournament`, `nextHandConfig`, `recordHand`, `endTournament`, `liveTurboConfig`, `currentLevel`, `levelIndex`), and duplicate functions (`seatRotations`, `duplicateGroup`, `cashHandConfig`, `STUDY_CASH`).
 - Next: Plan 2 (players, table runner, event log) builds on these exports.
 

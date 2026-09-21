@@ -30,11 +30,11 @@ Last updated: 2026-09-21
 - [ ] Task 2: Cards and seeded shuffling
 - [x] Task 3: Hand evaluation (934e67a + fix 2f20d34; spec ✅ quality ✅ — added malformed-card rejection + tie test)
 - [x] Task 4: Engine types and side pots (3f9f4e0 + fix 7f02a9a; spec ✅ quality ✅ — buildPots no-live-pot guard + dead-money tests)
-- [ ] Task 5: Hand state machine
+- [ ] Task 5: Hand state machine (e62c66c; spec ✅; quality review (opus) found 3 rules bugs — covered short all-in BB still asked to act, no TDA cumulative reopen, unknown action skipped turn — fix in progress)
 - [ ] Task 6: Shared action menu
 - [ ] Task 7: Live turbo tournament
 - [ ] Task 8: Duplicate seating
-- [ ] Task 9: Public exports + random-play invariants (expect 68 tests, 8 files)
+- [ ] Task 9: Public exports + random-play invariants (expect 76 tests, 8 files)
 
 ## Key decisions (summary; spec is authoritative)
 
@@ -64,5 +64,7 @@ Last updated: 2026-09-21
 - Scratch bloub preview (custom colours, Mascots.vue) lived in the session scratchpad; recreate in Plan 4.
 
 ## Execution log
+
+- 2026-09-21: Decision: adopt TDA Rule 43 (several short all-ins adding to a full raise reopen betting). Recorded in spec §4.
 
 - 2026-09-21: Salvage done; design approved; Plan 1 written, verified in scratch (64 tests pass); execution started with subagent-driven development.

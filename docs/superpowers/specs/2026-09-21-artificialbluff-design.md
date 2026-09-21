@@ -74,7 +74,8 @@ git-ignored from the first commit.
 
 **Rules:** standard No-Limit Hold'em, implemented correctly (not ported from Solidity):
 - 5 seats; button rotates; correct heads-up rules (button posts SB, acts first preflop).
-- Standard min-raise rule; an incomplete all-in raise does not reopen action for players who already acted.
+- Standard min-raise rule; an incomplete all-in raise does not reopen action for players who already acted,
+  unless several short all-ins together amount to a full raise (TDA Rule 43, cumulative).
 - Side pots by contribution level; odd chip to first winner left of the button.
 - Hand evaluation via a proven evaluator library, cross-checked by a brute-force reference in tests.
 - Seeded Fisher–Yates shuffle; cards as two-character strings such as `"As"` (no "0 = empty" sentinel).
