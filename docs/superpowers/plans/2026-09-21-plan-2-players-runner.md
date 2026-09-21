@@ -2720,14 +2720,30 @@ console.log(`ended: ${t.endReason} after ${t.handNumber} hands; total cost $${st
 store.close()
 ```
 
-`lineup.example.json` (model ids current on OpenRouter as of 2026-09-21; see the cost note below):
+Two line-ups (model ids current on OpenRouter as of 2026-09-21; see the cost note below). The user's filled-in copies (`lineups/*.json`) are git-ignored.
 
+`lineups/research.example.json` (study and recorded games: the frontier models TypeSafe benchmarked Jev against):
 ```json
 {
+  "_note": "Research / recorded line-up: the frontier models TypeSafe benchmarked Jev against. About $1.30 per live game.",
   "players": [
     { "id": "jev", "kind": "jev", "model": "jev-1.13.0" },
     { "id": "pill", "kind": "llm", "model": "anthropic/claude-fable-5.1" },
     { "id": "block", "kind": "llm", "model": "openai/gpt-6-astra" },
+    { "id": "drip", "kind": "llm", "model": "google/gemini-3.8-flash" },
+    { "id": "nimbus", "kind": "llm", "model": "meta-llama/llama-4-maverick", "disableReasoning": false }
+  ]
+}
+```
+
+`lineups/live.example.json` (everyday live games, cheaper):
+```json
+{
+  "_note": "Everyday live line-up: cheaper models for normal spectator games. About $0.32 per live game.",
+  "players": [
+    { "id": "jev", "kind": "jev", "model": "jev-1.13.0" },
+    { "id": "pill", "kind": "llm", "model": "anthropic/claude-sonnet-5" },
+    { "id": "block", "kind": "llm", "model": "openai/gpt-5.6-sol" },
     { "id": "drip", "kind": "llm", "model": "google/gemini-3.8-flash" },
     { "id": "nimbus", "kind": "llm", "model": "meta-llama/llama-4-maverick", "disableReasoning": false }
   ]
