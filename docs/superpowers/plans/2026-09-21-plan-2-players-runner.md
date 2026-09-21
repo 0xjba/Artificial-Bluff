@@ -965,7 +965,7 @@ function delay(ms: number, signal: AbortSignal): Promise<void> {
 - [ ] **Step 4: Run tests and typecheck**
 
 Run: `pnpm --filter @ab/players exec vitest run && pnpm --filter @ab/players typecheck`
-Expected: PASS (16 tests); typecheck clean.
+Expected: PASS (15 tests); typecheck clean.
 
 - [ ] **Step 5: Commit**
 
@@ -1373,7 +1373,7 @@ export class LlmPlayer implements Player {
 - [ ] **Step 4: Run tests and typecheck**
 
 Run: `pnpm --filter @ab/players exec vitest run && pnpm --filter @ab/players typecheck`
-Expected: PASS (25 tests); typecheck clean.
+Expected: PASS (24 tests); typecheck clean.
 
 - [ ] **Step 5: Commit**
 
@@ -1562,7 +1562,7 @@ The two instruction strings are part of the experiment: changing them changes wh
 - [ ] **Step 4: Run tests and typecheck**
 
 Run: `pnpm --filter @ab/players exec vitest run && pnpm --filter @ab/players typecheck`
-Expected: PASS (27 tests); typecheck clean.
+Expected: PASS (26 tests); typecheck clean.
 
 - [ ] **Step 5: Commit**
 
@@ -1696,7 +1696,7 @@ export * from './factory'
 - [ ] **Step 4: Run tests and typecheck**
 
 Run: `pnpm --filter @ab/players exec vitest run && pnpm --filter @ab/players typecheck`
-Expected: PASS (29 tests); typecheck clean.
+Expected: PASS (28 tests); typecheck clean.
 
 - [ ] **Step 5: Commit**
 
@@ -2872,7 +2872,7 @@ Expected: prints one line like `game demo-…: 67 hands, 393 decisions, 1161 eve
 - [ ] **Step 3: Full verification**
 
 Run: `pnpm test && pnpm typecheck`
-Expected: engine 104, players 29, core 18 tests pass; typecheck clean across all three packages.
+Expected: engine 104, players 28, core 18 tests pass; typecheck clean across all three packages.
 
 - [ ] **Step 4: Commit**
 
@@ -2906,7 +2906,7 @@ User decision (2026-09-21): the research line-up is used for the study and recor
 
 ## Done when
 
-- `pnpm test` passes (engine 104, players 29, core 18) and `pnpm typecheck` is clean.
+- `pnpm test` passes (engine 104, players 28, core 18) and `pnpm typecheck` is clean.
 - `pnpm demo` plays a full mock tournament into `data/demo.db` with no errors.
 - `@ab/players` exports `buildObservation`, the bots, `MockLlm`, `LlmPlayer`, `JevPlayer`, `createPlayers`; `@ab/core` exports the event types, `EventStore`, `playHand`, `runTournamentGame`.
 - Next: Plan 3 (study runner: duplicate groups, budget cap, resume, CI stop, report) builds on `playHand`, `EventStore` and `duplicateGroup`.
