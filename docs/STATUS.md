@@ -48,8 +48,8 @@ Last updated: 2026-09-21
 - [x] Task 6: Jev player (f3cf3f0 + 1e299e5 + b4ec7a9; spec ✅ quality ✅ (opus) — symmetric no-retry, runner timeout governs, validated API answers, sourced price, malformed-response guard)
 - [x] Task 7: Player factory and exports (32909dc + d1d6a09; spec ✅ quality ✅ — live-catalog preflight clean for both line-ups)
 - [x] Task 8: Core package, events, SQLite store (8284e8b + a35aa52 + tsx dep; spec ✅ quality ✅ fixes (opus): no lost events with concurrent writers, strict canonical JSON, schema migrations, hash in game_started)
-- [ ] Task 9: Table runner (929c010; spec ✅; quality (opus): replay from events verified on 3k hands; fixes — timeout latency = limit, sync-throw/non-promise/malformed/undefined-reject guards, empty-error auto count, currentBet in decisions — in progress)
-- [ ] Task 10: Live tournament driver
+- [x] Task 9: Table runner (929c010 + f5c874b + usage-check follow-up; spec ✅ quality ✅ (opus, 3k-hand replay from events clean) — timeout latency = limit, misbehaving-player guards, empty-error auto count, currentBet)
+- [ ] Task 10: Live tournament driver (0f6bc7b; spec ✅ (diff); quality review in progress)
 - [ ] Task 11: pnpm demo / pnpm smoke (expect engine 104, players 43, core 28)
 
 ## Key decisions (summary; spec is authoritative)

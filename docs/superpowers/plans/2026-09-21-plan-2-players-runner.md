@@ -2724,6 +2724,7 @@ describe('playHand', () => {
       (() => ({ ok: true })) as unknown as Player['decide'],
       () => Promise.reject(undefined),
       () => Promise.reject(null),
+      (async () => ({ ok: true, decision: { optionId: 'fold' }, usage: {}, model: 'm' })) as unknown as Player['decide'],
     ]
     for (const decide of bad) {
       const sink = memorySink()
@@ -2910,7 +2911,9 @@ type Asked = { result: DecideResult; timedOut: boolean }
 /** Guards against players returning something that isn't a DecideResult. */
 function checked(r: unknown, model: string): DecideResult {
   const x = r as Partial<DecideResult> | null
-  if (x && typeof x === 'object' && x.usage && typeof x.model === 'string') {
+  const u = x?.usage as Partial<Record<keyof typeof NO_USAGE, unknown>> | undefined
+  const usageOk = !!u && (Object.keys(NO_USAGE) as Array<keyof typeof NO_USAGE>).every((k) => typeof u[k] === 'number' && Number.isFinite(u[k]))
+  if (x && typeof x === 'object' && usageOk && typeof x.model === 'string') {
     if (x.ok === true && x.decision && typeof x.decision.optionId === 'string') return x as DecideResult
     if (x.ok === false && typeof x.error === 'string' && (x.kind === 'model' || x.kind === 'infra')) return x as DecideResult
   }
