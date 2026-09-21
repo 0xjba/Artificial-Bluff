@@ -33,12 +33,13 @@ export class MockLlm implements Player {
     const usage = {
       inputTokens,
       outputTokens: 40,
+      reasoningTokens: 0,
       costUsd: (inputTokens * (this.options.inputPricePerMTok ?? 1)) / 1_000_000,
       retries: 0,
     }
     if (this.options.latencyMs) await delay(this.options.latencyMs, signal)
     if (this.options.failEvery && this.calls % this.options.failEvery === 0) {
-      return { ok: false, error: 'mock failure', usage, model: this.model }
+      return { ok: false, error: 'mock failure', kind: 'infra', usage, model: this.model }
     }
     const { optionId, winProbability } = tagChoice(obs)
     const invalid = this.options.invalidEvery && this.calls % this.options.invalidEvery === 0

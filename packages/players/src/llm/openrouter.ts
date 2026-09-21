@@ -11,16 +11,22 @@ export interface ChatRequest {
   temperature?: number
   max_tokens?: number
   response_format?: unknown
-  reasoning?: { effort?: 'none' | 'minimal' | 'low'; enabled?: boolean }
+  reasoning?: { effort?: 'none' | 'minimal' | 'low'; exclude?: boolean }
   provider?: { require_parameters?: boolean }
 }
 
 export interface ChatResult {
   content: string
+  /** "stop", "length" (hit max_tokens), "tool_calls", ... or null if absent. */
+  finishReason: string | null
+  /** True when the model refused (non-empty `refusal` field). */
+  refused: boolean
   /** Model that actually served the request. */
   model: string
   promptTokens: number
+  /** Billed completion tokens, including reasoning tokens. */
   completionTokens: number
+  reasoningTokens: number
   /** Cost in OpenRouter credits (USD), as reported in `usage.cost`; 0 if absent. */
   cost: number
 }
@@ -63,16 +69,26 @@ export async function chatCompletion(
   })
   const text = await res.text()
   if (!res.ok) throw new OpenRouterError(res.status, text)
+  // A 200 whose body isn't JSON (e.g. a gateway page) may still have been billed; cost is unknown then.
   const body = JSON.parse(text) as {
     model?: string
-    choices?: Array<{ message?: { content?: string | null } }>
-    usage?: { prompt_tokens?: number; completion_tokens?: number; cost?: number }
+    choices?: Array<{ finish_reason?: string | null; message?: { content?: string | null; refusal?: string | null } }>
+    usage?: {
+      prompt_tokens?: number
+      completion_tokens?: number
+      cost?: number
+      completion_tokens_details?: { reasoning_tokens?: number }
+    }
   }
+  const choice = body.choices?.[0]
   return {
-    content: body.choices?.[0]?.message?.content ?? '',
+    content: choice?.message?.content ?? '',
+    finishReason: choice?.finish_reason ?? null,
+    refused: Boolean(choice?.message?.refusal),
     model: body.model ?? request.model,
     promptTokens: body.usage?.prompt_tokens ?? 0,
     completionTokens: body.usage?.completion_tokens ?? 0,
+    reasoningTokens: body.usage?.completion_tokens_details?.reasoning_tokens ?? 0,
     cost: body.usage?.cost ?? 0,
   }
 }
