@@ -60,6 +60,16 @@ describe('preflight', () => {
     ])
   })
 
+  it('keeps explicit structuredOutput and sendTemperature settings', async () => {
+    const catalog = await fetchModelCatalog(catalogFetch)
+    const { specs } = adaptLineup([{ id: 'a', kind: 'llm', model: 'vendor/reasoner', structuredOutput: false, sendTemperature: false }], catalog)
+    expect(specs[0]).toMatchObject({ structuredOutput: false, sendTemperature: false, reasoning: 'off' })
+  })
+
+  it('fails clearly when the catalog cannot be fetched', async () => {
+    await expect(fetchModelCatalog(async () => new Response('down', { status: 503 }))).rejects.toThrow('model catalog: HTTP 503')
+  })
+
   it('reports unknown models and models without structured output', async () => {
     const catalog = await fetchModelCatalog(catalogFetch)
     const { problems } = adaptLineup(
