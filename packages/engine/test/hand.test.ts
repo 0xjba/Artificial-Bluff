@@ -213,3 +213,71 @@ describe('hand completion', () => {
     expect(a.seats.map((s) => s.hole)).toEqual(b.seats.map((s) => s.hole))
   })
 })
+
+describe('edge cases from the rules review', () => {
+  it('heads-up: SB already covering a short all-in BB is not asked to act', () => {
+    const s = hand([1000, 30], { holes: ['7c 2d', 'As Ad'], board: '3c 8h 9s Jd Kc' })
+    expect(s.complete).toBe(true)
+    // Main pot 60 to the BB's aces; the SB's uncovered 20 comes back.
+    expect(s.result!.stacks).toEqual({ p0: 970, p1: 60 })
+  })
+
+  it('3 players: after UTG folds, SB covering a short all-in BB is not asked to act', () => {
+    let s = hand([1000, 1000, 30])
+    s = play(s, fold)
+    expect(s.complete).toBe(true)
+  })
+
+  it('heads-up: short all-in SB runs out and the BB gets its uncalled chips back', () => {
+    const s = hand([30, 1000], { holes: ['As Ad', 'Kc Kd'], board: '2c 7h 9s Jd 3c' })
+    expect(s.complete).toBe(true)
+    expect(s.result!.stacks).toEqual({ p0: 60, p1: 970 })
+  })
+
+  it('a postflop all-in bet below the big blind: next min raise adds a full BB; earlier checkers may only call', () => {
+    // Button p0, SB p1, BB p2 (150 chips). Everyone limps; flop order p1, p2, p0.
+    let s = hand([1000, 1000, 150])
+    s = play(s, call, call, check)
+    expect(s.street).toBe('flop')
+    s = play(s, check, raise(50)) // p1 checks, p2 bets all-in 50
+    expect(s.toAct).toBe(0)
+    expect(legalActions(s).minRaiseTo).toBe(150) // p0 has not acted: may raise to 50 + 100
+    s = play(s, call)
+    expect(s.toAct).toBe(1)
+    expect(legalActions(s)).toMatchObject({ callAmount: 50, minRaiseTo: null }) // p1 checked earlier
+  })
+
+  it('the big blind may raise after an incomplete all-in raise (it has not acted yet)', () => {
+    // Button p0, SB p1, BB p2, UTG p3 with 150 shoves (a 50 raise, less than a full 100).
+    let s = hand([5000, 5000, 5000, 150])
+    s = play(s, raise(150), call, call)
+    expect(s.toAct).toBe(2)
+    expect(legalActions(s).minRaiseTo).toBe(250)
+  })
+
+  it('several short all-ins that add up to a full raise reopen betting (TDA)', () => {
+    // p3 raises to 300 (+200). p0 shoves 360, p1 shoves 520: p3 now faces 220 >= 200.
+    let s = hand([360, 520, 5000, 5000])
+    s = play(s, raise(300), raise(360), raise(520), call)
+    expect(s.toAct).toBe(3)
+    expect(legalActions(s)).toMatchObject({ callAmount: 220, minRaiseTo: 720 })
+  })
+
+  it('throws on an unknown action type instead of skipping the turn', () => {
+    const s = hand([1000, 1000, 1000])
+    expect(() => applyAction(s, { type: 'allin' } as unknown as Action)).toThrow(/unknown action type/)
+  })
+
+  it('validates blinds, deck override and player count', () => {
+    const seats = [
+      { id: 'a', stack: 1000 },
+      { id: 'b', stack: 1000 },
+    ]
+    const base = { seats, buttonIndex: 0, smallBlind: 50, bigBlind: 100, seed: 1 }
+    expect(() => createHand({ ...base, smallBlind: 12.5 })).toThrow(/invalid blinds/)
+    const badDeck = arrangeDeck(0, [c('As Ad'), c('Kc Kd')]).map((x, i) => (i === 51 ? ('Xx' as Card) : x))
+    expect(() => createHand({ ...base, deck: badDeck })).toThrow(/valid cards/)
+    const eleven = Array.from({ length: 11 }, (_, i) => ({ id: `p${i}`, stack: 1000 }))
+    expect(() => createHand({ ...base, seats: eleven })).toThrow(/at most 10/)
+  })
+})
