@@ -7,6 +7,7 @@ Last updated: 2026-09-22
 
 | What | Where |
 |---|---|
+| GitHub remote (`origin`) | https://github.com/0xjba/Artificial-Bluff (master + feat/plan-3a-study pushed 2026-09-22) |
 | Design spec (approved) | `docs/superpowers/specs/2026-09-21-artificialbluff-design.md` |
 | Plan 1: monorepo + engine | `docs/superpowers/plans/2026-09-21-plan-1-engine.md` |
 | Plan 2: players, runner, event log | `docs/superpowers/plans/2026-09-21-plan-2-players-runner.md` |
