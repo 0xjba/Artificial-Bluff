@@ -2045,6 +2045,7 @@ git -c user.email=jobinb6444@gmail.com -c user.name=0xjba commit -m "feat(player
 - Create: `packages/core/package.json`, `packages/core/tsconfig.json`
 - Modify: `package.json` (root: allow the better-sqlite3 native build)
 - Create: `packages/core/src/events.ts`, `packages/core/src/store.ts`
+- Create: `packages/core/test/fixtures/concurrent-writer.ts` (child process for the multi-writer test)
 - Test: `packages/core/test/store.test.ts`
 
 - [ ] **Step 1: Create the package**
@@ -2150,7 +2151,7 @@ export interface DecisionEvent {
 export type FallbackKind = 'model' | 'infra' | 'timeout' | 'auto'
 
 export type EventBody =
-  | { type: 'game_started'; kind: GameKind; players: PlayerInfo[] }
+  | { type: 'game_started'; kind: GameKind; players: PlayerInfo[]; /** Pre-registration hash of the game config. */ configHash: string }
   | {
       type: 'hand_started'
       handId: string | null
@@ -2190,14 +2191,32 @@ export interface EventSink {
 }
 ```
 
-- [ ] **Step 3: Write the failing test**
+- [ ] **Step 3: Write the failing tests**
+
+`packages/core/test/fixtures/concurrent-writer.ts`:
+```ts
+// Child process for the concurrency test: appends N events to one game in a shared database file.
+import { EventStore } from '../../src/store'
+
+const [dbPath, gameId, count] = process.argv.slice(2)
+const store = new EventStore(dbPath!)
+for (let i = 0; i < Number(count); i++) {
+  store.append(gameId!, { type: 'hand_ended', handId: `h${i}`, stacks: {}, net: {} })
+}
+store.close()
+```
 
 `packages/core/test/store.test.ts`:
 
 ```ts
+import { spawn } from 'node:child_process'
+import { mkdtempSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import type { DecisionEvent } from '../src/events'
-import { configHash, EventStore } from '../src/store'
+import { canonicalJson, configHash, EventStore, SCHEMA_VERSION } from '../src/store'
 
 const decision = (over: Partial<DecisionEvent> = {}): DecisionEvent => ({
   type: 'decision', handId: 'hand-0', street: 'preflop', playerId: 'jev', position: 'BTN', model: 'jev-1.13.0',
@@ -2218,7 +2237,7 @@ describe('EventStore', () => {
     const store = new EventStore()
     const game = store.createGame('g1', 'live', { z: 1, a: 2 }, 1000)
     expect(game).toMatchObject({ id: 'g1', kind: 'live', status: 'running', config: { a: 2, z: 1 }, createdAt: 1000 })
-    const e1 = store.append('g1', { type: 'game_started', kind: 'live', players: [] }, 2000)
+    const e1 = store.append('g1', { type: 'game_started', kind: 'live', players: [], configHash: 'x' }, 2000)
     const e2 = store.append('g1', decision(), 3000)
     expect([e1.seq, e2.seq]).toEqual([1, 2])
     expect(store.events('g1').map((e) => [e.seq, e.type, e.ts])).toEqual([
@@ -2253,18 +2272,71 @@ describe('EventStore', () => {
   })
 
   it('persists to a file', async () => {
-    const { mkdtempSync } = await import('node:fs')
-    const { tmpdir } = await import('node:os')
-    const { join } = await import('node:path')
     const path = join(mkdtempSync(join(tmpdir(), 'ab-')), 'events.db')
     const a = new EventStore(path)
     a.createGame('g', 'study', { x: 1 })
-    a.append('g', { type: 'game_started', kind: 'study', players: [] })
+    a.append('g', { type: 'game_started', kind: 'study', players: [], configHash: 'x' })
     a.close()
     const b = new EventStore(path)
     expect(b.events('g')).toHaveLength(1)
     b.close()
   })
+
+  it('only accepts values JSON represents faithfully', () => {
+    expect(canonicalJson({ b: 1, a: [true, null, 'x'], skip: undefined })).toBe('{"a":[true,null,"x"],"b":1}')
+    for (const bad of [{ n: Number.NaN }, { n: Infinity }, { d: new Date(0) }, { m: new Map() }, { f: () => 1 }, { a: [1, undefined] }, { b: 10n }]) {
+      expect(() => canonicalJson(bad)).toThrow(/canonicalJson/)
+    }
+  })
+
+  it('rejects a bad config or event before writing anything', () => {
+    const store = new EventStore()
+    expect(() => store.createGame('g', 'live', { f: () => 1 })).toThrow(/function/)
+    expect(store.games()).toEqual([])
+    store.createGame('g', 'live', {})
+    expect(() => store.append('g', decision({ latencyMs: Infinity }))).toThrow(/finite/)
+    expect(store.events('g')).toEqual([])
+    expect(store.db.prepare('SELECT COUNT(*) AS n FROM decisions').get()).toEqual({ n: 0 })
+  })
+
+  it('refuses to update an unknown game and stamps the schema version', () => {
+    const store = new EventStore()
+    expect(() => store.setStatus('nope', 'ended')).toThrow(/no game nope/)
+    expect(store.db.pragma('user_version', { simple: true })).toBe(SCHEMA_VERSION)
+  })
+
+  it('refuses a database from newer code', () => {
+    const path = join(mkdtempSync(join(tmpdir(), 'ab-')), 'events.db')
+    const a = new EventStore(path)
+    a.db.pragma(`user_version = ${SCHEMA_VERSION + 1}`)
+    a.close()
+    expect(() => new EventStore(path)).toThrow(/newer than this code/)
+  })
+
+  it('does not lose events when several processes write to one file', async () => {
+    const path = join(mkdtempSync(join(tmpdir(), 'ab-')), 'events.db')
+    const setup = new EventStore(path)
+    for (const g of ['a', 'b', 'c']) setup.createGame(g, 'study', {})
+    setup.close()
+    const here = dirname(fileURLToPath(import.meta.url))
+    const tsx = join(here, '../../../node_modules/.bin/tsx')
+    const writer = join(here, 'fixtures/concurrent-writer.ts')
+    const run = (gameId: string) =>
+      new Promise<number>((resolve) => {
+        const child = spawn(tsx, [writer, path, gameId, '400'], { stdio: 'ignore' })
+        child.on('exit', (code) => resolve(code ?? 1))
+      })
+    // Two writers on game a (contending for seq) and one each on b and c.
+    expect(await Promise.all([run('a'), run('a'), run('b'), run('c')])).toEqual([0, 0, 0, 0])
+    const store = new EventStore(path)
+    const counts = store.db.prepare('SELECT game_id AS g, COUNT(*) AS n, MAX(seq) AS max FROM events GROUP BY game_id ORDER BY game_id').all()
+    expect(counts).toEqual([
+      { g: 'a', n: 800, max: 800 },
+      { g: 'b', n: 400, max: 400 },
+      { g: 'c', n: 400, max: 400 },
+    ])
+    store.close()
+  }, 60_000)
 })
 ```
 
@@ -2289,90 +2361,132 @@ export interface GameRow {
   kind: GameKind
   createdAt: number
   status: GameStatus
+  /**
+   * Server-only while the game runs: it contains master seeds, which reveal every future deck.
+   * Never send it to spectators before `status !== 'running'`.
+   */
   config: unknown
   configHash: string
   endedAt: number | null
 }
 
-/** JSON with object keys sorted, so equal configs hash equally. */
-export function canonicalJson(value: unknown): string {
-  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(',')}]`
-  if (value && typeof value === 'object') {
+function isPlainObject(value: object): boolean {
+  const proto = Object.getPrototypeOf(value)
+  return proto === Object.prototype || proto === null
+}
+
+/**
+ * JSON with object keys sorted, so equal configs hash equally. Strict: accepts only plain objects,
+ * arrays, finite numbers, strings, booleans and null (object keys whose value is undefined are
+ * dropped, as JSON does). Anything JSON can't represent faithfully (functions, symbols, bigint,
+ * NaN/Infinity, Dates, Maps, class instances, undefined in arrays) throws, so two different
+ * configs can never share a hash and stored JSON always parses.
+ */
+export function canonicalJson(value: unknown, path = '$'): string {
+  if (value === null || typeof value === 'string' || typeof value === 'boolean') return JSON.stringify(value)
+  if (typeof value === 'number') {
+    if (!Number.isFinite(value)) throw new Error(`canonicalJson: ${path} is not a finite number`)
+    return JSON.stringify(value)
+  }
+  if (Array.isArray(value)) return `[${value.map((v, i) => canonicalJson(v, `${path}[${i}]`)).join(',')}]`
+  if (typeof value === 'object' && isPlainObject(value)) {
     const entries = Object.entries(value as Record<string, unknown>)
       .filter(([, v]) => v !== undefined)
       .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
-    return `{${entries.map(([k, v]) => `${JSON.stringify(k)}:${canonicalJson(v)}`).join(',')}}`
+    return `{${entries.map(([k, v]) => `${JSON.stringify(k)}:${canonicalJson(v, `${path}.${k}`)}`).join(',')}}`
   }
-  return JSON.stringify(value)
+  const kind = typeof value === 'object' ? (value as object).constructor?.name ?? 'object' : typeof value
+  throw new Error(`canonicalJson: ${path} is a ${kind}, which JSON cannot represent`)
 }
 
 export function configHash(config: unknown): string {
   return createHash('sha256').update(canonicalJson(config)).digest('hex')
 }
 
-const SCHEMA = `
-CREATE TABLE IF NOT EXISTS games (
-  id TEXT PRIMARY KEY,
-  kind TEXT NOT NULL,
-  created_at INTEGER NOT NULL,
-  status TEXT NOT NULL,
-  config_json TEXT NOT NULL,
-  config_hash TEXT NOT NULL,
-  ended_at INTEGER
-);
-CREATE TABLE IF NOT EXISTS events (
-  game_id TEXT NOT NULL REFERENCES games(id),
-  seq INTEGER NOT NULL,
-  ts INTEGER NOT NULL,
-  type TEXT NOT NULL,
-  hand_id TEXT,
-  body_json TEXT NOT NULL,
-  PRIMARY KEY (game_id, seq)
-);
-CREATE TABLE IF NOT EXISTS decisions (
-  game_id TEXT NOT NULL,
-  seq INTEGER NOT NULL,
-  hand_id TEXT,
-  player_id TEXT NOT NULL,
-  model TEXT NOT NULL,
-  street TEXT NOT NULL,
-  position TEXT NOT NULL,
-  option_id TEXT NOT NULL,
-  action_type TEXT NOT NULL,
-  chips_in INTEGER NOT NULL,
-  pot INTEGER NOT NULL,
-  to_call INTEGER NOT NULL,
-  win_probability REAL,
-  confidence REAL,
-  latency_ms REAL NOT NULL,
-  input_tokens INTEGER NOT NULL,
-  output_tokens INTEGER NOT NULL,
-  reasoning_tokens INTEGER NOT NULL,
-  cost_usd REAL NOT NULL,
-  retries INTEGER NOT NULL,
-  fallback INTEGER NOT NULL,
-  fallback_kind TEXT,
-  PRIMARY KEY (game_id, seq)
-);
-CREATE INDEX IF NOT EXISTS decisions_player ON decisions(player_id);
-`
+/** Ordered schema migrations; index i upgrades user_version i to i + 1. Only ever append. */
+const MIGRATIONS: string[] = [
+  `
+  CREATE TABLE games (
+    id TEXT PRIMARY KEY,
+    kind TEXT NOT NULL,
+    created_at INTEGER NOT NULL,
+    status TEXT NOT NULL,
+    config_json TEXT NOT NULL,
+    config_hash TEXT NOT NULL,
+    ended_at INTEGER
+  );
+  CREATE TABLE events (
+    game_id TEXT NOT NULL REFERENCES games(id),
+    seq INTEGER NOT NULL,
+    ts INTEGER NOT NULL,
+    type TEXT NOT NULL,
+    hand_id TEXT,
+    body_json TEXT NOT NULL,
+    PRIMARY KEY (game_id, seq)
+  );
+  CREATE INDEX events_hand ON events(game_id, hand_id);
+  CREATE TABLE decisions (
+    game_id TEXT NOT NULL,
+    seq INTEGER NOT NULL,
+    hand_id TEXT,
+    player_id TEXT NOT NULL,
+    model TEXT NOT NULL,
+    street TEXT NOT NULL,
+    position TEXT NOT NULL,
+    option_id TEXT NOT NULL,
+    action_type TEXT NOT NULL,
+    chips_in INTEGER NOT NULL,
+    pot INTEGER NOT NULL,
+    to_call INTEGER NOT NULL,
+    win_probability REAL,
+    confidence REAL,
+    latency_ms REAL NOT NULL,
+    input_tokens INTEGER NOT NULL,
+    output_tokens INTEGER NOT NULL,
+    reasoning_tokens INTEGER NOT NULL,
+    cost_usd REAL NOT NULL,
+    retries INTEGER NOT NULL,
+    fallback INTEGER NOT NULL,
+    fallback_kind TEXT,
+    PRIMARY KEY (game_id, seq),
+    FOREIGN KEY (game_id, seq) REFERENCES events(game_id, seq)
+  );
+  CREATE INDEX decisions_hand ON decisions(game_id, hand_id);
+  CREATE INDEX decisions_player_model ON decisions(player_id, model);
+  `,
+]
+
+export const SCHEMA_VERSION = MIGRATIONS.length
 
 /** SQLite event log. Every game is an ordered event stream; decisions are also denormalized for analysis. */
 export class EventStore {
   readonly db: Database.Database
 
   constructor(path = ':memory:') {
-    this.db = new Database(path)
+    // Wait up to 10 s for another process's write lock instead of failing immediately.
+    this.db = new Database(path, { timeout: 10_000 })
     this.db.pragma('journal_mode = WAL')
     this.db.pragma('foreign_keys = ON')
-    this.db.exec(SCHEMA)
+    this.migrate()
+  }
+
+  private migrate(): void {
+    this.db
+      .transaction(() => {
+        const version = this.db.pragma('user_version', { simple: true }) as number
+        if (version > SCHEMA_VERSION) throw new Error(`database schema v${version} is newer than this code (v${SCHEMA_VERSION})`)
+        for (let v = version; v < SCHEMA_VERSION; v++) this.db.exec(MIGRATIONS[v]!)
+        this.db.pragma(`user_version = ${SCHEMA_VERSION}`)
+      })
+      .immediate()
   }
 
   createGame(id: string, kind: GameKind, config: unknown, now = Date.now()): GameRow {
-    const hash = configHash(config)
+    const json = canonicalJson(config) // throws before anything is written
+    const hash = createHash('sha256').update(json).digest('hex')
     this.db
       .prepare('INSERT INTO games (id, kind, created_at, status, config_json, config_hash) VALUES (?, ?, ?, ?, ?, ?)')
-      .run(id, kind, now, 'running', canonicalJson(config), hash)
+      .run(id, kind, now, 'running', json, hash)
     return this.game(id)!
   }
 
@@ -2400,42 +2514,47 @@ export class EventStore {
   }
 
   setStatus(id: string, status: GameStatus, now = Date.now()): void {
-    this.db.prepare('UPDATE games SET status = ?, ended_at = ? WHERE id = ?').run(status, status === 'running' ? null : now, id)
+    const info = this.db.prepare('UPDATE games SET status = ?, ended_at = ? WHERE id = ?').run(status, status === 'running' ? null : now, id)
+    if (info.changes === 0) throw new Error(`no game ${id}`)
   }
 
   /** Marks games left 'running' by a crash as 'interrupted'. Call on server start. Returns their ids. */
   interruptRunningGames(now = Date.now()): string[] {
-    const ids = (this.db.prepare("SELECT id FROM games WHERE status = 'running'").all() as Array<{ id: string }>).map((r) => r.id)
-    for (const id of ids) this.setStatus(id, 'interrupted', now)
-    return ids
+    const rows = this.db
+      .prepare("UPDATE games SET status = 'interrupted', ended_at = ? WHERE status = 'running' RETURNING id")
+      .all(now) as Array<{ id: string }>
+    return rows.map((r) => r.id).sort()
   }
 
   append(gameId: string, body: EventBody, now = Date.now()): GameEvent {
-    const tx = this.db.transaction((): GameEvent => {
-      const { next } = this.db.prepare('SELECT COALESCE(MAX(seq), 0) + 1 AS next FROM events WHERE game_id = ?').get(gameId) as { next: number }
-      const event = { ...body, gameId, seq: next, ts: now } as GameEvent
-      const handId = 'handId' in body ? body.handId : null
-      this.db
-        .prepare('INSERT INTO events (game_id, seq, ts, type, hand_id, body_json) VALUES (?, ?, ?, ?, ?, ?)')
-        .run(gameId, next, now, body.type, handId, JSON.stringify(body))
-      if (body.type === 'decision') {
+    const json = canonicalJson(body) // rejects NaN/Infinity etc. before anything is written
+    // IMMEDIATE: take the write lock up front, so concurrent writers (server + study) wait for it
+    // instead of failing with SQLITE_BUSY after reading MAX(seq).
+    return this.db
+      .transaction((): GameEvent => {
+        const { next } = this.db.prepare('SELECT COALESCE(MAX(seq), 0) + 1 AS next FROM events WHERE game_id = ?').get(gameId) as { next: number }
+        const handId = 'handId' in body ? body.handId : null
         this.db
-          .prepare(
-            `INSERT INTO decisions (game_id, seq, hand_id, player_id, model, street, position, option_id, action_type, chips_in, pot, to_call,
-             win_probability, confidence, latency_ms, input_tokens, output_tokens, reasoning_tokens, cost_usd, retries,
-             fallback, fallback_kind)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-          )
-          .run(
-            gameId, next, body.handId, body.playerId, body.model, body.street, body.position, body.optionId, body.action.type,
-            body.chipsIn, body.pot, body.toCall, body.winProbability, body.confidence, body.latencyMs,
-            body.inputTokens, body.outputTokens, body.reasoningTokens, body.costUsd, body.retries,
-            body.fallback ? 1 : 0, body.fallbackKind,
-          )
-      }
-      return event
-    })
-    return tx()
+          .prepare('INSERT INTO events (game_id, seq, ts, type, hand_id, body_json) VALUES (?, ?, ?, ?, ?, ?)')
+          .run(gameId, next, now, body.type, handId, json)
+        if (body.type === 'decision') {
+          this.db
+            .prepare(
+              `INSERT INTO decisions (game_id, seq, hand_id, player_id, model, street, position, option_id, action_type, chips_in, pot, to_call,
+               win_probability, confidence, latency_ms, input_tokens, output_tokens, reasoning_tokens, cost_usd, retries,
+               fallback, fallback_kind)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            )
+            .run(
+              gameId, next, body.handId, body.playerId, body.model, body.street, body.position, body.optionId, body.action.type,
+              body.chipsIn, body.pot, body.toCall, body.winProbability, body.confidence, body.latencyMs,
+              body.inputTokens, body.outputTokens, body.reasoningTokens, body.costUsd, body.retries,
+              body.fallback ? 1 : 0, body.fallbackKind,
+            )
+        }
+        return { ...body, gameId, seq: next, ts: now } as GameEvent
+      })
+      .immediate()
   }
 
   /** A sink bound to one game, for the runner. */
@@ -2465,13 +2584,13 @@ export class EventStore {
 - [ ] **Step 6: Run tests**
 
 Run: `pnpm --filter @ab/core exec vitest run test/store.test.ts`
-Expected: PASS (5 tests). (Full core typecheck comes in Task 10 once `index.ts` and scripts exist; `pnpm --filter @ab/core exec tsc --noEmit` should already be clean.)
+Expected: PASS (10 tests). (Full core typecheck comes in Task 10 once `index.ts` and scripts exist; `pnpm --filter @ab/core exec tsc --noEmit` should already be clean.)
 
 - [ ] **Step 7: Commit**
 
 
 ```bash
-git add package.json pnpm-lock.yaml packages/core/package.json packages/core/tsconfig.json packages/core/src/events.ts packages/core/src/store.ts packages/core/test/store.test.ts
+git add package.json pnpm-lock.yaml packages/core/package.json packages/core/tsconfig.json packages/core/src/events.ts packages/core/src/store.ts packages/core/test/store.test.ts packages/core/test/fixtures/concurrent-writer.ts
 git -c user.email=jobinb6444@gmail.com -c user.name=0xjba commit -m "feat(core): event types and SQLite event store" -m "Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
 ```
 
@@ -2900,7 +3019,7 @@ Key points:
 - [ ] **Step 4: Run tests**
 
 Run: `pnpm --filter @ab/core exec vitest run`
-Expected: PASS (14 tests).
+Expected: PASS (19 tests).
 
 - [ ] **Step 5: Commit**
 
@@ -2940,7 +3059,7 @@ describe('runTournamentGame', () => {
     const t = await runTournamentGame({ gameId: 'g1', players: lineup(), tournament: liveTurboConfig('seed-1'), store, decisionTimeoutMs: 1000, budgetUsd: 100 })
     expect(t.complete).toBe(true)
     const events = store.events('g1')
-    expect(events[0]!.type).toBe('game_started')
+    expect(events[0]).toMatchObject({ type: 'game_started', configHash: store.game('g1')!.configHash })
     expect(ended(events)).toMatchObject({ type: 'game_ended', winner: t.winner, handsPlayed: t.handNumber })
     expect(Object.values(ended(events).stacks).reduce((a, b) => a + b, 0)).toBe(15_000)
     expect(store.game('g1')!.status).toBe('ended')
@@ -3032,7 +3151,7 @@ export interface TournamentGameOptions {
 /** Runs a live tournament to completion, recording everything in the store. */
 export async function runTournamentGame(opts: TournamentGameOptions): Promise<TournamentState> {
   const players = new Map(opts.players.map((p) => [p.id, p]))
-  opts.store.createGame(opts.gameId, 'live', {
+  const game = opts.store.createGame(opts.gameId, 'live', {
     tournament: opts.tournament,
     players: opts.players.map((p) => ({ id: p.id, kind: p.kind, model: p.model })),
     decisionTimeoutMs: opts.decisionTimeoutMs,
@@ -3041,7 +3160,12 @@ export async function runTournamentGame(opts: TournamentGameOptions): Promise<To
     ...opts.meta,
   })
   const sink = opts.store.sink(opts.gameId)
-  sink.append({ type: 'game_started', kind: 'live', players: opts.players.map((p) => ({ id: p.id, kind: p.kind, model: p.model })) })
+  sink.append({
+    type: 'game_started',
+    kind: 'live',
+    configHash: game.configHash,
+    players: opts.players.map((p) => ({ id: p.id, kind: p.kind, model: p.model })),
+  })
 
   let t = createTournament(
     opts.players.map((p) => p.id),
@@ -3094,7 +3218,7 @@ export * from './game'
 - [ ] **Step 4: Run tests**
 
 Run: `pnpm --filter @ab/core exec vitest run`
-Expected: PASS (19 tests).
+Expected: PASS (24 tests).
 
 - [ ] **Step 5: Commit**
 
@@ -3266,7 +3390,7 @@ Expected: prints one line like `game demo-…: 67 hands, 393 decisions, 1161 eve
 - [ ] **Step 3: Full verification**
 
 Run: `pnpm test && pnpm typecheck`
-Expected: engine 104, players 43, core 19 tests pass; typecheck clean across all three packages.
+Expected: engine 104, players 43, core 24 tests pass; typecheck clean across all three packages.
 
 - [ ] **Step 4: Commit**
 
@@ -3300,7 +3424,7 @@ User decision (2026-09-21): the research line-up is used for the study and recor
 
 ## Done when
 
-- `pnpm test` passes (engine 104, players 43, core 19) and `pnpm typecheck` is clean.
+- `pnpm test` passes (engine 104, players 43, core 24) and `pnpm typecheck` is clean.
 - `pnpm demo` plays a full mock tournament into `data/demo.db` with no errors.
 - `@ab/players` exports `buildObservation`, the bots, `MockLlm`, `LlmPlayer`, `JevPlayer`, `createPlayers`; `@ab/core` exports the event types, `EventStore`, `playHand`, `runTournamentGame`.
 - Next: Plan 3 (study runner: duplicate groups, budget cap, resume, CI stop, report) builds on `playHand`, `EventStore` and `duplicateGroup`.
