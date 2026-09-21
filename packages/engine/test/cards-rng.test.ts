@@ -41,6 +41,7 @@ describe('rng', () => {
     expect(deriveSeed('study', 1)).toBe(deriveSeed('study', 1))
     expect(deriveSeed('study', 1)).not.toBe(deriveSeed('study', 2))
     expect(deriveSeed('a', 12)).not.toBe(deriveSeed('a1', 2))
+    expect(deriveSeed('a:1', 2)).not.toBe(deriveSeed('a', '1:2'))
   })
 
   it('shuffle spreads the ace of spades roughly evenly', () => {
