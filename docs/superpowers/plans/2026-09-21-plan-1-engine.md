@@ -19,7 +19,7 @@
 - **Seats** are listed clockwise. `buttonIndex` points at the dealer button. Heads-up, the button posts the small blind and acts first preflop; otherwise SB and BB are the two seats after the button and the seat after the BB acts first. After the flop, the first live seat left of the button acts first.
 - **Raise amounts are "raise to"**: `{ type: 'raise', to: 600 }` means the player's total commitment *this street* becomes 600. A bet is a raise from 0.
 - **Minimum raise**: the increment must be at least the last full bet/raise on this street (the big blind if none). A player may always go all-in for less.
-- **Incomplete all-in raise**: an all-in that raises by less than a full raise does *not* reopen betting for players who already acted; they may only call or fold. Implemented by comparing each seat's `lastActionSeq` with `lastFullRaiseSeq`.
+- **Incomplete all-in raise**: an all-in that raises by less than a full raise does *not* reopen betting for players who already acted; they may only call or fold, unless several short all-ins together add up to at least a full raise (TDA Rule 43). Implemented as: a seat that already acted may raise only if its amount to call is at least `lastRaiseSize`. A player whose short all-in blind is already covered by the only other player who can act is not asked to act.
 - **Side pots**: each distinct commitment level of a non-folded player closes a pot; folded chips count in whichever levels they reach. An uncalled excess becomes a single-eligible pot, which is how it's returned.
 - **Odd chips** from a split go to winners in order starting from the first seat left of the button.
 - **Cards** are two-character strings: rank `23456789TJQKA` + suit `cdhs`, e.g. `"As"`, `"Td"`. No numeric "0 = empty" sentinel (a bug source in the old contracts).
@@ -211,6 +211,7 @@ describe('rng', () => {
     expect(deriveSeed('study', 1)).toBe(deriveSeed('study', 1))
     expect(deriveSeed('study', 1)).not.toBe(deriveSeed('study', 2))
     expect(deriveSeed('a', 12)).not.toBe(deriveSeed('a1', 2))
+    expect(deriveSeed('a:1', 2)).not.toBe(deriveSeed('a', '1:2'))
   })
 
   it('shuffle spreads the ace of spades roughly evenly', () => {
@@ -271,8 +272,6 @@ export function isCard(value: string): value is Card {
 `packages/engine/src/rng.ts`:
 
 ```ts
-import type { Card } from './cards'
-
 /** Mulberry32: small, fast, deterministic 32-bit PRNG. Returns floats in [0, 1). */
 export function mulberry32(seed: number): () => number {
   let a = seed >>> 0
@@ -285,9 +284,14 @@ export function mulberry32(seed: number): () => number {
   }
 }
 
-/** FNV-1a over a string, then a final avalanche. Turns any key into a 32-bit seed. */
+/**
+ * FNV-1a over the parts, then a final avalanche. Turns any key into a 32-bit seed.
+ * Each part is length-prefixed, so ('a:1', 2) and ('a', '1:2') cannot collide.
+ * Hashes are 32-bit: callers needing exact uniqueness over many values (hands, seed groups)
+ * derive one namespace seed and add a counter to it instead of hashing each value.
+ */
 export function deriveSeed(...parts: Array<string | number>): number {
-  const text = parts.join(':')
+  const text = parts.map((p) => `${String(p).length}:${p}`).join('')
   let h = 0x811c9dc5
   for (let i = 0; i < text.length; i++) {
     h ^= text.charCodeAt(i)
@@ -302,8 +306,8 @@ export function deriveSeed(...parts: Array<string | number>): number {
 }
 
 /** Fisher–Yates shuffle driven by a seed. Never mutates its input. */
-export function shuffle(cards: readonly Card[], seed: number): Card[] {
-  const out = [...cards]
+export function shuffle<T>(items: readonly T[], seed: number): T[] {
+  const out = [...items]
   const rand = mulberry32(seed)
   for (let i = out.length - 1; i > 0; i--) {
     const j = Math.floor(rand() * (i + 1))
@@ -428,6 +432,15 @@ describe('evaluateHand', () => {
     expect(() => evaluateHand(hand('As Ks Qs Js'))).toThrow(/5-7/)
   })
 
+  it('rejects malformed cards instead of mis-evaluating them', () => {
+    expect(() => evaluateHand(hand('ts Ks Qs Js As'))).toThrow(/malformed/)
+    expect(() => evaluateHand(hand('10s Ks Qs Js As'))).toThrow(/malformed/)
+  })
+
+  it('reports an exact tie as 0', () => {
+    expect(compareHands(value('As Kd 2c 3d 7h 8s 9c'), value('Ac Kh 2c 3d 7h 8s 9c'))).toBe(0)
+  })
+
   // Every case the salvaged Solidity HandEvaluator got wrong (see SALVAGE.md).
   describe('regressions from the on-chain evaluator', () => {
     it('ranks a six-high straight above the wheel', () => {
@@ -488,7 +501,7 @@ declare module 'phe' {
 
 ```ts
 import { evaluateCards, handRank, rankDescription } from 'phe'
-import type { Card } from './cards'
+import { isCard, type Card } from './cards'
 
 export type HandCategory =
   | 'straight_flush'
@@ -526,6 +539,9 @@ export function evaluateHand(cards: readonly Card[]): HandValue {
   if (cards.length < 5 || cards.length > 7) {
     throw new Error(`evaluateHand needs 5-7 cards, got ${cards.length}`)
   }
+  // phe does no validation and silently mis-evaluates bad strings, so check every card.
+  const bad = cards.find((c) => !isCard(c))
+  if (bad !== undefined) throw new Error(`evaluateHand got a malformed card: ${bad}`)
   if (new Set(cards).size !== cards.length) {
     throw new Error(`evaluateHand got duplicate cards: ${cards.join(' ')}`)
   }
@@ -543,7 +559,7 @@ export function compareHands(a: HandValue, b: HandValue): number {
 - [ ] **Step 5: Run tests to verify they pass**
 
 Run: `pnpm --filter @ab/engine exec vitest run test/evaluate.test.ts`
-Expected: PASS, 9 tests (the 20,000-hand cross-check takes about 1 s).
+Expected: PASS, 11 tests (the 20,000-hand cross-check takes about 1 s).
 
 - [ ] **Step 6: Commit**
 
@@ -662,8 +678,6 @@ export interface HandState {
   currentBet: number
   /** Size of the last full bet or raise on this street (the minimum raise increment). */
   lastRaiseSize: number
-  /** `seq` of the last full bet or raise on this street; -1 when none. */
-  lastFullRaiseSeq: number
   /** Index into `seats` of the player to act, or null when nobody is to act. */
   toAct: number | null
   seq: number
@@ -728,6 +742,25 @@ describe('buildPots', () => {
     expect(pots.reduce((s, p) => s + p.amount, 0)).toBe(700)
   })
 
+  it('gives chips a folded player put in above every live player to the top live pot', () => {
+    expect(
+      buildPots([
+        { id: 'a', amount: 100, folded: false },
+        { id: 'b', amount: 100, folded: false },
+        { id: 'f', amount: 500, folded: true },
+      ]),
+    ).toEqual([{ amount: 700, eligible: ['a', 'b'] }])
+  })
+
+  it('does not crash when live players contributed nothing but a folded player did', () => {
+    expect(
+      buildPots([
+        { id: 'a', amount: 0, folded: false },
+        { id: 'f', amount: 500, folded: true },
+      ]),
+    ).toEqual([{ amount: 500, eligible: ['a'] }])
+  })
+
   it('returns an uncalled bet as a single-eligible pot', () => {
     expect(
       buildPots([
@@ -775,6 +808,8 @@ export interface Contribution {
  * Each distinct commitment level of a non-folded player closes a pot; folded chips
  * fall into whichever levels they reach. Chips above the highest live level are
  * added to the last pot (only its eligible players can win them).
+ * `eligible` keeps the order of `contributions`: pass seats starting left of the button
+ * so any winners picked from it are already in odd-chip order for `splitPot`.
  */
 export function buildPots(contributions: readonly Contribution[]): Pot[] {
   const live = contributions.filter((c) => !c.folded)
@@ -791,7 +826,11 @@ export function buildPots(contributions: readonly Contribution[]): Pot[] {
   }
   let above = 0
   for (const c of contributions) above += Math.max(0, c.amount - previous)
-  if (above > 0) pots[pots.length - 1]!.amount += above
+  if (above > 0) {
+    const last = pots[pots.length - 1]
+    if (last) last.amount += above
+    else pots.push({ amount: above, eligible: live.map((c) => c.id) })
+  }
   return pots
 }
 
@@ -814,7 +853,7 @@ export function splitPot(amount: number, winners: readonly string[]): Record<str
 - [ ] **Step 5: Run tests to verify they pass**
 
 Run: `pnpm --filter @ab/engine exec vitest run test/pots.test.ts && pnpm --filter @ab/engine exec tsc --noEmit`
-Expected: PASS, 6 tests; typecheck clean.
+Expected: PASS, 8 tests; typecheck clean.
 
 - [ ] **Step 6: Commit**
 
@@ -1086,6 +1125,74 @@ describe('hand completion', () => {
     expect(a.seats.map((s) => s.hole)).toEqual(b.seats.map((s) => s.hole))
   })
 })
+
+describe('edge cases from the rules review', () => {
+  it('heads-up: SB already covering a short all-in BB is not asked to act', () => {
+    const s = hand([1000, 30], { holes: ['7c 2d', 'As Ad'], board: '3c 8h 9s Jd Kc' })
+    expect(s.complete).toBe(true)
+    // Main pot 60 to the BB's aces; the SB's uncovered 20 comes back.
+    expect(s.result!.stacks).toEqual({ p0: 970, p1: 60 })
+  })
+
+  it('3 players: after UTG folds, SB covering a short all-in BB is not asked to act', () => {
+    let s = hand([1000, 1000, 30])
+    s = play(s, fold)
+    expect(s.complete).toBe(true)
+  })
+
+  it('heads-up: short all-in SB runs out and the BB gets its uncalled chips back', () => {
+    const s = hand([30, 1000], { holes: ['As Ad', 'Kc Kd'], board: '2c 7h 9s Jd 3c' })
+    expect(s.complete).toBe(true)
+    expect(s.result!.stacks).toEqual({ p0: 60, p1: 970 })
+  })
+
+  it('a postflop all-in bet below the big blind: next min raise adds a full BB; earlier checkers may only call', () => {
+    // Button p0, SB p1, BB p2 (150 chips). Everyone limps; flop order p1, p2, p0.
+    let s = hand([1000, 1000, 150])
+    s = play(s, call, call, check)
+    expect(s.street).toBe('flop')
+    s = play(s, check, raise(50)) // p1 checks, p2 bets all-in 50
+    expect(s.toAct).toBe(0)
+    expect(legalActions(s).minRaiseTo).toBe(150) // p0 has not acted: may raise to 50 + 100
+    s = play(s, call)
+    expect(s.toAct).toBe(1)
+    expect(legalActions(s)).toMatchObject({ callAmount: 50, minRaiseTo: null }) // p1 checked earlier
+  })
+
+  it('the big blind may raise after an incomplete all-in raise (it has not acted yet)', () => {
+    // Button p0, SB p1, BB p2, UTG p3 with 150 shoves (a 50 raise, less than a full 100).
+    let s = hand([5000, 5000, 5000, 150])
+    s = play(s, raise(150), call, call)
+    expect(s.toAct).toBe(2)
+    expect(legalActions(s).minRaiseTo).toBe(250)
+  })
+
+  it('several short all-ins that add up to a full raise reopen betting (TDA)', () => {
+    // p3 raises to 300 (+200). p0 shoves 360, p1 shoves 520: p3 now faces 220 >= 200.
+    let s = hand([360, 520, 5000, 5000])
+    s = play(s, raise(300), raise(360), raise(520), call)
+    expect(s.toAct).toBe(3)
+    expect(legalActions(s)).toMatchObject({ callAmount: 220, minRaiseTo: 720 })
+  })
+
+  it('throws on an unknown action type instead of skipping the turn', () => {
+    const s = hand([1000, 1000, 1000])
+    expect(() => applyAction(s, { type: 'allin' } as unknown as Action)).toThrow(/unknown action type/)
+  })
+
+  it('validates blinds, deck override and player count', () => {
+    const seats = [
+      { id: 'a', stack: 1000 },
+      { id: 'b', stack: 1000 },
+    ]
+    const base = { seats, buttonIndex: 0, smallBlind: 50, bigBlind: 100, seed: 1 }
+    expect(() => createHand({ ...base, smallBlind: 12.5 })).toThrow(/invalid blinds/)
+    const badDeck = arrangeDeck(0, [c('As Ad'), c('Kc Kd')]).map((x, i) => (i === 51 ? ('Xx' as Card) : x))
+    expect(() => createHand({ ...base, deck: badDeck })).toThrow(/valid cards/)
+    const eleven = Array.from({ length: 11 }, (_, i) => ({ id: `p${i}`, stack: 1000 }))
+    expect(() => createHand({ ...base, seats: eleven })).toThrow(/at most 10/)
+  })
+})
 ```
 
 - [ ] **Step 3: Run tests to verify they fail**
@@ -1098,7 +1205,7 @@ Expected: FAIL, cannot resolve `../src/hand`.
 `packages/engine/src/hand.ts`:
 
 ```ts
-import { fullDeck, type Card } from './cards'
+import { fullDeck, isCard, type Card } from './cards'
 import { evaluateHand, type HandValue } from './evaluate'
 import { buildPots, splitPot } from './pots'
 import { shuffle } from './rng'
@@ -1169,7 +1276,14 @@ function needsAction(state: HandState, seat: SeatState): boolean {
 function nextToAct(state: HandState, from: number): number | null {
   const canAct = actors(state)
   if (canAct.length === 0) return null
-  if (canAct.length === 1 && canAct[0]!.streetCommitted >= state.currentBet) return null
+  if (canAct.length === 1) {
+    // Only one player can still bet: they act only if they haven't matched the most any other
+    // live player put in (which can be less than currentBet when a short blind is all-in).
+    const lone = canAct[0]!
+    const others = liveSeats(state).filter((s) => s !== lone)
+    const target = Math.min(state.currentBet, Math.max(0, ...others.map((s) => s.streetCommitted)))
+    if (lone.streetCommitted >= target) return null
+  }
   for (const i of clockwiseFrom(from, state.seats.length)) {
     if (needsAction(state, state.seats[i]!)) return i
   }
@@ -1177,19 +1291,31 @@ function nextToAct(state: HandState, from: number): number | null {
 }
 
 function checkedDeck(deck: Card[]): Card[] {
-  if (deck.length !== 52 || new Set(deck).size !== 52) throw new Error('deck override must be 52 unique cards')
+  if (deck.length !== 52 || new Set(deck).size !== 52 || !deck.every(isCard)) {
+    throw new Error('deck override must be 52 unique valid cards')
+  }
   return [...deck]
 }
+
+export const MAX_PLAYERS = 10
 
 export function createHand(config: HandConfig): HandState {
   const n = config.seats.length
   if (n < 2) throw new Error('a hand needs at least 2 players')
+  if (n > MAX_PLAYERS) throw new Error(`a hand allows at most ${MAX_PLAYERS} players`)
   if (new Set(config.seats.map((s) => s.id)).size !== n) throw new Error('player ids must be unique')
   if (config.seats.some((s) => !Number.isInteger(s.stack) || s.stack <= 0)) {
     throw new Error('every stack must be a positive integer')
   }
   if (config.buttonIndex < 0 || config.buttonIndex >= n) throw new Error('buttonIndex out of range')
-  if (config.smallBlind <= 0 || config.bigBlind < config.smallBlind) throw new Error('invalid blinds')
+  if (
+    !Number.isInteger(config.smallBlind) ||
+    !Number.isInteger(config.bigBlind) ||
+    config.smallBlind <= 0 ||
+    config.bigBlind < config.smallBlind
+  ) {
+    throw new Error('invalid blinds: must be positive integers with bigBlind >= smallBlind')
+  }
 
   const state: HandState = {
     config: structuredClone(config),
@@ -1211,7 +1337,6 @@ export function createHand(config: HandConfig): HandState {
     complete: false,
     currentBet: 0,
     lastRaiseSize: config.bigBlind,
-    lastFullRaiseSeq: -1,
     toAct: null,
     seq: 0,
     history: [],
@@ -1244,7 +1369,9 @@ export function legalActions(state: HandState): LegalActions {
   const toCall = state.currentBet - seat.streetCommitted
   const maxTo = seat.streetCommitted + seat.stack
   const opponentsWhoCanAct = actors(state).filter((s) => s.seatIndex !== seat.seatIndex).length
-  const reopened = seat.lastActionSeq === null || state.lastFullRaiseSeq > seat.lastActionSeq
+  // TDA rule: a seat that already acted may re-raise only when facing at least a full raise,
+  // which can be built from several short all-ins together.
+  const reopened = seat.lastActionSeq === null || toCall >= state.lastRaiseSize
   const canRaise = reopened && opponentsWhoCanAct > 0 && maxTo > state.currentBet
   const minTo = state.currentBet + state.lastRaiseSize
   return {
@@ -1289,16 +1416,14 @@ export function applyAction(prev: HandState, action: Action): HandState {
       if (to < legal.minRaiseTo) throw new Error(`illegal raise: ${to} below minimum ${legal.minRaiseTo}`)
       const increment = to - state.currentBet
       const kind: ActionKind = state.currentBet === 0 ? 'bet' : 'raise'
-      const seq = record(state, i, kind, commit(seat, to - seat.streetCommitted))
-      seat.lastActionSeq = seq
-      if (increment >= state.lastRaiseSize) {
-        // A full raise reopens the betting for everyone.
-        state.lastRaiseSize = increment
-        state.lastFullRaiseSeq = seq
-      }
+      seat.lastActionSeq = record(state, i, kind, commit(seat, to - seat.streetCommitted))
+      // A full raise sets the new minimum increment; a short all-in only raises currentBet.
+      if (increment >= state.lastRaiseSize) state.lastRaiseSize = increment
       state.currentBet = to
       break
     }
+    default:
+      throw new Error(`unknown action type: ${(action as { type?: unknown }).type}`)
   }
 
   if (liveSeats(state).length === 1) {
@@ -1316,7 +1441,6 @@ function startStreet(state: HandState, street: Street): void {
   state.board.push(...draw(state, BOARD_CARDS[street]))
   state.currentBet = 0
   state.lastRaiseSize = state.config.bigBlind
-  state.lastFullRaiseSeq = -1
   for (const s of state.seats) {
     s.streetCommitted = 0
     s.lastActionSeq = null
@@ -1379,23 +1503,26 @@ function finishHand(state: HandState): void {
   state.result = result
 }
 
-/** Total chips in the middle, including the current street's bets. */
+/**
+ * Total chips put in this hand, including uncalled bets. At hand end, `result.awards`
+ * shows what was actually contested (uncalled chips come back as single-eligible pots).
+ */
 export function potSize(state: HandState): number {
   return state.seats.reduce((sum, s) => sum + s.handCommitted, 0)
 }
 ```
 
 Key points to check while reading it:
-- `nextToAct` ends the street when nobody, or only one fully-matched player, can still act.
-- `legalActions` allows a raise only if the seat hasn't acted since the last full raise (`reopened`), an opponent can still act, and the seat has chips beyond the current bet.
-- `applyAction` records a full raise (`increment >= lastRaiseSize`) as reopening; an all-in for less only raises `currentBet`.
+- `nextToAct` ends the street when nobody can act, or when the only player who can act has matched the most any other live player put in (a short all-in blind can be less than `currentBet`).
+- `legalActions` allows a raise only if the seat hasn't acted yet this street or now faces at least a full raise (TDA: several short all-ins can add up), an opponent can still act, and the seat has chips beyond the current bet.
+- `applyAction` updates `lastRaiseSize` only on a full raise (`increment >= lastRaiseSize`); an all-in for less only raises `currentBet`. Unknown action types throw.
 - `finishStreet` loops through remaining streets when nobody can bet (all-in run-out).
 - `finishHand` builds pots from `handCommitted`, evaluates only live players, and orders winners from the seat left of the button.
 
 - [ ] **Step 5: Run tests to verify they pass**
 
 Run: `pnpm --filter @ab/engine exec vitest run test/hand.test.ts && pnpm --filter @ab/engine exec tsc --noEmit`
-Expected: PASS, 22 tests; typecheck clean.
+Expected: PASS, 30 tests; typecheck clean.
 
 - [ ] **Step 6: Commit**
 
@@ -1408,7 +1535,7 @@ git commit -m "feat(engine): NLHE hand state machine with correct raise, all-in 
 
 ### Task 6: Shared action menu
 
-The only choices any player is offered: realistic preflop sizes in big blinds, postflop pot fractions, min-raise and all-in, rounded to a 25-chip unit, de-duplicated, labelled as chip amounts.
+The only choices any player is offered: realistic preflop sizes (opens 2.5/3/4 bb + 1 bb per limper; re-raises 2.5x/3x the current bet + 1x per caller), postflop pot fractions, min-raise and all-in, rounded to a 25-chip unit (the small blind if the big blind is not a multiple of 25), with exact and near (within 5%) duplicates dropped, labelled as chip amounts.
 
 **Files:**
 - Create: `packages/engine/src/menu.ts`
@@ -1450,10 +1577,105 @@ describe('buildMenu', () => {
     ])
   })
 
-  it('offers a 3x re-raise after an open', () => {
+  it('offers 2.5x and 3x re-raises after an open', () => {
     const s = play(start([10_000, 10_000, 10_000, 10_000]), { type: 'raise', to: 300 })
-    expect(ids(s)).toEqual(['fold', 'call', 'min_raise', 'reraise_3x', 'all_in'])
-    expect(buildMenu(s).find((o) => o.id === 'reraise_3x')!.label).toBe('Raise to 900')
+    expect(buildMenu(s).map((o) => [o.id, o.label])).toEqual([
+      ['fold', 'Fold'],
+      ['call', 'Call 300'],
+      ['min_raise', 'Raise to 500'],
+      ['reraise_2_5x', 'Raise to 750'],
+      ['reraise_3x', 'Raise to 900'],
+      ['all_in', 'All-in 10,000'],
+    ])
+  })
+
+  it('adds 1 bb per limper to opening sizes (isolation raise)', () => {
+    // 6-handed, button p0; UTG p3, p4, p5 limp. p0 to act, pot 450.
+    let s = start([10_000, 10_000, 10_000, 10_000, 10_000, 10_000])
+    s = play(s, { type: 'call' }, { type: 'call' }, { type: 'call' })
+    expect(s.toAct).toBe(0)
+    const sized = buildMenu(s).filter((o) => o.id.startsWith('open_')).map((o) => o.label)
+    expect(sized).toEqual(['Raise to 550', 'Raise to 600', 'Raise to 700'])
+  })
+
+  it('adds 1x per caller to re-raise sizes (squeeze)', () => {
+    // UTG p3 opens 300, p0 (button) calls; SB p1 to act.
+    const s = play(start([10_000, 10_000, 10_000, 10_000]), { type: 'raise', to: 300 }, { type: 'call' })
+    expect(s.toAct).toBe(1)
+    const sized = buildMenu(s).filter((o) => o.id.startsWith('reraise_')).map((o) => [o.id, o.label])
+    expect(sized).toEqual([
+      ['reraise_2_5x', 'Raise to 1,050'],
+      ['reraise_3x', 'Raise to 1,200'],
+    ])
+  })
+
+  it('offers a standard-sized 4-bet', () => {
+    let s = start([10_000, 10_000, 10_000, 10_000])
+    s = play(s, { type: 'raise', to: 300 }, { type: 'fold' }, { type: 'fold' }, { type: 'raise', to: 900 })
+    expect(s.toAct).toBe(3)
+    expect(buildMenu(s).find((o) => o.id === 'reraise_2_5x')!.label).toBe('Raise to 2,250')
+  })
+
+  it('sizes re-raises sensibly after an incomplete all-in raise', () => {
+    // UTG p3 shoves 150 (a short raise); p0 to act faces 150: min raise 250, 2.5x 375, 3x 450.
+    const s = play(start([10_000, 10_000, 10_000, 150]), { type: 'raise', to: 150 })
+    expect(buildMenu(s).map((o) => o.label)).toEqual([
+      'Fold',
+      'Call 150',
+      'Raise to 250',
+      'Raise to 375',
+      'Raise to 450',
+      'All-in 10,000',
+    ])
+  })
+
+  it('rounds to the small blind when the big blind is not a multiple of 25', () => {
+    const s = createHand({
+      seats: [10_000, 10_000, 10_000].map((stack, i) => ({ id: `p${i}`, stack })),
+      buttonIndex: 0,
+      smallBlind: 15,
+      bigBlind: 30,
+      seed: 1,
+    })
+    const sized = buildMenu(s).filter((o) => o.id.startsWith('open_')).map((o) => o.label)
+    expect(sized).toEqual(['Raise to 75', 'Raise to 90', 'Raise to 120'])
+  })
+
+  it('drops sizes within 5% of one already offered', () => {
+    // Flop: p1 bets 100, p0 raises to 400. p1 faces a raise: min 700, pot_33 would be 725.
+    let s = start([10_000, 10_000])
+    s = play(s, { type: 'call' }, { type: 'check' }, { type: 'raise', to: 100 }, { type: 'raise', to: 400 })
+    const amounts = buildMenu(s)
+      .filter((o) => o.action.type === 'raise')
+      .map((o) => (o.action as { to: number }).to)
+    for (let i = 1; i < amounts.length; i++) expect(amounts[i]! - amounts[i - 1]!).toBeGreaterThan(0.05 * amounts[i - 1]!)
+    expect(amounts).not.toContain(725)
+  })
+
+  it('drops sizes within 5% of all-in', () => {
+    // Heads-up 75/150: raise to 600 and call, so the flop pot is 1,200 with 1,865 behind.
+    // pot_150 would be Bet 1,800, within 5% of All-in 1,865, so it must be dropped.
+    let s = createHand({
+      seats: [
+        { id: 'a', stack: 2465 },
+        { id: 'b', stack: 2465 },
+      ],
+      buttonIndex: 0,
+      smallBlind: 75,
+      bigBlind: 150,
+      seed: 1,
+    })
+    s = play(s, { type: 'raise', to: 600 }, { type: 'call' })
+    const menu = buildMenu(s)
+    expect(menu.map((o) => o.label)).not.toContain('Bet 1,800')
+    const allIn = (menu.find((o) => o.id === 'all_in')!.action as { to: number }).to
+    for (const o of menu) {
+      if (o.action.type === 'raise' && o.id !== 'all_in') expect(allIn - o.action.to).toBeGreaterThan(0.05 * o.action.to)
+    }
+  })
+
+  it('rejects a bad chipUnit', () => {
+    expect(() => buildMenu(start([1000, 1000]), { chipUnit: 0 })).toThrow(/chipUnit/)
   })
 
   it('offers pot-fraction bets postflop, merging sizes that collide', () => {
@@ -1532,6 +1754,7 @@ export type OptionId =
   | 'open_2_5bb'
   | 'open_3bb'
   | 'open_4bb'
+  | 'reraise_2_5x'
   | 'reraise_3x'
   | 'pot_33'
   | 'pot_50'
@@ -1550,19 +1773,32 @@ export interface MenuOption {
 }
 
 export interface MenuConfig {
-  /** Raise amounts are rounded to a multiple of this. */
+  /** Raise amounts are rounded to a multiple of this (the small blind is used if the big blind isn't a multiple). */
   chipUnit: number
+  /** A sized option within this fraction of an already-offered amount is dropped as a near-duplicate. */
+  minGap: number
 }
+
+export const DEFAULT_MENU_CONFIG: MenuConfig = { chipUnit: 25, minGap: 0.05 }
 
 const fmt = (n: number) => n.toLocaleString('en-US')
 
 /**
  * The shared action menu: the only choices any player (Jev or LLM) is ever offered.
- * Every option is legal; options that land on the same amount are merged (first id wins).
+ * Every option is legal; options that land on the same (or a nearly identical) amount are
+ * merged, first id wins, so record the chip amount with each decision rather than relying on ids.
+ *
+ * Sizes:
+ * - Preflop, unopened: open to 2.5 / 3 / 4 bb, plus 1 bb per limper.
+ * - Preflop, facing a raise: re-raise to 2.5x or 3x the current bet, plus 1x per caller.
+ * - Postflop: bet or raise to currentBet + f x (pot + to call), f in 1/3, 1/2, 3/4, 1, 1.5.
+ * - Always min-raise and all-in when raising is legal.
  */
-export function buildMenu(state: HandState, config: MenuConfig = { chipUnit: 25 }): MenuOption[] {
-  const legal = legalActions(state)
+export function buildMenu(state: HandState, config: Partial<MenuConfig> = {}): MenuOption[] {
   if (state.toAct === null) return []
+  const { chipUnit, minGap } = { ...DEFAULT_MENU_CONFIG, ...config }
+  if (!Number.isInteger(chipUnit) || chipUnit <= 0) throw new Error('chipUnit must be a positive integer')
+  const legal = legalActions(state)
   const seat = state.seats[state.toAct]!
   const options: MenuOption[] = []
 
@@ -1582,17 +1818,31 @@ export function buildMenu(state: HandState, config: MenuConfig = { chipUnit: 25 
     const min = legal.minRaiseTo
     const max = legal.maxRaiseTo
     const bb = state.config.bigBlind
-    const unit = config.chipUnit
+    const unit = bb % chipUnit === 0 ? chipUnit : state.config.smallBlind
     const round = (x: number) => Math.max(unit, Math.round(x / unit) * unit)
     const verb = state.currentBet === 0 ? 'Bet' : 'Raise to'
     const candidates: Array<[OptionId, number]> = [['min_raise', min]]
 
     if (state.street === 'preflop') {
-      const unopened = state.currentBet === bb && state.history.every((h) => h.kind !== 'raise' && h.kind !== 'bet')
-      if (unopened) {
-        candidates.push(['open_2_5bb', round(2.5 * bb)], ['open_3bb', round(3 * bb)], ['open_4bb', round(4 * bb)])
+      const preflop = state.history.filter((h) => h.street === 'preflop')
+      const opened = preflop.some((h) => h.kind === 'raise' || h.kind === 'bet')
+      if (!opened) {
+        const limpers = preflop.filter((h) => h.kind === 'call').length
+        candidates.push(
+          ['open_2_5bb', round((2.5 + limpers) * bb)],
+          ['open_3bb', round((3 + limpers) * bb)],
+          ['open_4bb', round((4 + limpers) * bb)],
+        )
       } else {
-        candidates.push(['reraise_3x', round(3 * state.currentBet)])
+        // Players who have put in the full current bet, other than the raiser and the actor.
+        const matched = state.seats.filter(
+          (s) => !s.folded && s !== seat && s.streetCommitted === state.currentBet,
+        ).length
+        const callers = Math.max(0, matched - 1)
+        candidates.push(
+          ['reraise_2_5x', round((2.5 + callers) * state.currentBet)],
+          ['reraise_3x', round((3 + callers) * state.currentBet)],
+        )
       }
     } else {
       const toCall = state.currentBet - seat.streetCommitted
@@ -1607,10 +1857,12 @@ export function buildMenu(state: HandState, config: MenuConfig = { chipUnit: 25 
       for (const [id, f] of fractions) candidates.push([id, round(state.currentBet + f * base)])
     }
 
-    const seen = new Set<number>()
+    const kept: number[] = []
+    // Also drop sizes within minGap of all-in: the all-in option covers them.
+    const tooClose = (to: number) => max - to <= minGap * to || kept.some((k) => Math.abs(to - k) <= minGap * k)
     for (const [id, to] of candidates) {
-      if (to < min || to >= max || seen.has(to)) continue
-      seen.add(to)
+      if (to < min || to >= max || tooClose(to)) continue
+      kept.push(to)
       options.push({
         id,
         label: `${verb} ${fmt(to)}`,
@@ -1632,7 +1884,7 @@ export function buildMenu(state: HandState, config: MenuConfig = { chipUnit: 25 
 - [ ] **Step 4: Run tests to verify they pass**
 
 Run: `pnpm --filter @ab/engine exec vitest run test/menu.test.ts`
-Expected: PASS, 8 tests.
+Expected: PASS, 16 tests.
 
 - [ ] **Step 5: Commit**
 
@@ -1655,7 +1907,7 @@ git commit -m "feat(engine): shared action menu with realistic bet sizes"
 
 ```ts
 import { describe, expect, it } from 'vitest'
-import { applyAction, createHand } from '../src/hand'
+import { applyAction, createHand, legalActions } from '../src/hand'
 import {
   createTournament,
   currentLevel,
@@ -1721,6 +1973,21 @@ describe('tournament', () => {
     expect(() => nextHandConfig(t)).toThrow(/complete/)
   })
 
+  it('rejects a hand result that does not match the live players or loses chips', () => {
+    let t = createTournament(['a', 'b', 'c'], liveTurboConfig('s'))
+    expect(() => recordHand(t, result({ a: 4500, b: 4500 }))).toThrow(/do not match/)
+    expect(() => recordHand(t, result({ a: 3000, b: 3000, c: 3000, x: 0 }))).toThrow(/do not match/)
+    expect(() => recordHand(t, result({ a: 3000, b: 3000, c: 2000 }))).toThrow(/conserve chips/)
+    t = recordHand(t, result({ a: 0, b: 4500, c: 4500 }))
+    // 'a' is out: a result that includes 'a' again (e.g. a stale result) must be rejected.
+    expect(() => recordHand(t, result({ a: 100, b: 4400, c: 4500 }))).toThrow(/do not match/)
+  })
+
+  it('allows at most 10 players', () => {
+    const eleven = Array.from({ length: 11 }, (_, i) => `p${i}`)
+    expect(() => createTournament(eleven, liveTurboConfig('s'))).toThrow(/at most 10/)
+  })
+
   it('can be ended early for the budget cap', () => {
     const t = endTournament(createTournament(['a', 'b'], liveTurboConfig('s')), 'budget_cap')
     expect(t.complete).toBe(true)
@@ -1739,14 +2006,14 @@ describe('tournament', () => {
     let t: TournamentState = createTournament(ids, liveTurboConfig('full'))
     while (!t.complete) {
       let h = createHand(nextHandConfig(t))
-      // Bot: shove with any pair or an ace, otherwise check/fold.
+      // Bot: shove (or call when raising isn't allowed) with any pair or an ace, otherwise check/fold.
       while (!h.complete) {
-        const seat = h.seats[h.toAct!]!
-        const [a, b] = seat.hole
-        const strong = a![0] === b![0] || a![0] === 'A' || b![0] === 'A'
-        const toCall = h.currentBet - seat.streetCommitted
-        if (strong) h = applyAction(h, toCall >= seat.stack ? { type: 'call' } : { type: 'raise', to: seat.streetCommitted + seat.stack })
-        else h = applyAction(h, toCall === 0 ? { type: 'check' } : { type: 'fold' })
+        const [x, y] = h.seats[h.toAct!]!.hole
+        const strong = x![0] === y![0] || x![0] === 'A' || y![0] === 'A'
+        const legal = legalActions(h)
+        if (strong && legal.maxRaiseTo !== null) h = applyAction(h, { type: 'raise', to: legal.maxRaiseTo })
+        else if (strong && legal.callAmount > 0) h = applyAction(h, { type: 'call' })
+        else h = applyAction(h, legal.canCheck ? { type: 'check' } : { type: 'fold' })
       }
       t = recordHand(t, h.result!)
       expect(t.players.reduce((s, p) => s + p.stack, 0)).toBe(15_000)
@@ -1767,6 +2034,7 @@ Expected: FAIL, cannot resolve `../src/tournament`.
 `packages/engine/src/tournament.ts`:
 
 ```ts
+import { MAX_PLAYERS } from './hand'
 import { deriveSeed } from './rng'
 import type { HandConfig, HandResult } from './types'
 
@@ -1811,6 +2079,7 @@ export type EndReason = 'last_player' | 'hand_cap' | 'budget_cap' | 'interrupted
 export interface TournamentPlayer {
   id: string
   stack: number
+  /** 0-based index of the hand in which the player busted (i.e. `handNumber` before that hand was recorded). */
   eliminatedAtHand: number | null
 }
 
@@ -1831,6 +2100,7 @@ export interface TournamentState {
 
 export function createTournament(playerIds: string[], config: TournamentConfig): TournamentState {
   if (playerIds.length < 2) throw new Error('a tournament needs at least 2 players')
+  if (playerIds.length > MAX_PLAYERS) throw new Error(`a tournament allows at most ${MAX_PLAYERS} players`)
   if (new Set(playerIds).size !== playerIds.length) throw new Error('player ids must be unique')
   return {
     config,
@@ -1863,7 +2133,8 @@ export function nextHandConfig(t: TournamentState): HandConfig {
     buttonIndex: alive.findIndex((p) => p.id === buttonId),
     smallBlind: level.smallBlind,
     bigBlind: level.bigBlind,
-    seed: deriveSeed(t.config.seed, 'hand', t.handNumber),
+    // Namespace hash + hand counter: every hand in a tournament gets a distinct deck seed.
+    seed: (deriveSeed(t.config.seed, 'hands') + t.handNumber) >>> 0,
   }
 }
 
@@ -1885,6 +2156,16 @@ function chipLeader(t: TournamentState): string {
 /** Applies a finished hand's stacks, eliminates busted players, rotates the button, checks for the end. */
 export function recordHand(prev: TournamentState, result: HandResult): TournamentState {
   if (prev.complete) throw new Error('tournament is complete')
+  // The result must come from the hand nextHandConfig dealt: exactly the live players, chips conserved.
+  const dealt = prev.players.filter((p) => p.stack > 0)
+  const ids = Object.keys(result.stacks)
+  if (ids.length !== dealt.length || !dealt.every((p) => p.id in result.stacks)) {
+    throw new Error(`hand result players [${ids.join(', ')}] do not match live players [${dealt.map((p) => p.id).join(', ')}]`)
+  }
+  const before = dealt.reduce((sum, p) => sum + p.stack, 0)
+  const after = Object.values(result.stacks).reduce((sum, v) => sum + v, 0)
+  if (before !== after) throw new Error(`hand result does not conserve chips: ${before} before, ${after} after`)
+
   const t = structuredClone(prev)
   const startStacks = new Map(t.players.map((p) => [p.id, p.stack]))
   for (const p of t.players) if (p.id in result.stacks) p.stack = result.stacks[p.id]!
@@ -1927,7 +2208,7 @@ Note: the button moves to the next seat with chips after every hand (a simple mo
 - [ ] **Step 4: Run tests to verify they pass**
 
 Run: `pnpm --filter @ab/engine exec vitest run test/tournament.test.ts`
-Expected: PASS, 8 tests.
+Expected: PASS, 10 tests.
 
 - [ ] **Step 5: Commit**
 
@@ -1950,7 +2231,7 @@ git commit -m "feat(engine): live turbo tournament with blind levels, eliminatio
 
 ```ts
 import { describe, expect, it } from 'vitest'
-import { cashHandConfig, duplicateGroup, seatRotations } from '../src/duplicate'
+import { cashHandConfig, duplicateGroup, handKey, neighbourBlockSize, seatRotations } from '../src/duplicate'
 import { createHand } from '../src/hand'
 
 const players = ['jev', 'pill', 'block', 'drip', 'nimbus']
@@ -1969,6 +2250,8 @@ describe('duplicate', () => {
     const g1 = duplicateGroup('m', 1, players)
     expect(new Set(g0.map((h) => h.seed)).size).toBe(1)
     expect(g0[0]!.seed).not.toBe(g1[0]!.seed)
+    const seeds = Array.from({ length: 10_000 }, (_, g) => duplicateGroup('m', g, players)[0]!.seed)
+    expect(new Set(seeds).size).toBe(10_000)
   })
 
   it('deals the same cards to the same seat in every rotation', () => {
@@ -1979,6 +2262,46 @@ describe('duplicate', () => {
     }
     const jevCards = hands.map((h) => h.seats.find((s) => s.id === 'jev')!.hole.join(''))
     expect(new Set(jevCards).size).toBe(5)
+  })
+
+  it('gives each player the button, small blind and big blind exactly once per group', () => {
+    const group = duplicateGroup('m', 3, players)
+    for (const role of [0, 1, 2]) {
+      expect(new Set(group.map((h) => h.seating[role])).size).toBe(5)
+    }
+  })
+
+  it('balances neighbours: over a block of 4 groups every ordered pair sits side by side once', () => {
+    expect(neighbourBlockSize(5)).toBe(4)
+    const leftOf = new Map<string, number>()
+    for (let g = 0; g < 4; g++) {
+      const seating = duplicateGroup('m', g, players)[0]!.seating
+      for (let i = 0; i < 5; i++) {
+        const key = `${seating[i]}>${seating[(i + 1) % 5]}`
+        leftOf.set(key, (leftOf.get(key) ?? 0) + 1)
+      }
+    }
+    expect(leftOf.size).toBe(20) // all 5 x 4 ordered pairs
+    expect([...leftOf.values()].every((v) => v === 1)).toBe(true)
+    expect(duplicateGroup('m', 0, players)[0]!.order).toBe(1)
+    expect(duplicateGroup('m', 5, players)[0]!.order).toBe(2)
+  })
+
+  it('falls back to a seeded shuffle for non-prime player counts', () => {
+    const four = ['a', 'b', 'c', 'd']
+    expect(neighbourBlockSize(4)).toBe(1)
+    const g = duplicateGroup('m', 2, four)
+    expect(g[0]!.order).toBe(0)
+    expect([...g[0]!.seating].sort()).toEqual(four)
+    expect(duplicateGroup('m', 2, four)[0]!.seating).toEqual(g[0]!.seating)
+  })
+
+  it('validates inputs and exposes a stable hand key', () => {
+    expect(() => duplicateGroup('m', -1, players)).toThrow(/groupIndex/)
+    expect(() => duplicateGroup('m', 1.5, players)).toThrow(/groupIndex/)
+    expect(() => duplicateGroup('m', 0, ['a'])).toThrow(/at least 2/)
+    expect(() => duplicateGroup('m', 0, ['a', 'a'])).toThrow(/unique/)
+    expect(handKey(duplicateGroup('m', 12, players)[3]!)).toBe('12:3')
   })
 
   it('starts every study hand at 100 big blinds with the button on seat 0', () => {
@@ -2000,31 +2323,79 @@ Expected: FAIL, cannot resolve `../src/duplicate`.
 `packages/engine/src/duplicate.ts`:
 
 ```ts
-import { deriveSeed } from './rng'
+import { deriveSeed, shuffle } from './rng'
 import type { HandConfig } from './types'
 
+function isPrime(n: number): boolean {
+  if (n < 2) return false
+  for (let d = 2; d * d <= n; d++) if (n % d === 0) return false
+  return true
+}
+
 /**
- * Cyclic seat rotations: rotation r puts players[(i + r) % n] in seat i.
+ * Number of consecutive seed groups that together balance who sits next to whom.
+ * For a prime player count n, the n-1 multiplier orders put every ordered pair of players
+ * side by side exactly once. Otherwise each group uses a seeded random order (block size 1).
+ */
+export function neighbourBlockSize(playerCount: number): number {
+  return isPrime(playerCount) ? playerCount - 1 : 1
+}
+
+/**
+ * Base seating for a group. Prime n: multiplier k = 1 + (group mod (n-1)) seats
+ * players[(k * i) mod n] in seat i. Otherwise: a shuffle seeded by the group seed.
+ * Returns the seating and the order id recorded with each hand (k, or 0 for a shuffle).
+ */
+export function baseSeating(
+  players: readonly string[],
+  groupIndex: number,
+  groupSeed: number,
+): { seating: string[]; order: number } {
+  const n = players.length
+  if (isPrime(n)) {
+    const k = 1 + (groupIndex % (n - 1))
+    return { seating: Array.from({ length: n }, (_, i) => players[(k * i) % n]!), order: k }
+  }
+  return { seating: shuffle(players, groupSeed), order: 0 }
+}
+
+/**
+ * Cyclic seat rotations: rotation r puts seating[(i + r) % n] in seat i.
  * Across n rotations every player sits in every seat exactly once.
  */
-export function seatRotations<T>(players: readonly T[]): T[][] {
-  const n = players.length
-  return Array.from({ length: n }, (_, r) => Array.from({ length: n }, (_, i) => players[(i + r) % n]!))
+export function seatRotations<T>(seating: readonly T[]): T[][] {
+  const n = seating.length
+  return Array.from({ length: n }, (_, r) => Array.from({ length: n }, (_, i) => seating[(i + r) % n]!))
 }
 
 export interface DuplicateHand {
   groupIndex: number
   rotation: number
+  /** Base seating order used by this group (multiplier k, or 0 for a seeded shuffle). */
+  order: number
   /** Deck seed, shared by every rotation in the group. */
   seed: number
   /** Player ids in seat order for this rotation. */
-  seating: string[]
+  readonly seating: readonly string[]
 }
 
-/** One seed group: the same deck played once per rotation. */
+/** Stable key for resume and reporting: "<groupIndex>:<rotation>". */
+export function handKey(hand: Pick<DuplicateHand, 'groupIndex' | 'rotation'>): string {
+  return `${hand.groupIndex}:${hand.rotation}`
+}
+
+/** One seed group: the same deck played once per rotation of the group's base seating. */
 export function duplicateGroup(masterSeed: string, groupIndex: number, players: readonly string[]): DuplicateHand[] {
-  const seed = deriveSeed(masterSeed, 'group', groupIndex)
-  return seatRotations(players).map((seating, rotation) => ({ groupIndex, rotation, seed, seating }))
+  if (!Number.isInteger(groupIndex) || groupIndex < 0 || groupIndex > 0x7fffffff) {
+    throw new Error('groupIndex must be an integer in [0, 2^31)')
+  }
+  if (players.length < 2) throw new Error('duplicate needs at least 2 players')
+  if (new Set(players).size !== players.length) throw new Error('player ids must be unique')
+  // Namespace hash + group counter: distinct groups always get distinct decks (no hash collisions).
+  // (Another namespace's counter range could overlap this one with probability ~groups / 2^32.)
+  const seed = (deriveSeed(masterSeed, 'groups') + groupIndex) >>> 0
+  const { seating, order } = baseSeating(players, groupIndex, deriveSeed(masterSeed, 'seating', groupIndex))
+  return seatRotations(seating).map((s, rotation) => ({ groupIndex, rotation, order, seed, seating: s }))
 }
 
 export interface CashFormat {
@@ -2051,7 +2422,7 @@ export function cashHandConfig(hand: DuplicateHand, format: CashFormat = STUDY_C
 - [ ] **Step 4: Run tests to verify they pass**
 
 Run: `pnpm --filter @ab/engine exec vitest run test/duplicate.test.ts`
-Expected: PASS, 4 tests.
+Expected: PASS, 8 tests.
 
 - [ ] **Step 5: Commit**
 
@@ -2101,7 +2472,11 @@ describe('random play invariants', () => {
         const pick = menu[Math.floor(rand() * menu.length)]!
         state = applyAction(state, pick.action)
         const inPlay = state.seats.reduce((s, x) => s + x.stack + x.handCommitted, 0)
-        if (!state.complete) expect(inPlay).toBe(total)
+        if (!state.complete) {
+          expect(inPlay).toBe(total)
+          const next = state.seats[state.toAct!]!
+          expect(next.folded || next.allIn).toBe(false)
+        }
         expect(++steps).toBeLessThan(200)
       }
       const r = state.result!
@@ -2140,7 +2515,7 @@ export * from './duplicate'
 - [ ] **Step 4: Run the full suite and typecheck from the root**
 
 Run: `pnpm test && pnpm typecheck`
-Expected: 8 test files, 64 tests passed; typecheck clean.
+Expected: 8 test files, 90 tests passed; typecheck clean.
 
 - [ ] **Step 5: Commit**
 
@@ -2153,7 +2528,7 @@ git commit -m "feat(engine): public exports and random-play invariant tests"
 
 ## Done when
 
-- `pnpm test` passes 64 tests across 8 files; `pnpm typecheck` is clean.
-- `@ab/engine` exports: cards/rng/evaluate helpers, `createHand`, `applyAction`, `legalActions`, `potSize`, `buildMenu`, tournament functions (`createTournament`, `nextHandConfig`, `recordHand`, `endTournament`, `liveTurboConfig`, `currentLevel`, `levelIndex`), and duplicate functions (`seatRotations`, `duplicateGroup`, `cashHandConfig`, `STUDY_CASH`).
+- `pnpm test` passes 90 tests across 8 files; `pnpm typecheck` is clean.
+- `@ab/engine` exports: cards/rng/evaluate helpers, `createHand`, `applyAction`, `legalActions`, `potSize`, `buildMenu`, tournament functions (`createTournament`, `nextHandConfig`, `recordHand`, `endTournament`, `liveTurboConfig`, `currentLevel`, `levelIndex`), and duplicate functions (`seatRotations`, `baseSeating`, `neighbourBlockSize`, `duplicateGroup`, `handKey`, `cashHandConfig`, `STUDY_CASH`).
 - Next: Plan 2 (players, table runner, event log) builds on these exports.
 
