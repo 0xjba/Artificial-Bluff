@@ -19,8 +19,8 @@ Last updated: 2026-09-21
 
 | # | Plan | Status |
 |---|---|---|
-| 1 | Monorepo + game engine (`packages/engine`) | Built and reviewed on `feat/plan-1-engine` (99 tests); final review: ready to merge |
-| 2 | Players (Jev, LLM, bots, mock), table runner, SQLite event log | Not written yet: write after Plan 1 is built |
+| 1 | Monorepo + game engine (`packages/engine`) | ✅ Merged to master (9de0579), 99 tests |
+| 2 | Players (Jev, LLM, bots, mock), table runner, SQLite event log | Writing plan (researching Jev SDK + OpenRouter APIs) |
 | 3 | Study runner (duplicate, budget cap, resume, CI stop) + report/charts | Not written yet |
 | 4 | Live server (WebSocket, replays, admin start) + web (Broadcast UI) + mascots (bloub) | Not written yet |
 
