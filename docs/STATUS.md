@@ -30,7 +30,7 @@ Last updated: 2026-09-21
 - [ ] Task 2: Cards and seeded shuffling
 - [x] Task 3: Hand evaluation (934e67a + fix 2f20d34; spec ✅ quality ✅ — added malformed-card rejection + tie test)
 - [x] Task 4: Engine types and side pots (3f9f4e0 + fix 7f02a9a; spec ✅ quality ✅ — buildPots no-live-pot guard + dead-money tests)
-- [ ] Task 5: Hand state machine (e62c66c; spec ✅; quality review (opus) found 3 rules bugs — covered short all-in BB still asked to act, no TDA cumulative reopen, unknown action skipped turn — fix in progress)
+- [x] Task 5: Hand state machine (e62c66c + fix 9072572; spec ✅ quality ✅ (opus, 30k-hand fuzz clean) — covered short blinds, TDA cumulative reopen, unknown actions throw, input validation)
 - [ ] Task 6: Shared action menu
 - [ ] Task 7: Live turbo tournament
 - [ ] Task 8: Duplicate seating
