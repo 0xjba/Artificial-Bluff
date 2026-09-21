@@ -146,6 +146,8 @@ cap, concurrency, minimum seed groups.
 - **Stopping:** every 20 groups (a multiple of the 4-group neighbour block), compute 95% bootstrap CIs of bb/100;
   stop when all half-widths ≤ target (not before the minimum, itself a multiple of 4), or at the cap. The budget cap
   also stops only at complete blocks where possible. The seating scheme is part of the pre-registered config.
+- **Bootstrap unit:** resample whole neighbour blocks (4 groups for 5 players; computed via `neighbourBlockSize`), so
+  every resample keeps the neighbour balance exact.
 - **Stages:** `--players mock` ($0) → smoke ~100 hands (~$1) → main (cap ~$25).
 
 **Outputs:** static HTML report, CSV/JSON of every decision, and the same charts on the site's `/research` page:
