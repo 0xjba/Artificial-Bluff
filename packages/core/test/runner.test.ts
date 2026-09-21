@@ -77,6 +77,49 @@ describe('playHand', () => {
     }
   })
 
+  it('survives players that throw synchronously, return a non-promise, or reject with non-errors', async () => {
+    const bad: Array<Player['decide']> = [
+      () => {
+        throw new Error('sync boom')
+      },
+      (() => ({ ok: true })) as unknown as Player['decide'],
+      () => Promise.reject(undefined),
+      () => Promise.reject(null),
+    ]
+    for (const decide of bad) {
+      const sink = memorySink()
+      const x: Player = { id: 'x', kind: 'mock', model: 'm', decide }
+      await playHand({ config: config(['b', 's', 'bb', 'x']), players: byId([new CallingStation('b'), new CallingStation('s'), new CallingStation('bb'), x]), sink, decisionTimeoutMs: 50 })
+      expect(sink.events.at(-1)!.type).toBe('hand_ended')
+      expect(decisions(sink.events).find((e) => e.playerId === 'x')).toMatchObject({ optionId: 'fold', fallback: true })
+    }
+  })
+
+  it('records a timeout as exactly the time limit, whether or not the player honours the abort', async () => {
+    const honours: Player = { id: 'x', kind: 'llm', model: 'm', decide: (_o, signal) => new Promise((resolve) => signal.addEventListener('abort', () => resolve({ ok: false, error: 'aborted', kind: 'infra', usage: NO_USAGE, model: 'm' }))) }
+    const ignores: Player = { id: 'x', kind: 'jev', model: 'm', decide: () => new Promise(() => {}) }
+    for (const x of [honours, ignores]) {
+      const sink = memorySink()
+      await playHand({ config: config(['b', 's', 'bb', 'x']), players: byId([new CallingStation('b'), new CallingStation('s'), new CallingStation('bb'), x]), sink, decisionTimeoutMs: 40, timeoutGraceMs: 60 })
+      expect(decisions(sink.events).find((e) => e.playerId === 'x')).toMatchObject({ fallbackKind: 'timeout', latencyMs: 40 })
+    }
+  })
+
+  it('counts a failure with an empty message toward auto', async () => {
+    const blank = new Scripted('f', () => Promise.reject(new Error('')))
+    const sink = memorySink()
+    await playHand({ config: config(['b', 's', 'f']), players: byId([new CallingStation('b'), new CallingStation('s'), blank]), sink, decisionTimeoutMs: 100 })
+    expect(decisions(sink.events).filter((d) => d.playerId === 'f').map((d) => d.fallbackKind)).toEqual(['infra', 'infra', 'infra', 'auto'])
+    expect(blank.calls).toBe(3)
+  })
+
+  it('records the bet each decision faced, including the full big blind after a short post', async () => {
+    const sink = memorySink()
+    // BB (seat 2) is short with 30 and posts all-in; UTG still faces the full 100.
+    await playHand({ config: config(['b', 's', 'bb', 'u'], [10_000, 10_000, 30, 10_000]), players: byId(['b', 's', 'bb', 'u'].map((id) => new CallingStation(id))), sink, decisionTimeoutMs: 100 })
+    expect(decisions(sink.events)[0]).toMatchObject({ playerId: 'u', currentBet: 100, toCall: 100, chipsIn: 100 })
+  })
+
   it('records what a timed-out player had already spent', async () => {
     // Resolves with its spend only when aborted (like an LLM whose first attempt was billed).
     const slow: Player = {

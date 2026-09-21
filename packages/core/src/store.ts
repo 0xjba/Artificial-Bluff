@@ -200,7 +200,8 @@ export class EventStore {
               body.fallback ? 1 : 0, body.fallbackKind,
             )
         }
-        return { ...body, gameId, seq: next, ts: now } as GameEvent
+        // Return exactly what was stored (e.g. no undefined keys), so live listeners and replays see the same event.
+        return { ...(JSON.parse(json) as EventBody), gameId, seq: next, ts: now } as GameEvent
       })
       .immediate()
   }

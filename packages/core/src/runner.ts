@@ -37,6 +37,16 @@ const defaultSleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms))
 
 type Asked = { result: DecideResult; timedOut: boolean }
 
+/** Guards against players returning something that isn't a DecideResult. */
+function checked(r: unknown, model: string): DecideResult {
+  const x = r as Partial<DecideResult> | null
+  if (x && typeof x === 'object' && x.usage && typeof x.model === 'string') {
+    if (x.ok === true && x.decision && typeof x.decision.optionId === 'string') return x as DecideResult
+    if (x.ok === false && typeof x.error === 'string' && (x.kind === 'model' || x.kind === 'infra')) return x as DecideResult
+  }
+  return { ok: false, error: 'malformed player result', kind: 'infra', usage: NO_USAGE, model }
+}
+
 /**
  * Calls the player under a timeout. Never throws: rejections and timeouts become failures.
  * On timeout the player is aborted and given `graceMs` to resolve, so money it already spent
@@ -44,9 +54,17 @@ type Asked = { result: DecideResult; timedOut: boolean }
  */
 async function ask(player: Player, obs: Parameters<Player['decide']>[0], timeoutMs: number, graceMs: number): Promise<Asked> {
   const ac = new AbortController()
-  const pending = player
-    .decide(obs, ac.signal)
-    .catch((e: unknown): DecideResult => ({ ok: false, error: (e as Error).message ?? String(e), kind: 'infra', usage: NO_USAGE, model: player.model }))
+  // Promise.resolve().then: a player that throws synchronously or returns a non-promise can't crash the hand.
+  const pending = Promise.resolve()
+    .then(() => player.decide(obs, ac.signal))
+    .then((r) => checked(r, player.model))
+    .catch((e: unknown): DecideResult => ({
+      ok: false,
+      error: e instanceof Error ? e.message : String(e),
+      kind: 'infra',
+      usage: NO_USAGE,
+      model: player.model,
+    }))
   let timer: ReturnType<typeof setTimeout> | undefined
   const timeout = new Promise<'timeout'>((resolve) => {
     timer = setTimeout(() => resolve('timeout'), timeoutMs)
@@ -121,7 +139,9 @@ export async function playHand(opts: PlayHandOptions): Promise<HandResult> {
       ? { result: { ok: false, error: 'auto: too many failures', kind: 'infra', usage: NO_USAGE, model: player.model }, timedOut: false }
       : await ask(player, obs, opts.decisionTimeoutMs, opts.timeoutGraceMs ?? 250)
     const res = asked.result
-    const latencyMs = auto ? 0 : now() - started
+    // A timeout counts as exactly the time limit, however quickly the player reacts to the abort,
+    // so latency data doesn't depend on how a player handles cancellation.
+    const latencyMs = auto ? 0 : asked.timedOut ? opts.decisionTimeoutMs : now() - started
 
     let chosen = res.ok ? menu.find((o) => o.id === res.decision.optionId) : undefined
     let fallbackReason: string | null = null
@@ -134,7 +154,7 @@ export async function playHand(opts: PlayHandOptions): Promise<HandResult> {
       fallbackKind = 'model'
     }
     if (!chosen) chosen = menu.find((o) => o.id === checkOrFold(obs))!
-    consecutiveFallbacks.set(seat.id, fallbackReason ? (consecutiveFallbacks.get(seat.id) ?? 0) + 1 : 0)
+    consecutiveFallbacks.set(seat.id, fallbackReason !== null ? (consecutiveFallbacks.get(seat.id) ?? 0) + 1 : 0)
 
     if (opts.paceMs && latencyMs < opts.paceMs) await sleep(opts.paceMs - latencyMs)
 
@@ -151,6 +171,7 @@ export async function playHand(opts: PlayHandOptions): Promise<HandResult> {
       action: chosen.action,
       chipsIn: chosen.cost,
       pot: potSize(state),
+      currentBet: state.currentBet,
       toCall: obs.facts.toCall,
       winProbability: decision?.winProbability ?? null,
       confidence: decision?.confidence ?? null,

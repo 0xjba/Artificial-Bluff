@@ -19,11 +19,20 @@ export interface DecisionEvent {
   model: string
   optionId: OptionId
   label: string
+  /**
+   * The engine action. A bet (no bet yet this street) is `{type: 'raise', to}` too: it's a bet when
+   * `currentBet` was 0. It's all-in when `chipsIn` equals the seat's stack before acting.
+   */
   action: Action
   /** Chips moved from the player's stack by this action. */
   chipsIn: number
   /** Pot before the action. */
   pot: number
+  /**
+   * Highest street commitment the player faced before acting. Preflop this is the full big blind
+   * even when the big blind posted short (it was all-in), so rebuild state from this, not from posts.
+   */
+  currentBet: number
   toCall: number
   winProbability: number | null
   confidence: number | null
