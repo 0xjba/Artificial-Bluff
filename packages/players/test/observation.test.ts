@@ -1,4 +1,4 @@
-import { applyAction, createHand, type HandState } from '@ab/engine'
+import { applyAction, buildMenu, createHand, deriveSeed, mulberry32, type HandState } from '@ab/engine'
 import { describe, expect, it } from 'vitest'
 import { buildObservation } from '../src/observation'
 
@@ -18,7 +18,7 @@ describe('buildObservation', () => {
     let s = start([10_000, 10_000, 10_000, 10_000, 10_000])
     s = applyAction(s, { type: 'raise', to: 300 }) // UTG (p3) opens
     const obs = buildObservation(s)
-    expect(obs.handId).toBe('hand-7')
+    expect('handId' in obs).toBe(false) // the hand counter is not shown to players
     expect(obs.position).toBe('CO')
     expect(obs.hole).toEqual(s.seats[4]!.hole)
     expect(obs.board).toEqual([])
@@ -68,6 +68,50 @@ describe('buildObservation', () => {
     expect(obs.facts.spr).toBe(6.1)
     s = applyAction(s, { type: 'check' })
     expect(buildObservation(s).history.at(-1)).toBe('flop: BB checks')
+  })
+
+  it('caps the amount to call at the stack and prices pot odds on the winnable pot', () => {
+    // BTN has 1,000; UTG raises to 10,000. BTN can only call 1,000 all-in.
+    let s = start([1000, 10_000, 10_000, 10_000])
+    s = applyAction(s, { type: 'raise', to: 10_000 })
+    const obs = buildObservation(s)
+    expect(obs.position).toBe('BTN')
+    expect(obs.facts.toCall).toBe(1000)
+    expect(obs.options.find((o) => o.id === 'call')!.label).toBe('Call all-in 1,000')
+    // Winnable pot: SB 50 + BB 100 + UTG's first 1,000 = 1,150. Odds 1,000 / 2,150.
+    expect(obs.facts.potOddsPct).toBe(46.5)
+  })
+
+  it('describes a blind posted all-in', () => {
+    const s = start([10_000, 30, 10_000])
+    expect(buildObservation(s).history[0]).toBe('preflop: SB posts small blind 30 (all-in)')
+  })
+
+  it('keeps SPR fixed for the whole street', () => {
+    let s = start([10_000, 10_000, 10_000])
+    s = applyAction(s, { type: 'call' })
+    s = applyAction(s, { type: 'call' })
+    s = applyAction(s, { type: 'check' }) // flop: pot 300, SB first
+    const first = buildObservation(s).facts.spr
+    s = applyAction(s, { type: 'raise', to: 200 }) // SB bets 200
+    expect(buildObservation(s).facts.spr).toBe(first)
+    expect(first).toBe(33) // 9,900 / 300
+  })
+
+  it('never reveals opponents\' hole cards or undealt cards', () => {
+    for (let h = 0; h < 500; h++) {
+      const rand = mulberry32(deriveSeed('leak', h))
+      let s = start([10_000, 10_000, 10_000, 10_000, 10_000])
+      while (!s.complete) {
+        const obs = buildObservation(s)
+        const text = JSON.stringify(obs)
+        const me = s.seats[s.toAct!]!
+        const hidden = [...s.seats.filter((x) => x !== me).flatMap((x) => x.hole), ...s.deck]
+        for (const card of hidden) expect(text).not.toContain(`"${card}"`)
+        const menu = buildMenu(s)
+        s = applyAction(s, menu[Math.floor(rand() * menu.length)]!.action)
+      }
+    }
   })
 
   it('throws when nobody is to act', () => {
