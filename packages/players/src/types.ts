@@ -1,0 +1,84 @@
+import type { Card, OptionId, Position, Street } from '@ab/engine'
+
+export interface SeatView {
+  position: Position
+  /** Chips behind (not yet committed). */
+  stack: number
+  status: 'active' | 'folded' | 'all_in'
+  /** Chips put in on the current street. */
+  bet: number
+  /** True for the player who is to act. Opponents are identified only by position. */
+  you: boolean
+}
+
+/** Arithmetic computed by code so no player has to do it. */
+export interface Facts {
+  smallBlind: number
+  bigBlind: number
+  /** All chips in the middle, including this street's bets. */
+  pot: number
+  toCall: number
+  /** toCall / (pot + toCall) as a percentage, one decimal; 0 when nothing to call. */
+  potOddsPct: number
+  /** min(your stack, largest live opponent stack), in big blinds, one decimal. */
+  effectiveStackBb: number
+  /** Effective stack / pot, one decimal; null preflop. */
+  spr: number | null
+}
+
+export interface ObservedOption {
+  id: OptionId
+  label: string
+}
+
+/** Everything a player sees at a decision. Identical for every kind of player. */
+export interface Observation {
+  handId: string | null
+  street: Street
+  position: Position
+  hole: Card[]
+  board: Card[]
+  seats: SeatView[]
+  /** This hand's actions so far, e.g. "preflop: UTG raises to 300". */
+  history: string[]
+  facts: Facts
+  options: ObservedOption[]
+}
+
+export interface Decision {
+  optionId: OptionId
+  /** Stated probability of winning this hand, 0-1, or null if the player gives none. */
+  winProbability: number | null
+  /** Confidence that the chosen action is best, 0-1, or null. */
+  confidence: number | null
+  /** Probability per offered option (Jev), or null. */
+  optionProbabilities: Partial<Record<OptionId, number>> | null
+  /** Short free-text reasoning (LLMs), or null. */
+  reasoning: string | null
+}
+
+export interface Usage {
+  inputTokens: number
+  outputTokens: number
+  costUsd: number
+  /** Extra attempts made after the first (e.g. an invalid-output retry). */
+  retries: number
+}
+
+export const NO_USAGE: Usage = { inputTokens: 0, outputTokens: 0, costUsd: 0, retries: 0 }
+
+/** A failed decision still reports what it cost: failed calls are billed too. */
+export type DecideResult =
+  | { ok: true; decision: Decision; usage: Usage; model: string }
+  | { ok: false; error: string; usage: Usage; model: string }
+
+export type PlayerKind = 'jev' | 'llm' | 'bot' | 'mock'
+
+export interface Player {
+  readonly id: string
+  readonly kind: PlayerKind
+  /** Model id (or bot name) as configured. */
+  readonly model: string
+  /** Must resolve (never reject for ordinary failures) and should stop work when `signal` aborts. */
+  decide(obs: Observation, signal: AbortSignal): Promise<DecideResult>
+}
