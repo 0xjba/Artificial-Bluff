@@ -16,6 +16,13 @@ describe('positions', () => {
     expect(positions(10, 0)).toEqual(['BTN', 'SB', 'BB', 'UTG', 'UTG+1', 'UTG+2', 'MP', 'LJ', 'HJ', 'CO'])
   })
 
+  it('rejects out-of-range player counts and button indices', () => {
+    expect(() => positions(1, 0)).toThrow(/2 to 10 players/)
+    expect(() => positions(11, 0)).toThrow(/2 to 10 players/)
+    expect(() => positions(5, 5)).toThrow(/buttonIndex/)
+    expect(() => blindSeats(5, -1)).toThrow(/buttonIndex/)
+  })
+
   it('agrees with the seats the engine actually posts blinds from', () => {
     for (let n = 2; n <= 10; n++) {
       for (let button = 0; button < n; button++) {

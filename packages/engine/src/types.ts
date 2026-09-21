@@ -74,7 +74,7 @@ export interface PotAward extends Pot {
 }
 
 export interface HandResult {
-  /** `HandConfig.handId`, or null when the hand had none. */
+  /** `HandConfig.handId`, or null when the hand had none (standalone hands only; tournaments require it). */
   handId: string | null
   /** True if two or more players reached showdown. */
   showdown: boolean
