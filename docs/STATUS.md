@@ -50,7 +50,7 @@ Last updated: 2026-09-21
 - [ ] Task 8: Core package, events, SQLite store
 - [ ] Task 9: Table runner
 - [ ] Task 10: Live tournament driver
-- [ ] Task 11: pnpm demo / pnpm smoke (expect engine 104, players 22, core 18)
+- [ ] Task 11: pnpm demo / pnpm smoke (expect engine 104, players 26, core 18)
 
 ## Key decisions (summary; spec is authoritative)
 
@@ -85,6 +85,7 @@ Last updated: 2026-09-21
 - Plan 4 (final review): NEVER send `deck` or `config.seed` in live snapshots (reveals future cards; tournament seeds are base+handNumber so one seed reveals all later decks) — publish seeds only after the game. HandResult lacks best-five cards for winner highlighting: compute in Plan 4 or add to engine.
 - Line-ups (user decision 2026-09-21): research line-up (Fable 5.1, GPT-6 Astra, Gemini 3.8 Flash, Llama 4 Maverick; ~$1.30/live game) for study + recorded games; live line-up (Sonnet 5, GPT-5.6 Sol, Gemini 3.8 Flash, Llama 4 Maverick; ~$0.32/game) for everyday live games. Files: lineups/{research,live}.example.json. Real smoke test only with user go-ahead + keys.
 - Equity-hint ablation (`hints.equity`) not implemented in Plan 2; do it in Plan 3 with the ablation runs.
+- Deferred from Plan 2 Task 3 review: list seats in action order / add playersToActAfter; compact LLM message (~180 vs ~350 tokens, same info) to cut input cost ~25% before the study is frozen.
 - Jev docs advice: atomic "gut-check" questions; no arithmetic; filter state; pin model version.
 - bloub is "an SVG recreation of the x.ai bot avatar": keep our variant clearly distinct (no black body, no circle, no rainbow rings).
 - Scratch bloub preview (custom colours, Mascots.vue) lived in the session scratchpad; recreate in Plan 4.

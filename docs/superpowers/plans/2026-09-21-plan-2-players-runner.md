@@ -353,12 +353,16 @@ export interface Facts {
   bigBlind: number
   /** All chips in the middle, including this street's bets. */
   pot: number
+  /** Chips needed to call, capped at your stack (a call for less is all-in). */
   toCall: number
-  /** toCall / (pot + toCall) as a percentage, one decimal; 0 when nothing to call. */
+  /**
+   * toCall / (winnable pot + toCall) as a percentage, one decimal; 0 when nothing to call.
+   * The winnable pot counts each player's chips only up to what you can match.
+   */
   potOddsPct: number
-  /** min(your stack, largest live opponent stack), in big blinds, one decimal. */
+  /** Effective stack at the start of this street (smaller of yours and the largest live opponent's), in big blinds, one decimal. */
   effectiveStackBb: number
-  /** Effective stack / pot, one decimal; null preflop. */
+  /** Effective stack / pot at the start of this street, one decimal; null preflop. Fixed for the whole street. */
   spr: number | null
 }
 
@@ -369,7 +373,6 @@ export interface ObservedOption {
 
 /** Everything a player sees at a decision. Identical for every kind of player. */
 export interface Observation {
-  handId: string | null
   street: Street
   position: Position
   hole: Card[]
@@ -425,7 +428,7 @@ export interface Player {
 `packages/players/test/observation.test.ts`:
 
 ```ts
-import { applyAction, createHand, type HandState } from '@ab/engine'
+import { applyAction, buildMenu, createHand, deriveSeed, mulberry32, type HandState } from '@ab/engine'
 import { describe, expect, it } from 'vitest'
 import { buildObservation } from '../src/observation'
 
@@ -445,7 +448,7 @@ describe('buildObservation', () => {
     let s = start([10_000, 10_000, 10_000, 10_000, 10_000])
     s = applyAction(s, { type: 'raise', to: 300 }) // UTG (p3) opens
     const obs = buildObservation(s)
-    expect(obs.handId).toBe('hand-7')
+    expect('handId' in obs).toBe(false) // the hand counter is not shown to players
     expect(obs.position).toBe('CO')
     expect(obs.hole).toEqual(s.seats[4]!.hole)
     expect(obs.board).toEqual([])
@@ -497,6 +500,50 @@ describe('buildObservation', () => {
     expect(buildObservation(s).history.at(-1)).toBe('flop: BB checks')
   })
 
+  it('caps the amount to call at the stack and prices pot odds on the winnable pot', () => {
+    // BTN has 1,000; UTG raises to 10,000. BTN can only call 1,000 all-in.
+    let s = start([1000, 10_000, 10_000, 10_000])
+    s = applyAction(s, { type: 'raise', to: 10_000 })
+    const obs = buildObservation(s)
+    expect(obs.position).toBe('BTN')
+    expect(obs.facts.toCall).toBe(1000)
+    expect(obs.options.find((o) => o.id === 'call')!.label).toBe('Call all-in 1,000')
+    // Winnable pot: SB 50 + BB 100 + UTG's first 1,000 = 1,150. Odds 1,000 / 2,150.
+    expect(obs.facts.potOddsPct).toBe(46.5)
+  })
+
+  it('describes a blind posted all-in', () => {
+    const s = start([10_000, 30, 10_000])
+    expect(buildObservation(s).history[0]).toBe('preflop: SB posts small blind 30 (all-in)')
+  })
+
+  it('keeps SPR fixed for the whole street', () => {
+    let s = start([10_000, 10_000, 10_000])
+    s = applyAction(s, { type: 'call' })
+    s = applyAction(s, { type: 'call' })
+    s = applyAction(s, { type: 'check' }) // flop: pot 300, SB first
+    const first = buildObservation(s).facts.spr
+    s = applyAction(s, { type: 'raise', to: 200 }) // SB bets 200
+    expect(buildObservation(s).facts.spr).toBe(first)
+    expect(first).toBe(33) // 9,900 / 300
+  })
+
+  it('never reveals opponents\' hole cards or undealt cards', () => {
+    for (let h = 0; h < 500; h++) {
+      const rand = mulberry32(deriveSeed('leak', h))
+      let s = start([10_000, 10_000, 10_000, 10_000, 10_000])
+      while (!s.complete) {
+        const obs = buildObservation(s)
+        const text = JSON.stringify(obs)
+        const me = s.seats[s.toAct!]!
+        const hidden = [...s.seats.filter((x) => x !== me).flatMap((x) => x.hole), ...s.deck]
+        for (const card of hidden) expect(text).not.toContain(`"${card}"`)
+        const menu = buildMenu(s)
+        s = applyAction(s, menu[Math.floor(rand() * menu.length)]!.action)
+      }
+    }
+  })
+
   it('throws when nobody is to act', () => {
     const s = applyAction(start([1000, 1000]), { type: 'fold' })
     expect(() => buildObservation(s)).toThrow(/nobody/)
@@ -514,7 +561,7 @@ Expected: FAIL, cannot resolve `../src/observation`.
 `packages/players/src/observation.ts`:
 
 ```ts
-import { buildMenu, positions, potSize, type HandState, type MenuOption } from '@ab/engine'
+import { buildMenu, legalActions, positions, potSize, type HandState, type MenuOption } from '@ab/engine'
 import type { Observation, SeatView } from './types'
 
 const round1 = (x: number) => Math.round(x * 10) / 10
@@ -552,13 +599,17 @@ export function buildObservation(state: HandState, menu: MenuOption[] = buildMen
   })
 
   const pot = potSize(state)
-  const toCall = Math.max(0, state.currentBet - me.streetCommitted)
+  const toCall = legalActions(state).callAmount
+  // Only chips up to what this player can match are winnable; any excess goes back to its owner.
+  const reach = me.handCommitted + toCall
+  const winnablePot = state.seats.reduce((sum, s) => sum + Math.min(s.handCommitted, reach), 0)
+  // Stacks and pot as they were when this street began, so SPR and effective stack don't drift mid-street.
   const opponents = state.seats.filter((s) => s !== me && !s.folded)
   const biggestOpponent = Math.max(0, ...opponents.map((s) => s.stack + s.streetCommitted))
   const effective = Math.min(me.stack + me.streetCommitted, biggestOpponent)
+  const potAtStreetStart = pot - state.seats.reduce((sum, s) => sum + s.streetCommitted, 0)
 
   return {
-    handId: state.config.handId ?? null,
     street: state.street,
     position: names[state.toAct]!,
     hole: [...me.hole],
@@ -570,9 +621,9 @@ export function buildObservation(state: HandState, menu: MenuOption[] = buildMen
       bigBlind,
       pot,
       toCall,
-      potOddsPct: toCall > 0 ? round1((100 * toCall) / (pot + toCall)) : 0,
+      potOddsPct: toCall > 0 ? round1((100 * toCall) / (winnablePot + toCall)) : 0,
       effectiveStackBb: round1(effective / bigBlind),
-      spr: state.street === 'preflop' ? null : round1(effective / Math.max(1, pot)),
+      spr: state.street === 'preflop' ? null : round1(effective / Math.max(1, potAtStreetStart)),
     },
     options: menu.map((o) => ({ id: o.id, label: o.label })),
   }
@@ -582,7 +633,7 @@ export function buildObservation(state: HandState, menu: MenuOption[] = buildMen
 - [ ] **Step 6: Run tests and typecheck**
 
 Run: `pnpm --filter @ab/players exec vitest run && pnpm --filter @ab/players typecheck`
-Expected: PASS (3 tests); typecheck clean.
+Expected: PASS (7 tests); typecheck clean.
 
 - [ ] **Step 7: Commit**
 
@@ -872,7 +923,7 @@ function delay(ms: number, signal: AbortSignal): Promise<void> {
 - [ ] **Step 4: Run tests and typecheck**
 
 Run: `pnpm --filter @ab/players exec vitest run && pnpm --filter @ab/players typecheck`
-Expected: PASS (9 tests); typecheck clean.
+Expected: PASS (13 tests); typecheck clean.
 
 - [ ] **Step 5: Commit**
 
@@ -955,7 +1006,7 @@ describe('prompt', () => {
   it('restricts the schema to this turn’s options and explains raise semantics', () => {
     const schema = responseFormat(obs) as { json_schema: { schema: { properties: { action: { enum: string[] } } } } }
     expect(schema.json_schema.schema.properties.action.enum).toEqual(obs.options.map((o) => o.id))
-    expect(SYSTEM_PROMPT).toContain('"Raise to X" and "Bet X" mean your total bet this street becomes X')
+    expect(SYSTEM_PROMPT).toContain('"Bet X", "Raise to X" and "All-in X" mean your total bet this street becomes X')
   })
 })
 
@@ -1107,7 +1158,7 @@ export const SYSTEM_PROMPT = `You are playing No-Limit Texas Hold'em. On each tu
 
 The state contains: your hole cards ("hole"), the board, your position, every seat's position, chips behind ("stack"), chips bet this street ("bet") and status (the seat with "you": true is you), this hand's action history, and computed facts: pot, amount to call, pot odds, effective stack in big blinds, and stack-to-pot ratio. Opponents are identified only by position.
 
-Every option offered is legal. Labels show chip amounts; "Raise to X" and "Bet X" mean your total bet this street becomes X.
+Every option offered is legal. "Call X" adds X chips; "Bet X", "Raise to X" and "All-in X" mean your total bet this street becomes X. In the history, "posts" and "calls X" show chips added, while "bets X" and "raises to X" show that player's street total.
 
 Your goal is to maximise your expected chips.
 
@@ -1280,7 +1331,7 @@ export class LlmPlayer implements Player {
 - [ ] **Step 4: Run tests and typecheck**
 
 Run: `pnpm --filter @ab/players exec vitest run && pnpm --filter @ab/players typecheck`
-Expected: PASS (18 tests); typecheck clean.
+Expected: PASS (22 tests); typecheck clean.
 
 - [ ] **Step 5: Commit**
 
@@ -1469,7 +1520,7 @@ The two instruction strings are part of the experiment: changing them changes wh
 - [ ] **Step 4: Run tests and typecheck**
 
 Run: `pnpm --filter @ab/players exec vitest run && pnpm --filter @ab/players typecheck`
-Expected: PASS (20 tests); typecheck clean.
+Expected: PASS (24 tests); typecheck clean.
 
 - [ ] **Step 5: Commit**
 
@@ -1603,7 +1654,7 @@ export * from './factory'
 - [ ] **Step 4: Run tests and typecheck**
 
 Run: `pnpm --filter @ab/players exec vitest run && pnpm --filter @ab/players typecheck`
-Expected: PASS (22 tests); typecheck clean.
+Expected: PASS (26 tests); typecheck clean.
 
 - [ ] **Step 5: Commit**
 
@@ -2779,7 +2830,7 @@ Expected: prints one line like `game demo-…: 67 hands, 393 decisions, 1161 eve
 - [ ] **Step 3: Full verification**
 
 Run: `pnpm test && pnpm typecheck`
-Expected: engine 104, players 22, core 18 tests pass; typecheck clean across all three packages.
+Expected: engine 104, players 26, core 18 tests pass; typecheck clean across all three packages.
 
 - [ ] **Step 4: Commit**
 
@@ -2813,7 +2864,7 @@ User decision (2026-09-21): the research line-up is used for the study and recor
 
 ## Done when
 
-- `pnpm test` passes (engine 104, players 22, core 18) and `pnpm typecheck` is clean.
+- `pnpm test` passes (engine 104, players 26, core 18) and `pnpm typecheck` is clean.
 - `pnpm demo` plays a full mock tournament into `data/demo.db` with no errors.
 - `@ab/players` exports `buildObservation`, the bots, `MockLlm`, `LlmPlayer`, `JevPlayer`, `createPlayers`; `@ab/core` exports the event types, `EventStore`, `playHand`, `runTournamentGame`.
 - Next: Plan 3 (study runner: duplicate groups, budget cap, resume, CI stop, report) builds on `playHand`, `EventStore` and `duplicateGroup`.
