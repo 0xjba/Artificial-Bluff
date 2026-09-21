@@ -21,6 +21,22 @@ describe('createPlayers', () => {
     ])
   })
 
+  it('never exposes API keys through serialization or inspection', async () => {
+    const { inspect } = await import('node:util')
+    const players = createPlayers(
+      [
+        { id: 'jev', kind: 'jev', model: 'jev-1.13.0' },
+        { id: 'pill', kind: 'llm', model: 'vendor/frontier-a' },
+      ],
+      { OPENROUTER_API_KEY: 'sk-or-secret-123', TYPESAFE_API_KEY: 'ts-secret-456' },
+    )
+    for (const p of players) {
+      for (const text of [JSON.stringify(p), inspect(p, { depth: 10 })]) {
+        expect(text).not.toContain('secret')
+      }
+    }
+  })
+
   it('fails fast with a clear message when a key is missing, and rejects duplicate ids', () => {
     expect(() => createPlayers([{ id: 'jev', kind: 'jev', model: 'jev-1.13.0' }], {})).toThrow('jev: TYPESAFE_API_KEY is not set')
     expect(() => createPlayers([{ id: 'pill', kind: 'llm', model: 'm' }], {})).toThrow('pill: OPENROUTER_API_KEY is not set')

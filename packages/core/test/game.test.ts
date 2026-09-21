@@ -33,14 +33,34 @@ describe('runTournamentGame', () => {
     expect(await run()).toEqual(await run())
   })
 
-  it('ends at the budget cap after the hand in which it is reached', async () => {
+  it('stops spending at the budget cap within one decision, then ends the game', async () => {
     const store = new EventStore()
     const pricey = lineup().map((p) => new MockLlm(p.id, 'mock/pricey', { inputPricePerMTok: 50_000 }))
     const t = await runTournamentGame({ gameId: 'g2', players: pricey, tournament: liveTurboConfig('s'), store, decisionTimeoutMs: 1000, budgetUsd: 0.5 })
     expect(t.endReason).toBe('budget_cap')
-    expect(t.handNumber).toBeGreaterThanOrEqual(1)
-    expect(store.gameCost('g2')).toBeGreaterThanOrEqual(0.5)
+    const paid = store.events('g2').filter((e): e is Extract<GameEvent, { type: 'decision' }> => e.type === 'decision' && e.costUsd > 0)
+    const maxOne = Math.max(...paid.map((d) => d.costUsd))
+    const cost = store.gameCost('g2')
+    expect(cost).toBeGreaterThanOrEqual(0.5)
+    expect(cost).toBeLessThan(0.5 + maxOne) // overspend is at most one decision
     expect(ended(store.events('g2')).reason).toBe('budget_cap')
+  })
+
+  it('streams every stored event to onEvent, and a failing listener never stops the game', async () => {
+    const store = new EventStore()
+    const seen: GameEvent[] = []
+    const errors: unknown[] = []
+    await runTournamentGame({
+      gameId: 'g8', players: lineup(), tournament: { ...liveTurboConfig('s'), maxHands: 3 }, store, decisionTimeoutMs: 1000, budgetUsd: 1,
+      onEvent: (e) => {
+        seen.push(e)
+        if (e.type === 'turn_started') throw new Error('listener bug')
+      },
+      onListenerError: (e) => errors.push(e),
+    })
+    expect(seen).toEqual(store.events('g8'))
+    expect(errors.length).toBeGreaterThan(0)
+    expect(store.game('g8')!.status).toBe('ended')
   })
 
   it('stops as interrupted when the signal aborts', async () => {

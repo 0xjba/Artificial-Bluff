@@ -48,12 +48,15 @@ export class JevPlayer implements Player {
   readonly kind = 'jev' as const
   readonly id: string
   readonly model: string
-  private readonly client: TypeSafeClient
+  // ES-private so the API key can't leak through JSON.stringify or console.log of a player.
+  readonly #options: JevPlayerOptions
+  readonly #client: TypeSafeClient
 
-  constructor(private readonly options: JevPlayerOptions) {
+  constructor(options: JevPlayerOptions) {
+    this.#options = options
     this.id = options.id
     this.model = options.model
-    this.client = new TypeSafeClient({ defaultModel: options.model, ...options.client })
+    this.#client = new TypeSafeClient({ defaultModel: options.model, ...options.client })
   }
 
   async decide(obs: Observation, signal: AbortSignal): Promise<DecideResult> {
@@ -62,7 +65,7 @@ export class JevPlayer implements Player {
     const criteria = Object.fromEntries(options.map((o) => [o.id, o.label]))
     let res
     try {
-      res = await this.client.systemOne(
+      res = await this.#client.systemOne(
         {
           model: this.model,
           state: JSON.parse(JSON.stringify(state)),
@@ -71,7 +74,7 @@ export class JevPlayer implements Player {
             win: noul(WIN_INSTRUCTIONS),
           },
         },
-        { signal, timeout: this.options.timeoutMs ?? 60_000, retry: { maxRetries: 0 } },
+        { signal, timeout: this.#options.timeoutMs ?? 60_000, retry: { maxRetries: 0 } },
       )
     } catch (e) {
       return { ok: false, error: (e as Error).message, kind: 'infra', usage: NO_USAGE, model: this.model }
@@ -83,7 +86,7 @@ export class JevPlayer implements Player {
       inputTokens: res.usage.input_tokens,
       outputTokens: res.usage.output_tokens,
       reasoningTokens: 0,
-      costUsd: (res.usage.input_tokens * (this.options.inputPricePerMTok ?? JEV_INPUT_PRICE_PER_MTOK)) / 1_000_000,
+      costUsd: (res.usage.input_tokens * (this.#options.inputPricePerMTok ?? JEV_INPUT_PRICE_PER_MTOK)) / 1_000_000,
       retries: 0,
     }
     const action = res.answers.action

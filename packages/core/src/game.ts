@@ -9,6 +9,7 @@ import {
 } from '@ab/engine'
 import type { Player } from '@ab/players'
 import { playHand } from './runner'
+import type { EventSink, GameEvent } from './events'
 import type { EventStore } from './store'
 
 export interface TournamentGameOptions {
@@ -19,7 +20,11 @@ export interface TournamentGameOptions {
   store: EventStore
   decisionTimeoutMs: number
   paceMs?: number
-  /** Stop after the hand in which total spend reaches this (USD). */
+  /**
+   * Spending cap (USD). Checked before every decision: once reached, the current hand finishes as
+   * check-or-fold with no further paid calls and the game ends. Overspend is at most one decision
+   * (plus the unrecorded cost of any timed-out calls, which providers may still bill).
+   */
   budgetUsd: number
   /**
    * Extra config recorded (and hashed) with the game, e.g. the line-up spec. It can't override the
@@ -28,6 +33,14 @@ export interface TournamentGameOptions {
   meta?: Record<string, unknown>
   /** Checked between hands: aborting lets the hand in progress finish, then ends the game as interrupted. */
   signal?: AbortSignal
+  /**
+   * Called with every event right after it is stored (e.g. to push to spectators). A listener that
+   * throws is reported to `onListenerError` and never stops the game.
+   */
+  onEvent?: (event: GameEvent) => void
+  onListenerError?: (error: unknown) => void
+  timeoutGraceMs?: number
+  maxConsecutiveFallbacks?: number
   menu?: Partial<MenuConfig>
   now?: () => number
   sleep?: (ms: number) => Promise<void>
@@ -53,7 +66,19 @@ export async function runTournamentGame(opts: TournamentGameOptions): Promise<To
     paceMs: opts.paceMs ?? 0,
     budgetUsd: opts.budgetUsd,
   })
-  const sink = opts.store.sink(opts.gameId)
+  const stored = opts.store.sink(opts.gameId)
+  const sink: EventSink = {
+    append(body) {
+      const event = stored.append(body)
+      try {
+        opts.onEvent?.(event)
+      } catch (e) {
+        opts.onListenerError?.(e)
+      }
+      return event
+    },
+  }
+  const overBudget = () => opts.store.gameCost(opts.gameId) >= opts.budgetUsd
   const finish = (state: TournamentState) =>
     sink.append({
       type: 'game_ended',
@@ -76,7 +101,7 @@ export async function runTournamentGame(opts: TournamentGameOptions): Promise<To
         t = endTournament(t, 'interrupted')
         break
       }
-      if (opts.store.gameCost(opts.gameId) >= opts.budgetUsd) {
+      if (overBudget()) {
         t = endTournament(t, 'budget_cap')
         break
       }
@@ -85,6 +110,9 @@ export async function runTournamentGame(opts: TournamentGameOptions): Promise<To
         players,
         sink,
         decisionTimeoutMs: opts.decisionTimeoutMs,
+        stopSpending: overBudget,
+        ...(opts.timeoutGraceMs !== undefined ? { timeoutGraceMs: opts.timeoutGraceMs } : {}),
+        ...(opts.maxConsecutiveFallbacks !== undefined ? { maxConsecutiveFallbacks: opts.maxConsecutiveFallbacks } : {}),
         ...(opts.paceMs !== undefined ? { paceMs: opts.paceMs } : {}),
         ...(opts.menu ? { menu: opts.menu } : {}),
         ...(opts.now ? { now: opts.now } : {}),
