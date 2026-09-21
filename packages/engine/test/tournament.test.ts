@@ -7,6 +7,7 @@ import {
   liveTurboConfig,
   nextHandConfig,
   recordHand,
+  type TournamentConfig,
   type TournamentState,
 } from '../src/tournament'
 import type { HandResult } from '../src/types'
@@ -112,5 +113,84 @@ describe('tournament', () => {
     }
     expect(t.winner).not.toBeNull()
     expect(t.handNumber).toBeLessThanOrEqual(120)
+  })
+})
+
+describe('createTournament validation', () => {
+  const validConfig: TournamentConfig = liveTurboConfig('s')
+
+  it('throws if levels is empty', () => {
+    expect(() => createTournament(['a', 'b'], { ...validConfig, levels: [] })).toThrow(/level/i)
+  })
+
+  it("throws if a level's blinds are not positive integers", () => {
+    expect(() =>
+      createTournament(['a', 'b'], { ...validConfig, levels: [{ smallBlind: 0, bigBlind: 50 }] }),
+    ).toThrow(/blind/i)
+    expect(() =>
+      createTournament(['a', 'b'], { ...validConfig, levels: [{ smallBlind: -25, bigBlind: 50 }] }),
+    ).toThrow(/blind/i)
+    expect(() =>
+      createTournament(['a', 'b'], { ...validConfig, levels: [{ smallBlind: 25.5, bigBlind: 50 }] }),
+    ).toThrow(/blind/i)
+    expect(() =>
+      createTournament(['a', 'b'], { ...validConfig, levels: [{ smallBlind: 25, bigBlind: 0 }] }),
+    ).toThrow(/blind/i)
+    expect(() =>
+      createTournament(['a', 'b'], { ...validConfig, levels: [{ smallBlind: 25, bigBlind: 50.5 }] }),
+    ).toThrow(/blind/i)
+  })
+
+  it('throws if a level has bigBlind < smallBlind', () => {
+    expect(() =>
+      createTournament(['a', 'b'], { ...validConfig, levels: [{ smallBlind: 50, bigBlind: 25 }] }),
+    ).toThrow(/blind/i)
+  })
+
+  it('throws if handsPerLevel is less than 1 or not an integer', () => {
+    expect(() => createTournament(['a', 'b'], { ...validConfig, handsPerLevel: 0 })).toThrow(/handsPerLevel/)
+    expect(() => createTournament(['a', 'b'], { ...validConfig, handsPerLevel: -1 })).toThrow(/handsPerLevel/)
+    expect(() => createTournament(['a', 'b'], { ...validConfig, handsPerLevel: 1.5 })).toThrow(/handsPerLevel/)
+  })
+
+  it('throws if maxHands is less than 1 or not an integer', () => {
+    expect(() => createTournament(['a', 'b'], { ...validConfig, maxHands: 0 })).toThrow(/maxHands/)
+    expect(() => createTournament(['a', 'b'], { ...validConfig, maxHands: -1 })).toThrow(/maxHands/)
+    expect(() => createTournament(['a', 'b'], { ...validConfig, maxHands: 2.5 })).toThrow(/maxHands/)
+  })
+
+  it('throws if startingStack is less than 1 or not an integer', () => {
+    expect(() => createTournament(['a', 'b'], { ...validConfig, startingStack: 0 })).toThrow(/startingStack/)
+    expect(() => createTournament(['a', 'b'], { ...validConfig, startingStack: -100 })).toThrow(/startingStack/)
+    expect(() => createTournament(['a', 'b'], { ...validConfig, startingStack: 1.5 })).toThrow(/startingStack/)
+  })
+
+  it('stores a deep copy of the config, decoupled from the caller', () => {
+    const config: TournamentConfig = {
+      startingStack: 3000,
+      levels: [
+        { smallBlind: 25, bigBlind: 50 },
+        { smallBlind: 50, bigBlind: 100 },
+      ],
+      handsPerLevel: 8,
+      maxHands: 120,
+      seed: 'decouple',
+    }
+    const t = createTournament(['a', 'b'], config)
+
+    config.levels[0]!.smallBlind = 999_999
+    config.levels.push({ smallBlind: 1, bigBlind: 2 })
+    config.handsPerLevel = 999
+    config.startingStack = 1
+
+    expect(t.config.levels).toEqual([
+      { smallBlind: 25, bigBlind: 50 },
+      { smallBlind: 50, bigBlind: 100 },
+    ])
+    expect(t.config.handsPerLevel).toBe(8)
+    expect(t.config.startingStack).toBe(3000)
+    expect(currentLevel(t)).toEqual({ smallBlind: 25, bigBlind: 50 })
+    expect(nextHandConfig(t).smallBlind).toBe(25)
+    expect(t.players.every((p) => p.stack === 3000)).toBe(true)
   })
 })
