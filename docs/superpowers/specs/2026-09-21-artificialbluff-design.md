@@ -219,6 +219,13 @@ Per-decision cost, tokens and latency leave out auto-played decisions. `pnpm stu
   C); exact when cheap (≤ 200k evaluations), otherwise a seeded 20,000-board estimate flagged `estimated`.
 - Crashed games are marked interrupted at start-up; SIGINT/SIGTERM stop the live game after its hand.
 
+**Web (Plan 4c):** `apps/web`, Next.js 16 App Router; `pnpm web` (with `pnpm live [--mock]` on :8787). The browser
+follows `/api/feed` through a same-origin rewrite and folds it with `@ab/core/view` (no database code in the bundle);
+`seatMoment(view, id)` picks each mascot's spec §8 moment. Sounds are synthesised (Web Audio), muted by default.
+Replays play in the browser (no true equity there; the live server computes it). `/research` reads `reports/`
+(from `pnpm study report`) at request time and serves allow-listed report files. `/about` carries the full bloub
+MIT notice.
+
 **Pages:**
 - `/` table (live or replay): seats with mascot, character name, model badge, stack, last action, last decision
   latency, running cost; decision lower-third (Jev: option probability bars + confidence; LLMs: reasoning text;

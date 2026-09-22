@@ -15,6 +15,7 @@ Last updated: 2026-09-22
 | Plan 3b: analysis and report | `docs/superpowers/plans/2026-09-22-plan-3b-analysis-report.md` |
 | Plan 4a: live server | `docs/superpowers/plans/2026-09-22-plan-4a-live-server.md` |
 | Plan 4b: mascots | `docs/superpowers/plans/2026-09-22-plan-4b-mascots.md` |
+| Plan 4c: web UI | `docs/superpowers/plans/2026-09-22-plan-4c-web.md` |
 | Salvage report (old TEN project) | `SALVAGE.md` |
 | Salvaged raw code (git-ignored) | `salvage/` (contracts-latest, agents-latest, frontend-latest, pokerkit-harness-old) |
 | Jev / TypeSafe API docs | `docs/jev/` |
@@ -28,7 +29,7 @@ Last updated: 2026-09-22
 | 1 | Monorepo + game engine (`packages/engine`) | ✅ Merged to master (9de0579), 99 tests |
 | 2 | Players (Jev, LLM, bots, mock), table runner, SQLite event log | ✅ Merged to master (b94a7be), 181 tests |
 | 3 | Study runner (duplicate, budget cap, resume, CI stop) + report/charts | 3a study runner: ✅ merged (04bc98f), 220 tests; 3b analysis + report: ✅ merged (0d46196), 258 tests |
-| 4 | 4a live server (SSE feed, replays, admin start/stop); 4b mascots (bloub engine, shapes, React component); 4c web (Broadcast UI) | 4a: ✅ merged, 306 tests; 4b: ✅ merged, 397 tests; 4c: not written |
+| 4 | 4a live server (SSE feed, replays, admin start/stop); 4b mascots (bloub engine, shapes, React component); 4c web (Broadcast UI) | 4a: ✅ merged, 306 tests; 4b: ✅ merged, 397 tests; 4c: plan written & verified in scratch (408 tests), executing on `feat/plan-4c-web` |
 
 ### Plan 1 task progress
 
@@ -101,6 +102,13 @@ Last updated: 2026-09-22
 - [x] Task 6: Preview sheet (0f558c6; spec ✅; 391 tests)
 - [x] Final branch review (opus): merge after fixes → fixed in b4b72dd; re-review: **ready to merge** (397 tests)
 
+### Plan 4c task progress
+
+- [ ] Task 1: Browser-safe @ab/core/view + latency total (core 39)
+- [ ] Task 2: Web scaffold + pure logic (web 5)
+- [ ] Task 3: Broadcast screen components (web 9, incl. end-to-end feed test)
+- [ ] Task 4: Pages, styles, replays, research, about (web 11; total 408; build + manual check)
+
 ## Key decisions (summary; spec is authoritative)
 
 - TypeScript pnpm monorepo; official Jev TS SDK `@typesafe-ai/sdk`.
@@ -151,6 +159,8 @@ Last updated: 2026-09-22
 - Scratch bloub preview (custom colours, Mascots.vue) lived in the session scratchpad; replaced by Plan 4b's `pnpm --filter @ab/mascot preview` → docs/brand/mascots.html.
 
 ## Execution log
+
+- 2026-09-22: Plan 4c written from a verified scratch reference (408 tests; next build clean; checked in the browser live, replay, research, about, phone width). Decisions: SSE via Next rewrite (streams fine); `@ab/core/view` export for the browser; running latency total in the view; compact rim seats, sidebar below table under 1200 px, 2-column seats under 720 px; synthesised muted-by-default sounds; browser replays without true equity.
 
 - 2026-09-22: Plan 4b merged to master. Next: Plan 4c (Broadcast web UI).
 
