@@ -2,7 +2,7 @@
 import { characterFor, cueFor, EYE_INK, Mascot } from '@ab/mascot'
 import { chips, ms, usd } from '../../lib/format'
 import { DECISIONS_PER_SEAT_PER_HAND, estimateGameUsd, estimateSeatUsd, type ModelOption, type SeatChoice } from '../../lib/byo/models'
-import { BLINDS, DEFAULT_GAME, filledSeats, HAND_COUNTS, MAX_BUDGET_USD, MAX_HANDS, MIN_BUDGET_USD, PACES, seatId, STACKS, type GameOptions, type Pace } from '../../lib/byo/table'
+import { BLINDS, DEFAULT_GAME, filledSeats, HAND_COUNTS, JEV_MODEL, MAX_BUDGET_USD, MAX_HANDS, MIN_BUDGET_USD, PACES, seatId, STACKS, type GameOptions, type Pace } from '../../lib/byo/table'
 
 export interface SetupState {
   seats: SeatChoice[]
@@ -56,8 +56,9 @@ export function PlaySetup(props: {
     .filter((s) => s.usd > 0)
     .sort((a, b) => b.usd - a.usd)
   const decisionsPerHand = playing.length * DECISIONS_PER_SEAT_PER_HAND
-  // A model answers in a second or two; the pace is the pause the table adds after each event.
-  const runTimeMs = hands * decisionsPerHand * (2000 + PACES[v.game.pace])
+  // A model answers in a second or two; bots answer at once. The pace is the pause after each event.
+  const thinking = playing.filter(({ seat }) => seat.kind !== 'bot').length * DECISIONS_PER_SEAT_PER_HAND * 2000
+  const runTimeMs = hands * (thinking + decisionsPerHand * PACES[v.game.pace])
   const needsJev = v.seats.some((s) => s.kind === 'jev')
   const needsOpenRouter = v.seats.some((s) => s.kind === 'llm')
 
@@ -116,7 +117,7 @@ export function PlaySetup(props: {
                       onChange={(e) => setSeat(i, { kind: 'llm', model: e.target.value })}
                     />
                   ) : (
-                    <span className="seat-note">{s.kind === 'jev' ? 'jev-1.13.0 · TypeSafe' : s.kind === 'bot' ? 'Plays by simple rules, costs nothing' : 'No one in this seat'}</span>
+                    <span className="seat-note">{s.kind === 'jev' ? `${JEV_MODEL} · TypeSafe` : s.kind === 'bot' ? 'Plays by simple rules, costs nothing' : 'No one in this seat'}</span>
                   )}
                   <span className={`key-state ${key.tone}`}>{key.text}</span>
                 </div>
@@ -212,7 +213,7 @@ export function PlaySetup(props: {
             <h2>ESTIMATE</h2>
             <b className="big">≈ {usd(estimate)}</b>
             <small>
-              for {v.game.hands === null ? `up to ${MAX_HANDS}` : v.game.hands} hands with this line-up
+              for {v.game.hands === null ? `up to ${MAX_HANDS}` : v.game.hands} hands with this line-up (a game often ends sooner, once one seat has the chips)
             </small>
             <dl>
               <div>
@@ -229,7 +230,7 @@ export function PlaySetup(props: {
               </div>
               <div>
                 <dt>Expected run time</dt>
-                <dd>{ms(runTimeMs).replace(' s', ' s').replace(/^([\d.]+) s$/, (_, s) => `${Math.round(Number(s) / 60)} min`)}</dd>
+                <dd>{runTimeMs >= 90_000 ? `${Math.round(runTimeMs / 60_000)} min` : ms(runTimeMs)}</dd>
               </div>
             </dl>
             {props.problems.length ? (

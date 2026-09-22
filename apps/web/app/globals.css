@@ -27,6 +27,14 @@
   box-sizing: border-box;
 }
 
+:focus-visible {
+  outline: 2px solid var(--gold);
+  outline-offset: 2px;
+}
+.research :focus-visible {
+  outline-color: var(--link);
+}
+
 html,
 body {
   margin: 0;
@@ -1517,12 +1525,14 @@ code {
 
 /* ---- research (light) ---- */
 .research {
+  color-scheme: light;
   /* The one light page: the study reads like a paper, not a broadcast. */
   --paper: #f6f2e8;
   --paper-2: #efe9dc;
   --ink: #14251f;
   --ink-2: #3c4b44;
-  --ink-3: #6b7a72;
+  /* Passes AA on the paper background at small sizes. */
+  --ink-3: #56655d;
   --paper-rule: #d7cfbc;
   --link: #8a5a12;
   margin: -18px -24px -40px;

@@ -58,7 +58,6 @@ export function LiveScreen({ feedUrl }: { feedUrl: string }) {
     setPast({ channelId: channel.id, snapshot: feed.snapshots, pos, state: feedAt(channel, history, pos, name), playing })
   }
   const pos = past?.pos ?? history.length
-  const first = handStarts(history)[0] ?? 1
 
   const seek = canSeek ? (
     <SeekBar

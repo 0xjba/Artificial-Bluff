@@ -159,6 +159,25 @@ describe('screen pieces', () => {
     expect(open[0]!.meta).toBe('in progress · pot 900 · flop')
   })
 
+  it('groups a log that starts mid-hand under "Earlier"', async () => {
+    const events = await mockGame(2)
+    let view = emptyView()
+    const lines = events
+      .map((e) => {
+        const line = logLine(e, name, view)
+        view = applyEvent(view, e)
+        return line
+      })
+      .filter((l) => l !== null)
+    const firstHand = lines.findIndex((l) => l.kind === 'hand')
+    const secondHand = lines.findIndex((l, i) => i > firstHand && l.kind === 'hand')
+    const groups = handGroups(lines.slice(firstHand + 2), view) // joined after the first hand began
+    expect(groups.at(-1)!.title).toBe('Earlier')
+    expect(groups.at(-1)!.lines.length).toBeGreaterThan(0)
+    expect(groups.map((g) => g.title).filter((t) => t.startsWith('Hand'))).toHaveLength(1)
+    expect(secondHand).toBeGreaterThan(firstHand)
+  })
+
   it('shows each seat\'s win chance, in the panel and on the seat', async () => {
     const events = await mockGame(2)
     const cut = events.findIndex((e) => e.type === 'decision')

@@ -6,7 +6,7 @@ import { connection } from 'next/server'
 import { HandCard, leadTag } from '../../components/HandCard'
 import { MascotBadge } from '../../components/MascotBadge'
 import { PlayingCard } from '../../components/PlayingCard'
-import { chips, signedChips } from '../../lib/format'
+import { chips } from '../../lib/format'
 import { FILTERS, filterHands, loadGames, loadHands } from '../../lib/replays'
 
 export const metadata: Metadata = { title: 'Replays · artificialBluff' }
@@ -29,7 +29,6 @@ export default async function Replays({ searchParams }: { searchParams: Promise<
   const hands = game ? ((await loadHands(game.id)) ?? []) : []
   const shown = filterHands(hands, tag)
   const featured = featuredHand(hands)
-  const running = game?.status === 'running'
 
   return (
     <div className="page replays">
@@ -46,7 +45,7 @@ export default async function Replays({ searchParams }: { searchParams: Promise<
         <>
           <div className="chips-row">
             {FILTERS.map((f) => (
-              <Link key={f.id} href={`/replays?game=${encodeURIComponent(game.id)}&tag=${f.id}`} className={`chip${tag === f.id ? ' on' : ''}`}>
+              <Link key={f.id} href={`/replays?game=${encodeURIComponent(game.id)}&tag=${f.id}`} className={`chip${tag === f.id ? ' on' : ''}`} {...(tag === f.id ? { 'aria-current': 'page' as const } : {})}>
                 {f.label}
               </Link>
             ))}
@@ -76,7 +75,7 @@ export default async function Replays({ searchParams }: { searchParams: Promise<
                   <div className="featured-player" key={id}>
                     <MascotBadge playerId={id} index={i} size={26} />
                     <b>{characterFor(id, i).name}</b>
-                    <span className={featured.winners.includes(id) ? 'up' : 'down'}>{featured.winners.includes(id) ? `won ${chips(featured.pot)}` : ''}</span>
+                    <span className="up">{featured.won[id] ? `won ${chips(featured.won[id]!)}` : ''}</span>
                   </div>
                 ))}
               </div>
@@ -86,7 +85,7 @@ export default async function Replays({ searchParams }: { searchParams: Promise<
           <div className="games-row">
             <span className="k">GAME</span>
             {games.slice(0, 8).map((g) => (
-              <Link key={g.id} href={`/replays?game=${encodeURIComponent(g.id)}&tag=${tag}`} className={`chip${g.id === game.id ? ' on' : ''}`}>
+              <Link key={g.id} href={`/replays?game=${encodeURIComponent(g.id)}&tag=${tag}`} className={`chip${g.id === game.id ? ' on' : ''}`} {...(g.id === game.id ? { 'aria-current': 'page' as const } : {})}>
                 {new Date(g.createdAt).toLocaleString('en-GB', { dateStyle: 'short', timeStyle: 'short' })}
                 {g.status === 'running' ? ' · live' : ''}
               </Link>
@@ -98,8 +97,8 @@ export default async function Replays({ searchParams }: { searchParams: Promise<
             {tag === 'all' ? '' : ` tagged ${FILTERS.find((f) => f.id === tag)?.label.toLowerCase()}`} · newest first
           </p>
           <div className="hand-grid">
-            {shown.map((h, i) => (
-              <HandCard key={h.handId} hand={h} live={running && i === 0} />
+            {shown.map((h) => (
+              <HandCard key={h.handId} hand={h} />
             ))}
           </div>
           {shown.length === 0 ? <p className="muted">No hands like that in this game.</p> : null}

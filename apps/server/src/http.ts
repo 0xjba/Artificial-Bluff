@@ -159,9 +159,13 @@ export function createHttpServer(deps: HttpDeps): Server {
       if (method === 'GET' && hands) {
         const row = deps.store.game(hands[1]!)
         if (!row) return send(res, 404, { error: 'no such game' })
-        // A study's hands stay secret until it is over: its decks repeat across rotations.
-        if (!isOver(row) && row.kind !== 'live') return send(res, 409, { error: 'the study is not over yet (it can still be resumed)' })
-        return send(res, 200, { game: publicGame(row), hands: handIndex(deps.store, row.id, isOver(row) ? summaries : new Map()) })
+        // Live games only: a study is thousands of hands (too slow to summarise on a page view), and
+        // its hands must stay secret anyway because every rotation is dealt the same cards.
+        if (row.kind !== 'live') return send(res, 404, { error: 'only live games are listed hand by hand' })
+        // A running game is still changing, so it is neither cached nor scored: the tags that need the
+        // true chance of every decision (worst read) wait until it ends.
+        const over = isOver(row)
+        return send(res, 200, { game: publicGame(row), scored: over, hands: handIndex(deps.store, row.id, over ? summaries : new Map(), { score: over }) })
       }
       const game = path.match(/^\/api\/games\/([A-Za-z0-9._:-]+)(\/events)?$/)
       if (method === 'GET' && game) {

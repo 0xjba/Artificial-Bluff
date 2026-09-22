@@ -19,13 +19,14 @@ export const leadTag = (h: HandSummary) =>
   (['elimination', 'worst-read', 'biggest-pot', 'jev-vs-llm', 'split', 'timeout', 'showdown'] as const).find((t) => (h.tags as string[]).includes(t)) ?? null
 
 /** One hand in the replays list. */
-export function HandCard({ hand, live }: { hand: HandSummary; live?: boolean }) {
+export function HandCard({ hand }: { hand: HandSummary }) {
   const tag = leadTag(hand)
   const winners = hand.winners.map((id) => characterFor(id).name).join(' and ')
+  const each = hand.winners.length > 1 ? (hand.won[hand.winners[0]!] ?? hand.pot / hand.winners.length) : hand.pot
   return (
     <article className="card hand-card">
       <div className="hand-card-top">
-        <span className="tag-chip">{live ? 'IN PROGRESS' : (tag && TAG_LABEL[tag]) || 'HAND'}</span>
+        <span className="tag-chip">{(tag && TAG_LABEL[tag]) || 'HAND'}</span>
         <span className="hand-no">
           HAND {hand.number} · {new Date(hand.ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
         </span>
@@ -41,7 +42,7 @@ export function HandCard({ hand, live }: { hand: HandSummary; live?: boolean }) 
       </div>
       <div className="hand-card-foot">
         <span className="muted">
-          {winners} {hand.winners.length > 1 ? 'split' : 'wins'} {chips(hand.pot)}
+          {hand.winners.length > 1 ? `${winners} take ${chips(each)} each` : `${winners} wins ${chips(hand.pot)}`}
         </span>
         <Link href={`/replays/${encodeURIComponent(hand.gameId)}?hand=${hand.number}`}>Watch →</Link>
       </div>
