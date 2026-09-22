@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { RateLimiter, RELAY_MAX_BODY, relayTypeSafe, type RelayDeps } from '../lib/byo/relay'
+import { clientKey, RateLimiter, RELAY_MAX_BODY, relayTypeSafe, type RelayDeps } from '../lib/byo/relay'
 
 type Seen = { url: string; headers: Record<string, string>; body: string }
 
@@ -60,6 +60,70 @@ describe('TypeSafe relay', () => {
     expect(limiter.allow('a', 0)).toBe(true)
     expect(limiter.allow('a', 59_999)).toBe(false)
     expect(limiter.allow('a', 60_000)).toBe(true) // a new minute
+  })
+
+  it('keys IPv6 clients by their /64, caps the addresses it tracks and the calls it makes in a minute', () => {
+    expect(clientKey('2001:db8:1:2:aaaa::1')).toBe(clientKey('2001:db8:1:2:bbbb:cccc:dddd:eeee'))
+    expect(clientKey('2001:db8:1:2::1')).not.toBe(clientKey('2001:db8:1:3::1'))
+    expect(clientKey('::ffff:203.0.113.9')).toBe('203.0.113.9')
+    expect(clientKey('203.0.113.9')).toBe('203.0.113.9')
+    expect(clientKey('')).toBe('local')
+    const limiter = new RateLimiter(100, { maxClients: 2, perMinuteTotal: 5 })
+    expect(limiter.allow('a', 0) && limiter.allow('b', 0)).toBe(true)
+    expect(limiter.allow('c', 0)).toBe(false) // too many addresses this minute: new ones wait
+    expect(limiter.allow('a', 0) && limiter.allow('b', 0) && limiter.allow('a', 0)).toBe(true)
+    expect(limiter.allow('a', 0)).toBe(false) // 5 calls in total this minute
+    expect(limiter.allow('c', 60_000)).toBe(true) // a new minute starts afresh
+  })
+
+  it('reads at most RELAY_MAX_BODY bytes of a streamed body, and never before the rate limit', async () => {
+    const { d, seen } = deps()
+    let pulled = 0
+    const endless = new ReadableStream<Uint8Array>({
+      pull(c) {
+        pulled++
+        c.enqueue(new Uint8Array(16 * 1024))
+      },
+    })
+    const streamed = new Request('https://poker.example.com/api/typesafe/v1/systemone', {
+      method: 'POST',
+      headers: { host: 'poker.example.com', authorization: 'Bearer ts-key', 'x-forwarded-for': '203.0.113.50' },
+      body: endless,
+      duplex: 'half',
+    } as RequestInit)
+    expect((await relayTypeSafe(streamed, ['v1', 'systemone'], d)).status).toBe(413)
+    expect(pulled).toBeLessThan(10) // stopped soon after 64 KB, not read to the end
+    expect(seen).toHaveLength(0)
+    const limited = deps()
+    limited.d.limiter = new RateLimiter(0)
+    let read = false
+    const watched = new Request('https://poker.example.com/api/typesafe/v1/systemone', {
+      method: 'POST',
+      headers: { host: 'poker.example.com', authorization: 'Bearer ts-key' },
+      body: new ReadableStream({ pull(c) { read = true; c.close() } }, { highWaterMark: 0 }), // pulled only when read
+      duplex: 'half',
+    } as RequestInit)
+    expect((await relayTypeSafe(watched, ['v1', 'systemone'], limited.d)).status).toBe(429)
+    expect(read).toBe(false)
+  })
+
+  it('answers a null origin with 403, stops when the page gives up, and never follows redirects', async () => {
+    const { d, seen } = deps()
+    expect((await relayTypeSafe(request({ origin: 'null' }), ['v1', 'systemone'], d)).status).toBe(403)
+    expect((await relayTypeSafe(request(), ['v1', 'systemone', 'extra'], d)).status).toBe(404) // only the one Jev path
+    const inits: RequestInit[] = []
+    const hanging: RelayDeps = { ...d, fetch: ((_: string, init: RequestInit) => {
+      inits.push(init)
+      return new Promise((_resolve, reject) => init.signal!.addEventListener('abort', () => reject(new Error('aborted'))))
+    }) as unknown as typeof fetch }
+    const page = new AbortController()
+    const req = new Request(request(), { signal: page.signal })
+    const pending = relayTypeSafe(req, ['v1', 'systemone'], hanging)
+    await new Promise((r) => setTimeout(r, 5))
+    page.abort()
+    expect((await pending).status).toBe(502)
+    expect(inits[0]!.redirect).toBe('error')
+    expect(seen).toHaveLength(0)
   })
 
   it('passes TypeSafe errors through and reports an unreachable TypeSafe as 502', async () => {
