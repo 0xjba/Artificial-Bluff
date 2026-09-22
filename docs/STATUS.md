@@ -14,6 +14,7 @@ Last updated: 2026-09-22
 | Plan 3a: study runner | `docs/superpowers/plans/2026-09-21-plan-3a-study-runner.md` |
 | Plan 3b: analysis and report | `docs/superpowers/plans/2026-09-22-plan-3b-analysis-report.md` |
 | Plan 4a: live server | `docs/superpowers/plans/2026-09-22-plan-4a-live-server.md` |
+| Plan 4b: mascots | `docs/superpowers/plans/2026-09-22-plan-4b-mascots.md` |
 | Salvage report (old TEN project) | `SALVAGE.md` |
 | Salvaged raw code (git-ignored) | `salvage/` (contracts-latest, agents-latest, frontend-latest, pokerkit-harness-old) |
 | Jev / TypeSafe API docs | `docs/jev/` |
@@ -27,7 +28,7 @@ Last updated: 2026-09-22
 | 1 | Monorepo + game engine (`packages/engine`) | ✅ Merged to master (9de0579), 99 tests |
 | 2 | Players (Jev, LLM, bots, mock), table runner, SQLite event log | ✅ Merged to master (b94a7be), 181 tests |
 | 3 | Study runner (duplicate, budget cap, resume, CI stop) + report/charts | 3a study runner: ✅ merged (04bc98f), 220 tests; 3b analysis + report: ✅ merged (0d46196), 258 tests |
-| 4 | 4a live server (SSE feed, replays, admin start/stop); 4b web (Broadcast UI) + mascots (bloub) | 4a: ✅ merged, 306 tests; 4b: not written |
+| 4 | 4a live server (SSE feed, replays, admin start/stop); 4b mascots (bloub engine, shapes, React component); 4c web (Broadcast UI) | 4a: ✅ merged, 306 tests; 4b: plan written & verified in scratch (391 tests), executing on `feat/plan-4b-web`; 4c: not written |
 
 ### Plan 1 task progress
 
@@ -90,6 +91,15 @@ Last updated: 2026-09-22
 - [x] Task 8: HTTP API, app, pnpm live (4e40cea; spec ✅; 298 tests; free mock server checked end to end)
 - [x] Final branch review (opus): merge after fixes → malformed URL 400 (was a crash), Ctrl-C double signal, SSE back-pressure (1 MB), single-server db lock + interrupt only live games, director survives errors, paged events, replay cache, stopped live games replayed, REPLAY_PACE_MS ≥ 10, catalog timeout, idle() no spin (fixed in 1a551fe; server 42, total 306; free mock server SIGINT checked end to end — exit 0, game row interrupted with final game_ended event, lock file released)
 
+### Plan 4b task progress
+
+- [ ] Task 1: Vendor bloub engine (controller; mascot 71)
+- [ ] Task 2: White rings + shape kept through animations (mascot 73)
+- [ ] Task 3: Cast + cues (77)
+- [ ] Task 4: Driver (82)
+- [ ] Task 5: React component (85)
+- [ ] Task 6: Preview sheet (docs/brand/mascots.html; total 391)
+
 ## Key decisions (summary; spec is authoritative)
 
 - TypeScript pnpm monorepo; official Jev TS SDK `@typesafe-ai/sdk`.
@@ -137,9 +147,11 @@ Last updated: 2026-09-22
 - Ablation idea (Task 6 review): decomposed Jev (atomic questions combined in code, TypeSafe's recommended pattern) vs single-Choice Jev. Pre-register before running.
 - Jev docs advice: atomic "gut-check" questions; no arithmetic; filter state; pin model version.
 - bloub is "an SVG recreation of the x.ai bot avatar": keep our variant clearly distinct (no black body, no circle, no rainbow rings).
-- Scratch bloub preview (custom colours, Mascots.vue) lived in the session scratchpad; recreate in Plan 4.
+- Scratch bloub preview (custom colours, Mascots.vue) lived in the session scratchpad; replaced by Plan 4b's `pnpm --filter @ab/mascot preview` → docs/brand/mascots.html.
 
 ## Execution log
+
+- 2026-09-22: Plan 4 split again: 4b mascots (package), 4c web UI. Plan 4b written from a verified scratch reference (391 tests). Decisions: vendor only bloub's clock-free engine (MIT, b4bb3c1) with its tests; shape rule = orbit spins the player's shape, circle-drawn states take the shape at that radius, glyphs unchanged; white rings via saturation 0; React `<Mascot>` with a clock-free `MascotDriver`; explicit `id` prop for separately rendered mascots (useId collides across render calls).
 
 - 2026-09-22: Plan 4a merged to master. Next: Plan 4b (Broadcast web UI + bloub mascots).
 

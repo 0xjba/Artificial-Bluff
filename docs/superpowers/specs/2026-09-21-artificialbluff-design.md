@@ -237,8 +237,11 @@ TEN branding and parody personas.
   muted `#9DB8AE`, brass accent `#E8B04A`, alert red `#D9534F`. Type: Barlow Condensed (display), Barlow (body).
 - **Mascots:** vendored bloub engine (MIT, credited in `/about` and `LICENSE-THIRD-PARTY`). All bodies neutral
   white `#F5F3EE`; decorative rings/comet trails white (no rainbow). Distinct shapes: JEV hexagon, PILL capsule,
-  BLOCK squircle, DRIP droplet, NIMBUS cloud. Engine change: narrative states (orbit, etc.) keep the player's own
-  body shape. No circle and no black body, to stay clear of the xAI bot identity.
+  BLOCK squircle, DRIP droplet, NIMBUS cloud. Engine change: narrative states keep the player's own body shape
+  (`orbit` spins it instead of a triangle; states drawn as a circle draw the shape at that size; the "!" glyphs
+  are unchanged). No circle and no black body, to stay clear of the xAI bot identity. Package `@ab/mascot`
+  (Plan 4b): vendored engine (bloub `b4bb3c1`, MIT, `LICENSE-THIRD-PARTY`), cast, reaction cues, React `<Mascot>`;
+  preview sheet `docs/brand/mascots.html`.
 - **Mascot state mapping:** waiting → idle; deciding → thinking; Jev decides → comet; check/call → attentive;
   raise → excited; all-in → exclaim then burst; fold → unimpressed; win pot → laughing then orbit; big loss → sad;
   eliminated → sleep; timeout/fallback → confused.
