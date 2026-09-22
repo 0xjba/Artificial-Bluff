@@ -12,14 +12,14 @@
   },
   "dependencies": {
     "@ab/core": "workspace:*",
+    "@ab/engine": "workspace:*",
     "@ab/mascot": "workspace:*",
+    "@ab/players": "workspace:*",
     "next": "16.3.5",
     "react": "19.3.0",
     "react-dom": "19.3.0"
   },
   "devDependencies": {
-    "@ab/engine": "workspace:*",
-    "@ab/players": "workspace:*",
     "@ab/server": "workspace:*",
     "@ab/study": "workspace:*",
     "@types/react": "^19.3.0",

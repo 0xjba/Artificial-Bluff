@@ -669,3 +669,75 @@ code {
     grid-template-columns: 84px 1fr 36px;
   }
 }
+
+/* ---- run your own table ---- */
+.play-setup {
+  max-width: 760px;
+}
+.play-setup fieldset {
+  border: 1px solid var(--rule);
+  border-radius: 6px;
+  background: var(--panel);
+  margin: 0 0 14px;
+  padding: 10px 14px 12px;
+}
+.play-setup legend {
+  color: var(--brass);
+  font-weight: 600;
+  padding: 0 6px;
+}
+.play-setup input,
+.play-setup select,
+.play-setup button {
+  font: inherit;
+  background: var(--panel-2);
+  color: var(--cream);
+  border: 1px solid var(--rule);
+  border-radius: 4px;
+  padding: 5px 8px;
+}
+.play-setup button {
+  cursor: pointer;
+}
+.seat-choice {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 0;
+}
+.seat-choice b {
+  width: 70px;
+  font-family: var(--font-display), 'Barlow Condensed', sans-serif;
+}
+.seat-choice input {
+  flex: 1;
+  min-width: 220px;
+}
+.seat-choice small,
+.play-setup .notice,
+.play-setup .estimate {
+  color: var(--muted);
+}
+.play-setup .notice {
+  font-size: 13px;
+  border-left: 3px solid var(--brass);
+  padding-left: 8px;
+}
+.play-setup .ok {
+  color: var(--brass);
+}
+.play-setup .problems {
+  color: var(--alert);
+}
+.play-setup .start {
+  background: var(--brass);
+  color: var(--felt);
+  font-weight: 700;
+  border: 0;
+  padding: 8px 18px;
+}
+.play-setup .start:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
