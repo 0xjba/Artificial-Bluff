@@ -2,6 +2,7 @@
 import type { TableView } from '@ab/core/view'
 import type { Channel } from '@ab/server'
 import { useEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { chips } from '../lib/format'
 import type { LogLine } from '../lib/log'
 import { playSound, soundFor, unlockAudio } from '../lib/sounds'
@@ -14,15 +15,17 @@ import { Stage } from './Stage'
 const MUTE_KEY = 'artificialBluff.muted'
 
 /**
- * What the programme strip says beside the tag: a live game shows its hand number and blinds, a replay
- * its subject ("REPLAY · live game x" → "live game x"), so the tag is never repeated.
+ * What the header says beside the tag: a live game shows its hand number and blinds, a replay its
+ * subject ("REPLAY · live game x" → "live game x"), so the tag is never repeated.
  */
-export function programmeTitle(channel: Pick<Channel, 'mode' | 'title'> | null, view: TableView): string {
-  if (!channel) return 'Connecting…'
-  if (channel.mode !== 'live') return channel.title.replace(/^REPLAY\s*·\s*/i, '')
+export function programmeStatus(channel: Pick<Channel, 'mode' | 'title'> | null, view: TableView): string[] {
+  if (!channel) return ['CONNECTING…']
+  if (channel.mode !== 'live') return [channel.title.replace(/^REPLAY\s*·\s*/i, '')]
   const hand = view.hand && !view.hand.ended ? view.handsPlayed + 1 : view.handsPlayed
-  const blinds = view.hand ? ` · BLINDS ${chips(view.hand.smallBlind)}/${chips(view.hand.bigBlind)}` : ''
-  return hand > 0 ? `HAND ${hand}${blinds}` : ''
+  const parts: string[] = []
+  if (hand > 0) parts.push(`HAND ${hand}`)
+  if (view.hand) parts.push(`BLINDS ${chips(view.hand.smallBlind)}/${chips(view.hand.bigBlind)}`)
+  return parts
 }
 
 /** The whole spectator screen for one programme: players, the felt, the last decision and the hand log. */
@@ -75,24 +78,39 @@ export function Broadcast(props: {
   }, [newest, previous, muted])
 
   const mode = props.channel?.mode ?? 'idle'
-  const tag = mode === 'live' ? '● LIVE' : mode === 'replay' ? 'REPLAY' : 'OFF AIR'
+  const tag = mode === 'live' ? 'LIVE' : mode === 'replay' ? 'REPLAY' : 'OFF AIR'
+  // The programme's state belongs at the right of the site header (design), which the layout renders.
+  const [slot, setSlot] = useState<HTMLElement | null>(null)
+  useEffect(() => setSlot(document.getElementById('site-status')), [])
+  const status = (
+    <>
+      {mode === 'live' && props.live ? (
+        <button
+          type="button"
+          className={`tag live${props.live.behind ? ' behind' : ''}`}
+          onClick={props.live.onGoLive}
+          title={props.live.behind ? 'Back to live' : 'You are watching live'}
+        >
+          <span className="blip" />
+          {tag}
+        </button>
+      ) : (
+        <span className={`tag ${mode}`}>
+          {mode === 'live' ? <span className="blip" /> : null}
+          {tag}
+        </span>
+      )}
+      {programmeStatus(props.channel, props.view).map((part) => (
+        <span key={part}>{part}</span>
+      ))}
+      {props.connection === 'lost' ? <span className="warn">RECONNECTING…</span> : null}
+    </>
+  )
+
   return (
     <div className="broadcast">
+      {slot ? createPortal(status, slot) : <div className="programme in-page">{status}</div>}
       <div className="programme">
-        {mode === 'live' && props.live ? (
-          <button
-            type="button"
-            className={`tag live${props.live.behind ? ' behind' : ''}`}
-            onClick={props.live.onGoLive}
-            title={props.live.behind ? 'Back to live' : 'You are watching live'}
-          >
-            {tag}
-          </button>
-        ) : (
-          <span className={`tag ${mode}`}>{tag}</span>
-        )}
-        <span className="title">{programmeTitle(props.channel, props.view)}</span>
-        {props.connection === 'lost' ? <span className="warn">reconnecting…</span> : null}
         {props.controls}
         <button type="button" className="mute" onClick={toggle}>
           {muted ? 'Sound off' : 'Sound on'}

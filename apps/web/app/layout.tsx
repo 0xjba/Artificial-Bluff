@@ -21,6 +21,8 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             ARTIFICIAL<span>BLUFF</span>
           </Link>
           <SiteNav />
+          {/* The live table fills this from the page (design: status at the far right of the header). */}
+          <div id="site-status" className="site-status" />
         </header>
         <main>{children}</main>
       </body>

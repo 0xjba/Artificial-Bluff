@@ -3,7 +3,7 @@ import { parseServerConfig, startApp, type FeedMessage } from '@ab/server'
 import { CallingStation, MockLlm, TagBot } from '@ab/players'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
-import { Broadcast, programmeTitle } from '../components/Broadcast'
+import { Broadcast, programmeStatus } from '../components/Broadcast'
 import { handGroups } from '../components/HandLog'
 import { PIPS, PlayingCard } from '../components/PlayingCard'
 import { isCurrent } from '../components/SiteNav'
@@ -26,7 +26,7 @@ describe('Broadcast screen', () => {
     for (const who of ['JEV', 'PILL', 'BLOCK', 'DRIP', 'NIMBUS']) expect(html).toContain(`<b>${who}</b>`)
     expect(html).toContain('mock/jev') // the model, in the players panel
     expect(html.match(/<svg /g)!.length - (html.match(/<svg class="card/g)?.length ?? 0)).toBe(10) // a mascot per seat, on the felt and in the panel
-    expect(html).toContain('● LIVE')
+    expect(html).toContain('LIVE')
     expect(html).toContain('IT SAID')
     expect(html).toContain('>30%</b>') // the true chance, against what the model said
     expect(html).toContain('JEV raises to 300')
@@ -93,7 +93,7 @@ describe('end to end', () => {
       expect(state.channel).toMatchObject({ mode: 'live', gameId })
       expect(state.view.seats).toHaveLength(5)
       const html = renderToStaticMarkup(<Broadcast channel={state.channel} view={state.view} log={state.log} decisionEquity={state.decisionEquity} />)
-      expect(html).toContain('● LIVE')
+      expect(html).toContain('LIVE')
       expect(html.match(/<svg /g)!.length - (html.match(/<svg class="card/g)?.length ?? 0)).toBe(10)
       expect(state.log.length).toBeGreaterThan(0)
     } finally {
@@ -126,16 +126,16 @@ describe('screen pieces', () => {
   it('never repeats the tag in the title', async () => {
     const events = await mockGame(2)
     const cut = events.findIndex((e) => e.type === 'decision')
-    expect(programmeTitle({ mode: 'live', title: 'LIVE' }, buildView(events.slice(0, cut + 1)))).toBe('HAND 1 · BLINDS 25/50')
-    expect(programmeTitle({ mode: 'live', title: 'LIVE' }, emptyView())).toBe('')
-    expect(programmeTitle({ mode: 'replay', title: 'REPLAY · live game live-1' }, emptyView())).toBe('live game live-1')
-    expect(programmeTitle(null, emptyView())).toBe('Connecting…')
+    expect(programmeStatus({ mode: 'live', title: 'LIVE' }, buildView(events.slice(0, cut + 1)))).toEqual(['HAND 1', 'BLINDS 25/50'])
+    expect(programmeStatus({ mode: 'live', title: 'LIVE' }, emptyView())).toEqual([])
+    expect(programmeStatus({ mode: 'replay', title: 'REPLAY · live game live-1' }, emptyView())).toEqual(['live game live-1'])
+    expect(programmeStatus(null, emptyView())).toEqual(['CONNECTING…'])
   })
 
   it('makes the LIVE tag a button that is dimmed while watching the past', () => {
     const html = (behind: boolean) =>
       renderToStaticMarkup(<Broadcast channel={{ mode: 'live', title: 'LIVE' }} view={emptyView()} log={[]} decisionEquity={null} live={{ behind, onGoLive: () => undefined }} />)
-    expect(html(false)).toMatch(/<button[^>]*class="tag live"[^>]*>● LIVE<\/button>/)
+    expect(html(false)).toMatch(/<button[^>]*class="tag live"/)
     expect(html(true)).toContain('class="tag live behind"')
     expect(html(true)).toContain('Back to live')
   })
