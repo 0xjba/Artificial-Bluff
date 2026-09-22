@@ -161,6 +161,8 @@ Last updated: 2026-09-22
 
 ## Execution log
 
+- 2026-09-22 (user decisions): real runs — smoke test only (5 hands, cap $0.25) once keys are in .env, then ASK before the smoke study (~$1) and main study (~$25). Deployment: user's own VPS (Docker + docker-compose + Caddy HTTPS + setup guide). Smoke line-up: lineups/live.example.json (copied to lineups/live.json). UI requests: proper card faces (corner indices + pips), live time-shift seek bar with dimmed LIVE button to jump back, remove duplicate LIVE text, readable action log, label the seat % (true win chance).
+
 - 2026-09-22: Plan 4c merged to master and pushed. All planned pieces done (engine, players, study, report, live server, mascots, web). Next candidates: real smoke run (needs keys + go-ahead), deployment, deferred TODOs.
 
 - TODO (Plan 4c re-review, minor): ReplayScreen restart when index is already 0 doesn't re-apply game_started (practically unreachable; add a generation counter).
