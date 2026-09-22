@@ -60,6 +60,18 @@ describe('EventStore', () => {
     expect(store.games('live').map((g) => g.id)).toEqual(['a', 'b'])
   })
 
+  it('lets only one run claim a game unless it takes over', () => {
+    const store = new EventStore()
+    store.createGame('s', 'study', {})
+    expect(() => store.claimGame('s')).toThrow(/already running/)
+    store.setStatus('s', 'interrupted')
+    store.claimGame('s')
+    expect(store.game('s')).toMatchObject({ status: 'running', endedAt: null })
+    expect(() => store.claimGame('s')).toThrow(/already running/)
+    store.claimGame('s', true)
+    expect(() => store.claimGame('nope')).toThrow(/no game/)
+  })
+
   it('persists to a file', async () => {
     const path = join(mkdtempSync(join(tmpdir(), 'ab-')), 'events.db')
     const a = new EventStore(path)

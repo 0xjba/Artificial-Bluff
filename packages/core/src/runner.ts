@@ -11,7 +11,7 @@ import {
   type Street,
 } from '@ab/engine'
 import { buildObservation, checkOrFold, NO_USAGE, type DecideResult, type Player } from '@ab/players'
-import type { EventSink, FallbackKind } from './events'
+import type { DuplicateInfo, EventSink, FallbackKind } from './events'
 
 export interface PlayHandOptions {
   config: HandConfig
@@ -32,6 +32,8 @@ export interface PlayHandOptions {
    * decision rather than one hand.
    */
   stopSpending?: () => boolean
+  /** Study hands: recorded on hand_started. */
+  duplicate?: DuplicateInfo
   menu?: Partial<MenuConfig>
   now?: () => number
   sleep?: (ms: number) => Promise<void>
@@ -128,6 +130,7 @@ export async function playHand(opts: PlayHandOptions): Promise<HandResult> {
     posts: state.history
       .filter((h) => h.kind === 'post_sb' || h.kind === 'post_bb')
       .map((h) => ({ playerId: h.playerId, blind: h.kind === 'post_sb' ? ('sb' as const) : ('bb' as const), amount: h.amount })),
+    ...(opts.duplicate ? { duplicate: opts.duplicate } : {}),
   })
   opts.sink.append({ type: 'cards_dealt', handId, holes: Object.fromEntries(state.seats.map((s) => [s.id, [...s.hole]])) })
   emitStreets(opts.sink, state, 0)
