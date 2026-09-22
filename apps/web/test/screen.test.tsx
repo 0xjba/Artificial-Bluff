@@ -29,7 +29,7 @@ describe('Broadcast screen', () => {
     expect(html.match(/aria-label="[A-Z]+, [a-z ]+"/g)!.length).toBe(view.seats.length)
     expect(html.match(/class="player[ "]/g)!.length).toBe(view.seats.length) // one panel row per seat
     expect(html).toContain('LIVE')
-    expect(html).toContain('IT SAID')
+    expect(html).toContain('AI SAID')
     expect(html).toContain('>30%</b>') // the true chance, against what the model said
     expect(html).toContain('JEV raises to 300')
     expect(html).toContain('RAISE')
