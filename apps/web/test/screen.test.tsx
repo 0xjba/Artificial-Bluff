@@ -104,7 +104,9 @@ describe('screen pieces', () => {
     const king = renderToStaticMarkup(<PlayingCard code="Kd" />)
     expect(king).toContain('court-frame')
     expect(king).toContain('aria-label="king of diamonds"')
-    expect(pips(renderToStaticMarkup(<PlayingCard code="9s" small />))).toBe(0) // seat cards: just the two corners
+    const seatCard = renderToStaticMarkup(<PlayingCard code="9s" small />)
+    expect(pips(seatCard)).toBe(1) // seat cards: rank in the corner, one big suit in the middle
+    expect(seatCard).toMatch(/fontSize="80"|font-size="80"/)
     expect(renderToStaticMarkup(<PlayingCard code={null} />)).toContain('face-down card')
     for (const [rank, spots] of Object.entries(PIPS)) expect(spots).toHaveLength(Number(rank))
   })

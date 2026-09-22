@@ -337,7 +337,7 @@ button.tag.live {
 .seat-cards {
   display: inline-flex;
   gap: 2px;
-  min-width: 54px;
+  min-width: 62px;
 }
 .seat-row .last {
   flex: 1;
