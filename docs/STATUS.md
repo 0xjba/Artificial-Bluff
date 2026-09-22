@@ -27,7 +27,7 @@ Last updated: 2026-09-22
 | 1 | Monorepo + game engine (`packages/engine`) | ✅ Merged to master (9de0579), 99 tests |
 | 2 | Players (Jev, LLM, bots, mock), table runner, SQLite event log | ✅ Merged to master (b94a7be), 181 tests |
 | 3 | Study runner (duplicate, budget cap, resume, CI stop) + report/charts | 3a study runner: ✅ merged (04bc98f), 220 tests; 3b analysis + report: ✅ merged (0d46196), 258 tests |
-| 4 | 4a live server (SSE feed, replays, admin start/stop); 4b web (Broadcast UI) + mascots (bloub) | 4a: plan written & verified in scratch (294 tests), executing on `feat/plan-4a-server`; 4b: not written |
+| 4 | 4a live server (SSE feed, replays, admin start/stop); 4b web (Broadcast UI) + mascots (bloub) | 4a: ✅ built and reviewed on `feat/plan-4a-server` (306 tests), ready to merge; 4b: not written |
 
 ### Plan 1 task progress
 
@@ -140,6 +140,8 @@ Last updated: 2026-09-22
 - Scratch bloub preview (custom colours, Mascots.vue) lived in the session scratchpad; recreate in Plan 4.
 
 ## Execution log
+
+- 2026-09-22: Plan 4a final re-review: ready to merge. TODO (non-blocking): server lock read-then-write race (use writeFileSync flag 'wx'); lock left behind when start-up fails after taking it (taken over next start) and raw stack trace on refusal (print a clean message); replay cache never evicts (drop games that leave the queue).
 
 - TODO (Plan 4a final review, deferred): daily spending cap across live games (a leaked admin token could start back-to-back games); `/api/health` mode during cooldown; start returning 201 even if the game fails immediately.
 
