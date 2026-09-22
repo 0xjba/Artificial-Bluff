@@ -10,7 +10,10 @@ export interface Beat {
   seconds: number
 }
 
-/** What a mascot does: play the beats in order, then settle into `rest` until the next cue. */
+/**
+ * What a mascot does: play the beats in order, then settle into `rest` until the next cue. A face only
+ * shows on states that have a resting face (idle and the like); `thinking` and `sleep` keep their own.
+ */
 export interface Cue {
   beats: Beat[]
   rest: { state: StateId; face: Face }
@@ -49,10 +52,23 @@ export const CUES: Readonly<Record<Moment, Cue>> = {
 /** Jev's signature: a comet before its reaction whenever it decides (spec §8, "Jev decides → comet"). */
 export const JEV_DECIDES: Beat = { state: 'comet', seconds: 2.4 }
 
-/** The cue for a moment; with `jevDecided`, Jev's comet plays first. */
+const JEV_CUES = new Map<Moment, Cue>()
+
+/**
+ * The cue for a moment; with `jevDecided`, Jev's comet plays first. The same arguments always give the
+ * same object, so a component keyed on the cue doesn't replay it on every re-render.
+ */
 export function cueFor(moment: Moment, jevDecided = false): Cue {
   const cue = CUES[moment]
-  return jevDecided ? { beats: [JEV_DECIDES, ...cue.beats], rest: cue.rest } : cue
+  if (!jevDecided) return cue
+  let withComet = JEV_CUES.get(moment)
+  if (!withComet) JEV_CUES.set(moment, (withComet = { beats: [JEV_DECIDES, ...cue.beats], rest: cue.rest }))
+  return withComet
+}
+
+/** A key that changes exactly when the cue's content does (for components not given a key). */
+export function cueSignature(cue: Cue): string {
+  return `${cue.beats.map((b) => `${b.state}/${b.face ?? ''}/${b.seconds}`).join(',')}|${cue.rest.state}/${cue.rest.face}`
 }
 
 /** Total length of a cue's beats, in seconds. */

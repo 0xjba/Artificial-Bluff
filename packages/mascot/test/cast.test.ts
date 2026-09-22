@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { CAST, characterFor } from '../src/cast'
-import { CUES, cueFor, cueLength, JEV_DECIDES, type Moment } from '../src/cues'
+import { CUES, cueFor, cueLength, cueSignature, JEV_DECIDES, type Moment } from '../src/cues'
 import { EXPRESSION_BY_ID } from '../src/engine/expressions'
 import { SHAPE_BY_ID } from '../src/engine/skins'
 import { STATE_BY_ID } from '../src/engine/states'
@@ -45,5 +45,8 @@ describe('cues', () => {
     expect(cueFor('raise', true).beats).toEqual([JEV_DECIDES])
     expect(cueFor('all_in', true).beats.map((b) => b.state)).toEqual(['comet', 'exclaim', 'burst'])
     expect(cueLength(cueFor('all_in', true))).toBeCloseTo(2.4 + 1.2 + 2.6, 9)
+    // Stable objects, so a component keyed on the cue doesn't replay on every render.
+    expect(cueFor('raise', true)).toBe(cueFor('raise', true))
+    expect(cueSignature(cueFor('raise', true))).not.toBe(cueSignature(cueFor('raise')))
   })
 })

@@ -13,6 +13,9 @@ artificialBluff changes (each marked `artificialBluff:` in the code):
   player's shape instead of a triangle; states that draw the body as a circle draw the player's shape
   at that size; glyph states (the "!" bars) and shape states (egg, hexagon, play) are unchanged.
 - `engine.test.ts`, `skins.test.ts`: the two upstream tests that pinned "a chosen shape never reaches
-  the animated states" are narrowed to glyph and shape states, and new tests pin the new rule.
+  the animated states" are narrowed to glyph and shape states, and new tests pin the new rule. In
+  circle-drawn states an eye can be clipped at the edge of some shapes (e.g. the capsule in `burst`),
+  as upstream `orbit` already does with a circle; the mask handles it, and it is accepted.
+- Rings use lightness 0.8 (a light grey-white) so they stay visible across the white bodies.
 
 Keep the rest byte-for-byte upstream so future fixes can be merged.

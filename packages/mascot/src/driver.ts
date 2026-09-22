@@ -3,6 +3,10 @@ import { BotEngine, type BotFrame } from './engine/engine'
 import { EXPRESSION_BY_ID } from './engine/expressions'
 import { RAYON } from './engine/repere'
 import { SHAPE_BY_ID, type ShapeId } from './engine/skins'
+import type { StateId } from './engine/states'
+
+/** States that loop or hold: entering one again just continues it. Every other state is a one-shot. */
+const LOOPING: ReadonlySet<StateId> = new Set<StateId>(['idle', 'thinking', 'sleep', 'wink', 'wide', 'notify', 'swirl'])
 
 /**
  * Plays cues on one engine, clock-free: `frame(now)` applies every beat change due by `now` (at its
@@ -18,7 +22,10 @@ export class MascotDriver {
 
   constructor(shape: ShapeId, cue: Cue, now = 0) {
     const radii = SHAPE_BY_ID.get(shape)?.radii ?? null
-    this.engine = new BotEngine(RAYON, cue.beats[0]?.state ?? cue.rest.state, radii, null)
+    const first = cue.beats[0]?.state ?? cue.rest.state
+    this.engine = new BotEngine(RAYON, first, radii, null)
+    // The engine counts its first state from 0; start it at `now` instead.
+    this.engine.reset(first, now)
     this.cue = cue
     this.startedAt = now
     this.enter(0, now)
@@ -60,7 +67,10 @@ export class MascotDriver {
     const state = beat?.state ?? this.cue.rest.state
     const face = beat ? (beat.face ?? this.cue.rest.face) : this.cue.rest.face
     this.engine.setExpression(EXPRESSION_BY_ID.get(face) ?? null, at)
-    this.engine.setState(state, at)
+    // The engine ignores a change to the state already showing, which would let a second comet
+    // (or burst, or orbit) carry on from the first instead of starting over: restart one-shots.
+    if (beat && state === this.engine.state && !LOOPING.has(state)) this.engine.reset(state, at)
+    else this.engine.setState(state, at)
     this.next = i + 1
   }
 

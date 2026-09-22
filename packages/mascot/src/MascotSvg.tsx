@@ -16,7 +16,7 @@ export interface MascotSvgProps {
   ink?: string
   /** What is behind the mascot: seen through the eyes. */
   paper?: string
-  /** Accessible name, e.g. "JEV, thinking". */
+  /** Accessible name, e.g. "JEV, thinking". Without one the drawing is decorative (hidden from screen readers). */
   title?: string
 }
 
@@ -37,7 +37,12 @@ export function MascotSvg({ frame, uid, size, ink = MASCOT_WHITE, paper = FELT, 
     )
   }
   return (
-    <svg width={size} height={size} viewBox={`${-VB} ${-VB} ${VB * 2} ${VB * 2}`} role="img" aria-label={title}>
+    <svg
+      width={size}
+      height={size}
+      viewBox={`${-VB} ${-VB} ${VB * 2} ${VB * 2}`}
+      {...(title ? { role: 'img', 'aria-label': title } : { 'aria-hidden': true })}
+    >
       {title ? <title>{title}</title> : null}
       <defs>
         <mask id={maskId} maskUnits="userSpaceOnUse" x={-VB} y={-VB} width={VB * 2} height={VB * 2}>
