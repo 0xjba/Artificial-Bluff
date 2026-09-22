@@ -48,6 +48,7 @@ describe('table view', () => {
         expect(s.decisions).toBe(mine.length)
         expect(s.fallbacks).toBe(mine.filter((d) => d.fallback).length)
         expect(s.costUsd).toBeCloseTo(mine.reduce((sum, d) => sum + d.costUsd, 0), 12)
+        expect(s.latencyMsTotal).toBeCloseTo(mine.reduce((sum, d) => sum + d.latencyMs, 0), 9)
       }
       expect(buildView(events)).toEqual(v)
     }
