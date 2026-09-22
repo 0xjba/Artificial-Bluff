@@ -16,8 +16,12 @@ export function replayPause(e: GameEvent): number {
 
 type Action = { type: 'reset' } | { type: 'event'; event: GameEvent }
 
-/** Plays a finished game's events in the browser, with pause and speed controls. */
-export function ReplayScreen({ title, events }: { title: string; events: GameEvent[] }) {
+/**
+ * Plays a finished game's events in the browser, with pause and speed controls. `fromSeq` opens the
+ * replay on one hand: everything before it is applied at once, so the table is set up as it was.
+ */
+export function ReplayScreen({ title, events, fromSeq }: { title: string; events: GameEvent[]; fromSeq?: number }) {
+  const start = fromSeq === undefined ? 0 : Math.max(0, events.findIndex((e) => e.seq >= fromSeq))
   const [state, dispatch] = useReducer((s: FeedState, a: Action) => {
     const m: FeedMessage =
       a.type === 'reset'
@@ -25,11 +29,18 @@ export function ReplayScreen({ title, events }: { title: string; events: GameEve
         : { type: 'event', channelId: 'replay', event: a.event }
     return reduceFeed(s, m, name)
   }, undefined, () => reduceFeed(initialFeed(), { type: 'snapshot', channel: { ...CHANNEL, title }, view: initialFeed().view }, name))
-  const [index, setIndex] = useState(0)
+  const [index, setIndex] = useState(start)
   const [playing, setPlaying] = useState(true)
   const [speed, setSpeed] = useState(1)
   /** How many events have been applied: pausing or changing speed must never apply one twice. */
   const applied = useRef(0)
+
+  // A deep link to one hand: apply everything before it at once, without pauses or sounds.
+  useEffect(() => {
+    if (applied.current >= start) return
+    for (const e of events.slice(applied.current, start)) dispatch({ type: 'event', event: e })
+    applied.current = start
+  }, [start, events])
 
   useEffect(() => {
     if (!playing || index >= events.length) return

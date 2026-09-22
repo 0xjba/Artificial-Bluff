@@ -22,11 +22,16 @@ async function loadEvents(id: string): Promise<GameEvent[] | null> {
 /** Game ids are made of these characters (live-<timestamp>, study ids). */
 const GAME_ID = /^[A-Za-z0-9][A-Za-z0-9._:-]*$/
 
-export default async function Replay({ params }: { params: Promise<{ id: string }> }) {
+export default async function Replay({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ hand?: string }> }) {
   await connection()
   const { id } = await params
+  const { hand } = await searchParams
   if (!GAME_ID.test(id)) notFound()
   const events = await loadEvents(id)
   if (!events) notFound()
-  return <ReplayScreen title={`REPLAY · ${id}`} events={events} />
+  // ?hand=N opens the replay on that hand of the game.
+  const wanted = Number(hand)
+  const starts = events.filter((e) => e.type === 'hand_started')
+  const from = Number.isInteger(wanted) && wanted >= 1 && wanted <= starts.length ? starts[wanted - 1]!.seq : undefined
+  return <ReplayScreen title={`REPLAY · ${id}`} events={events} {...(from === undefined ? {} : { fromSeq: from })} />
 }
