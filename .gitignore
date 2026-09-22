@@ -14,3 +14,11 @@ data/
 lineups/*.json
 !lineups/*.example.json
 reports/
+
+# Next.js (apps/web)
+.next/
+next-env.d.ts
+*.tsbuildinfo
+# written by `next dev` on every run (pointers to the bundled Next.js docs)
+apps/web/AGENTS.md
+apps/web/CLAUDE.md

@@ -219,6 +219,13 @@ Per-decision cost, tokens and latency leave out auto-played decisions. `pnpm stu
   C); exact when cheap (≤ 200k evaluations), otherwise a seeded 20,000-board estimate flagged `estimated`.
 - Crashed games are marked interrupted at start-up; SIGINT/SIGTERM stop the live game after its hand.
 
+**Web (Plan 4c):** `apps/web`, Next.js 16 App Router; `pnpm web` (with `pnpm live [--mock]` on :8787). The browser
+follows `/api/feed` through a same-origin rewrite and folds it with `@ab/core/view` (no database code in the bundle);
+`seatMoment(view, id)` picks each mascot's spec §8 moment. Sounds are synthesised (Web Audio), muted by default.
+Replays play in the browser (no true equity there; the live server computes it). `/research` reads `reports/`
+(from `pnpm study report`) at request time and serves allow-listed report files. `/about` carries the full bloub
+MIT notice.
+
 **Pages:**
 - `/` table (live or replay): seats with mascot, character name, model badge, stack, last action, last decision
   latency, running cost; decision lower-third (Jev: option probability bars + confidence; LLMs: reasoning text;
@@ -254,7 +261,7 @@ TEN branding and parody personas.
 |---|---|
 | LLM invalid / empty / refused output | One retry quoting the error, then check/fold `fallback:true` (kind `model`) |
 | LLM or Jev timeout, HTTP / network / provider error | No retry (same for both kinds of player); check/fold `fallback:true` (kind `timeout` / `infra`) |
-| Provider outage in live game | After 3 consecutive fallbacks, seat auto check/folds for the rest of the hand; UI shows "connection lost" |
+| Provider outage in live game | After 3 consecutive fallbacks, seat auto check/folds for the rest of the hand; the lower third says "connection lost: seat auto-played" (timeouts, provider errors and invalid answers are named too) |
 | Server crash, live | Game marked interrupted on restart; replay remains; no live resume in v1 |
 | Server crash, study | Resume skips completed pairs; partial groups dropped and replayed |
 | Budget cap | Checked before every decision: once reached, no further paid calls (the hand finishes as check/fold) and the game ends; overspend is at most one decision. Study: no new groups. Logged |
@@ -269,8 +276,9 @@ TEN branding and parody personas.
 - Player adapters against recorded/mock responses (valid, malformed JSON, illegal option, timeout); Jev via mocked
   SDK. Real API calls only in the smoke run.
 - Statistics validated on synthetic data with known answers (e.g. perfectly calibrated fake player).
-- Web: component tests for decision panel and scoreboard; one end-to-end test replaying a recorded game through the
-  WebSocket to the browser.
+- Web: component tests for the broadcast screen; one end-to-end test that plays a mock live game on the server and
+  follows its SSE feed through the client reducer to the rendered screen; jsdom tests for replays, sounds and
+  reconnection.
 
 ## 11. Out of scope for v1
 
