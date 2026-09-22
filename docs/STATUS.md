@@ -13,6 +13,7 @@ Last updated: 2026-09-22
 | Plan 2: players, runner, event log | `docs/superpowers/plans/2026-09-21-plan-2-players-runner.md` |
 | Plan 3a: study runner | `docs/superpowers/plans/2026-09-21-plan-3a-study-runner.md` |
 | Plan 3b: analysis and report | `docs/superpowers/plans/2026-09-22-plan-3b-analysis-report.md` |
+| Plan 4a: live server | `docs/superpowers/plans/2026-09-22-plan-4a-live-server.md` |
 | Salvage report (old TEN project) | `SALVAGE.md` |
 | Salvaged raw code (git-ignored) | `salvage/` (contracts-latest, agents-latest, frontend-latest, pokerkit-harness-old) |
 | Jev / TypeSafe API docs | `docs/jev/` |
@@ -26,7 +27,7 @@ Last updated: 2026-09-22
 | 1 | Monorepo + game engine (`packages/engine`) | ✅ Merged to master (9de0579), 99 tests |
 | 2 | Players (Jev, LLM, bots, mock), table runner, SQLite event log | ✅ Merged to master (b94a7be), 181 tests |
 | 3 | Study runner (duplicate, budget cap, resume, CI stop) + report/charts | 3a study runner: ✅ merged (04bc98f), 220 tests; 3b analysis + report: ✅ merged (0d46196), 258 tests |
-| 4 | Live server (WebSocket, replays, admin start) + web (Broadcast UI) + mascots (bloub) | Not written yet |
+| 4 | 4a live server (SSE feed, replays, admin start/stop); 4b web (Broadcast UI) + mascots (bloub) | 4a: plan written & verified in scratch (294 tests), executing on `feat/plan-4a-server`; 4b: not written |
 
 ### Plan 1 task progress
 
@@ -76,6 +77,17 @@ Last updated: 2026-09-22
 - [x] Task 7: HTML report (d122fac; spec ✅)
 - [x] Task 8: pnpm study report (9e2c24d; spec ✅; 256 tests)
 - [x] Final branch review (opus): merge after fixes → fixed in acd70d1 + 85e0454; re-review: **ready to merge** (258 tests)
+
+### Plan 4a task progress
+
+- [ ] Task 1: Seeded equity estimate in the engine (engine 112)
+- [ ] Task 2: Table view reducer in core (core 38)
+- [ ] Task 3: Server package, config, public views (server 5)
+- [ ] Task 4: Hub + true-equity annotations (server 9)
+- [ ] Task 5: Replays and highlights (server 14)
+- [ ] Task 6: Live controller + director (server 22)
+- [ ] Task 7: Live line-up (server 25)
+- [ ] Task 8: HTTP API, app, pnpm live (server 31; total 294)
 
 ## Key decisions (summary; spec is authoritative)
 
@@ -127,6 +139,8 @@ Last updated: 2026-09-22
 - Scratch bloub preview (custom colours, Mascots.vue) lived in the session scratchpad; recreate in Plan 4.
 
 ## Execution log
+
+- 2026-09-22: Plan 4 split: 4a live server (headless, testable) and 4b web UI + mascots. Plan 4a written from a verified scratch reference (294 tests). Decisions: SSE instead of WebSocket (receive-only, no dependency); shared `applyEvent` table-view reducer in core; random 16-byte deck seed per live game (game ids are public); on-screen equity exact when cheap else seeded 20k-board estimate (exact preflop blocked the event loop / hung tests); `pnpm live` (pnpm server is a pnpm built-in); runtime tsx (resolves the Plan 1 open question).
 
 - 2026-09-22: Plan 3b merged to master (0d46196). Next: Plan 4 (live server + Broadcast web UI + mascots). master not yet pushed to GitHub since the merge.
 
