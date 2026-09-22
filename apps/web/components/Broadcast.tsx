@@ -14,6 +14,23 @@ import { Stage } from './Stage'
 
 const MUTE_KEY = 'artificialBluff.muted'
 
+/** Speaker, with a slash through it when the sound is off. */
+function SoundIcon({ on }: { on: boolean }) {
+  return (
+    <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
+      <path d="M3 6.2h2.2L8.4 3.4v9.2L5.2 9.8H3z" fill="currentColor" />
+      {on ? (
+        <>
+          <path d="M10.6 5.8a3 3 0 0 1 0 4.4" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
+          <path d="M12.4 4a5.4 5.4 0 0 1 0 8" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
+        </>
+      ) : (
+        <path d="M10.8 6.2l3.4 3.6M14.2 6.2l-3.4 3.6" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
+      )}
+    </svg>
+  )
+}
+
 /**
  * What the header says beside the tag: a live game shows its hand number and blinds, a replay its
  * subject ("REPLAY · live game x" → "live game x"), so the tag is never repeated.
@@ -104,18 +121,16 @@ export function Broadcast(props: {
         <span key={part}>{part}</span>
       ))}
       {props.connection === 'lost' ? <span className="warn">RECONNECTING…</span> : null}
+      <button type="button" className="mute" onClick={toggle} title={muted ? 'Turn sound on' : 'Turn sound off'} aria-label={muted ? 'turn sound on' : 'turn sound off'} aria-pressed={!muted}>
+        <SoundIcon on={!muted} />
+      </button>
     </>
   )
 
   return (
     <div className="broadcast">
       {slot ? createPortal(status, slot) : <div className="programme in-page">{status}</div>}
-      <div className="programme">
-        {props.controls}
-        <button type="button" className="mute" onClick={toggle}>
-          {muted ? 'Sound off' : 'Sound on'}
-        </button>
-      </div>
+      {props.controls ? <div className="programme">{props.controls}</div> : null}
       {props.explainer ? <NewHere /> : null}
       <div className="stage-grid">
         <PlayersPanel view={props.view} />
