@@ -2,6 +2,7 @@
 import { characterFor, cueFor, EYE_INK, Mascot } from '@ab/mascot'
 import { chips, usd } from '../../lib/format'
 import { DECISIONS_PER_SEAT_PER_HAND, estimateGameUsd, estimateSeatUsd, type ModelOption, type SeatChoice } from '../../lib/byo/models'
+import styles from './run.module.css'
 import { BLINDS, DEFAULT_GAME, filledSeats, HAND_COUNTS, JEV_MODEL, MAX_BUDGET_USD, MAX_HANDS, MIN_BUDGET_USD, PACES, seatId, STACKS, type GameOptions, type Pace } from '../../lib/byo/table'
 
 export interface SetupState {
@@ -38,17 +39,17 @@ const seatValue = (seat: SeatChoice) => (seat.kind === 'llm' ? seat.model : seat
 /** One choice row: the label, the pills, and a note under them. */
 function Setting({ label, note, children }: { label: string; note: string; children: React.ReactNode }) {
   return (
-    <div className="setting">
-      <span className="k">{label}</span>
-      <div className="picks">{children}</div>
-      <span className="note">{note}</span>
+    <div className={styles.setting}>
+      <span className={styles.k}>{label}</span>
+      <div className={styles.picks}>{children}</div>
+      <span className={styles.note}>{note}</span>
     </div>
   )
 }
 
 function Pick({ label, on, onPick }: { label: string; on: boolean; onPick: () => void }) {
   return (
-    <button type="button" className={`pick${on ? ' on' : ''}`} aria-pressed={on} onClick={onPick}>
+    <button type="button" className={`${styles.pick}${on ? ` ${styles.on}` : ''}`} aria-pressed={on} onClick={onPick}>
       {label}
     </button>
   )
@@ -97,14 +98,14 @@ export function PlaySetup(props: {
 
   return (
     <form
-      className="run"
+      className={styles.run}
       onSubmit={(e) => {
         e.preventDefault()
         props.onStart()
       }}
     >
-      <header className="run-head">
-        <span className="kicker">RUN A TABLE</span>
+      <header className={styles['run-head']}>
+        <span className={styles.kicker}>RUN A TABLE</span>
         <h1>Deal your own line-up, with your own keys</h1>
         <p>
           The table runs in this browser tab. Your API keys stay on this device and are never stored on our server (Jev&apos;s calls pass through a relay that
@@ -112,29 +113,29 @@ export function PlaySetup(props: {
         </p>
       </header>
 
-      <div className="run-cols">
-        <div className="run-main">
-          <section className="run-panel">
-            <div className="run-panel-head">
-              <span className="k">1 · THE LINE-UP</span>
-              <span className="hint">Pick a model per seat. Leave a seat empty to play short-handed.</span>
+      <div className={styles['run-cols']}>
+        <div className={styles['run-main']}>
+          <section className={styles['run-panel']}>
+            <div className={styles['run-panel-head']}>
+              <span className={styles.k}>1 · THE LINE-UP</span>
+              <span className={styles.hint}>Pick a model per seat. Leave a seat empty to play short-handed.</span>
             </div>
             {v.seats.map((s, i) => {
               const who = characterFor(seatId(s, i), i)
               const key = keyState(s, v)
               const label = seatLabel(s, byId)
               return (
-                <div className="seat-row" key={i}>
-                  <span className="seat-mascot">
+                <div className={styles['seat-row']} key={i}>
+                  <span className={styles['seat-mascot']}>
                     <Mascot shape={who.shape} cue={cueFor('waiting')} size={36} ink={who.color} paper={EYE_INK} frozenAt={99} />
                   </span>
-                  <span className="seat-name">
+                  <span className={styles['seat-name']}>
                     <b>{s.kind === 'empty' ? 'EMPTY' : who.name}</b>
                     <small>SEAT {i + 1}</small>
                   </span>
-                  <span className="seat-pick">
-                    <span className={`seat-model${label.muted ? ' muted' : ''}`}>{label.text}</span>
-                    <span className="change">CHANGE ▾</span>
+                  <span className={styles['seat-pick']}>
+                    <span className={`${styles['seat-model']}${label.muted ? ` ${styles.muted}` : ''}`}>{label.text}</span>
+                    <span className={styles.change}>CHANGE ▾</span>
                     <select
                       aria-label={`seat ${i + 1} player`}
                       value={seatValue(s)}
@@ -168,12 +169,12 @@ export function PlaySetup(props: {
                       ) : null}
                     </select>
                   </span>
-                  <span className={`seat-key ${key.tone}`}>{key.text}</span>
+                  <span className={`${styles['seat-key']} ${styles[key.tone] ?? ''}`}>{key.text}</span>
                 </div>
               )
             })}
             {props.modelsError ? (
-              <div className="seat-row note-row">
+              <div className={`${styles['seat-row']} ${styles['note-row']}`}>
                 <span className="warn">
                   Couldn&apos;t load OpenRouter&apos;s model list ({props.modelsError}).{' '}
                   <button type="button" onClick={props.onRetryModels}>
@@ -183,15 +184,15 @@ export function PlaySetup(props: {
               </div>
             ) : null}
             {props.models === null && !props.modelsError ? (
-              <div className="seat-row note-row">
-                <span className="hint">Loading OpenRouter&apos;s models…</span>
+              <div className={`${styles['seat-row']} ${styles['note-row']}`}>
+                <span className={styles.hint}>Loading OpenRouter&apos;s models…</span>
               </div>
             ) : null}
           </section>
 
-          <section className="run-panel padded">
-            <span className="k">2 · THE GAME</span>
-            <div className="settings">
+          <section className={`${styles['run-panel']} ${styles.padded}`}>
+            <span className={styles.k}>2 · THE GAME</span>
+            <div className={styles.settings}>
               <Setting label="BLINDS" note="Doubles every 10 hands">
                 {BLINDS.map((b) => (
                   <Pick key={b.bigBlind} label={`${chips(b.smallBlind)}/${chips(b.bigBlind)}`} on={v.game.bigBlind === b.bigBlind} onPick={() => setGame({ ...b })} />
@@ -220,13 +221,13 @@ export function PlaySetup(props: {
             </div>
           </section>
 
-          <section className="run-panel padded">
-            <span className="k">3 · BUDGET CAP</span>
-            <div className="budget">
-              <div className="budget-slider">
-                <div className="track">
-                  <span className="fill" style={{ width: `${capPercent}%` }} />
-                  <span className="thumb" style={{ left: `${capPercent}%` }} />
+          <section className={`${styles['run-panel']} ${styles.padded}`}>
+            <span className={styles.k}>3 · BUDGET CAP</span>
+            <div className={styles.budget}>
+              <div className={styles['budget-slider']}>
+                <div className={styles.track}>
+                  <span className={styles.fill} style={{ width: `${capPercent}%` }} />
+                  <span className={styles.thumb} style={{ left: `${capPercent}%` }} />
                   <input
                     aria-label="spending cap"
                     type="range"
@@ -237,29 +238,29 @@ export function PlaySetup(props: {
                     onChange={(e) => onChange({ ...v, budgetUsd: Number(e.target.value) })}
                   />
                 </div>
-                <div className="budget-scale">
+                <div className={styles['budget-scale']}>
                   <span>{usd(MIN_BUDGET_USD)}</span>
                   <span>STOPS WHEN REACHED</span>
                   <span>{usd(MAX_BUDGET_USD)}</span>
                 </div>
               </div>
-              <div className="budget-cap">
-                <span className="k">CAP</span>
+              <div className={styles['budget-cap']}>
+                <span className={styles.k}>CAP</span>
                 <b>{usd(v.budgetUsd)}</b>
               </div>
             </div>
-            <p className="note">
+            <p className={styles.note}>
               The game stops once the seats have spent this much. It can go a little over: the decision in flight, and calls that time out are counted at their
               estimated price.
             </p>
           </section>
 
-          <section className="run-panel padded">
-            <span className="k">4 · YOUR KEYS</span>
+          <section className={`${styles['run-panel']} ${styles.padded}`}>
+            <span className={styles.k}>4 · YOUR KEYS</span>
             {needsOpenRouter ? (
-              <div className="key-row">
-                <span className="k">OPENROUTER</span>
-                <button type="button" className="signin" onClick={props.onSignIn}>
+              <div className={styles['key-row']}>
+                <span className={styles.k}>OPENROUTER</span>
+                <button type="button" className={styles.signin} onClick={props.onSignIn}>
                   Sign in with OpenRouter
                 </button>
                 <input
@@ -273,8 +274,8 @@ export function PlaySetup(props: {
               </div>
             ) : null}
             {needsJev ? (
-              <div className="key-row">
-                <span className="k">TYPESAFE</span>
+              <div className={styles['key-row']}>
+                <span className={styles.k}>TYPESAFE</span>
                 <input
                   aria-label="TypeSafe key"
                   type="password"
@@ -285,9 +286,9 @@ export function PlaySetup(props: {
                 />
               </div>
             ) : null}
-            {!needsJev && !needsOpenRouter ? <p className="note">This line-up is free: no keys needed.</p> : null}
-            <div className="key-row">
-              <label className="remember">
+            {!needsJev && !needsOpenRouter ? <p className={styles.note}>This line-up is free: no keys needed.</p> : null}
+            <div className={styles['key-row']}>
+              <label className={styles.remember}>
                 <input type="checkbox" checked={v.remember} onChange={(e) => onChange({ ...v, remember: e.target.checked })} /> Remember my keys on this device
               </label>
               {v.openrouterKey || v.typesafeKey ? (
@@ -299,41 +300,41 @@ export function PlaySetup(props: {
           </section>
         </div>
 
-        <aside className="run-side">
-          <section className="run-panel padded">
-            <span className="k">ESTIMATE</span>
+        <aside className={styles['run-side']}>
+          <section className={`${styles['run-panel']} ${styles.padded}`}>
+            <span className={styles.k}>ESTIMATE</span>
             <div>
-              <div className="big">≈ {usd(estimate)}</div>
-              <div className="hint">for {v.game.hands === null ? `up to ${MAX_HANDS}` : v.game.hands} hands with this line-up</div>
+              <div className={styles.big}>≈ {usd(estimate)}</div>
+              <div className={styles.hint}>for {v.game.hands === null ? `up to ${MAX_HANDS}` : v.game.hands} hands with this line-up</div>
             </div>
             {estimateRows.map(([k, value]) => (
-              <div className="estimate-row" key={k}>
+              <div className={styles['estimate-row']} key={k}>
                 <span>{k}</span>
                 <b>{value}</b>
               </div>
             ))}
             {props.problems.length ? (
-              <ul className="problems">
+              <ul className={styles.problems}>
                 {props.problems.map((p) => (
                   <li key={p}>{p}</li>
                 ))}
               </ul>
             ) : null}
-            <button type="submit" className="deal" disabled={props.problems.length > 0}>
+            <button type="submit" className={styles.deal} disabled={props.problems.length > 0}>
               Deal the first hand
             </button>
-            <span className="hint centred">You can stop after any hand. Chips are play money.</span>
+            <span className={`${styles.hint} ${styles.centred}`}>You can stop after any hand. Chips are play money.</span>
           </section>
 
-          <section className="run-panel padded notes">
-            <span className="k">WHERE YOUR KEYS GO</span>
+          <section className={`${styles['run-panel']} ${styles.padded} ${styles.notes}`}>
+            <span className={styles.k}>WHERE YOUR KEYS GO</span>
             {[
               'Keys are held in this tab only and cleared when you close it, unless you ask to be remembered on this device.',
               "Model calls go straight from your browser to OpenRouter. TypeSafe doesn't accept calls from web pages yet, so Jev's calls pass through a thin relay that forwards your key and never stores or logs it.",
               'The budget cap is checked before every decision, so a runaway game stops itself.',
             ].map((note) => (
-              <div className="note-row" key={note}>
-                <span className="dot" />
+              <div className={styles['note-row']} key={note}>
+                <span className={styles.dot} />
                 <span>{note}</span>
               </div>
             ))}

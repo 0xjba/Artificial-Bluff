@@ -68,7 +68,7 @@ describe('/play', () => {
     expect(text()).toContain('anthropic/claude-sonnet-5')
     expect(text()).toContain('connect OpenRouter (or paste a key) for the model seats')
     expect(text()).toContain('add a TypeSafe key for the Jev seat')
-    expect(host.querySelectorAll('.seat-key.missing').length).toBe(5) // every seat is waiting for a key
+    expect(text().match(/KEY NEEDED/g) ?? []).toHaveLength(5) // every seat is waiting for a key
     expect(text()).toContain('KEY NEEDED') // the Jev relay is explained next to the TypeSafe key
     expect(button('Deal the first hand')!.disabled).toBe(true)
     choose('OpenRouter key', 'sk-or-test')
@@ -113,10 +113,10 @@ describe('/play', () => {
     choose('OpenRouter key', 'sk-or-test')
     expect(sessionStorage.getItem('artificialBluff.keys')).toContain('sk-or-test')
     expect(localStorage.length).toBe(0)
-    act(() => (host.querySelector('.remember input') as HTMLInputElement).click())
+    act(() => (host.querySelector('input[type="checkbox"]') as HTMLInputElement).click())
     expect(localStorage.getItem('artificialBluff.keys')).toContain('sk-or-test')
     expect(sessionStorage.getItem('artificialBluff.keys')).toBeNull()
-    act(() => (host.querySelector('.remember input') as HTMLInputElement).click())
+    act(() => (host.querySelector('input[type="checkbox"]') as HTMLInputElement).click())
     expect(localStorage.length).toBe(0) // unticked: nothing left on the device
     act(() => button('Forget my keys')!.click())
     expect(sessionStorage.getItem('artificialBluff.keys')).toBeNull()

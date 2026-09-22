@@ -28,31 +28,29 @@ export function Seat({ view, seat, index }: { view: TableView; seat: SeatView; i
   const dim = seat.status === 'folded' || seat.status === 'out'
   return (
     <div className={`seat-card${acting ? ' acting' : ''}${dim ? ' dim' : ''}`} style={{ '--seat': who.color } as React.CSSProperties}>
-      <div className="seat-head">
-        <div className="mascot-box">
-          <Mascot shape={who.shape} cue={cueFor(moment, jevDecided)} cueKey={key} size={46} ink={who.color} paper={EYE_INK} title={`${who.name}, ${moment.replace('_', ' ')}`} />
-          {seat.position === 'BTN' ? (
-            <span className="dealer" title="dealer button">
-              D
-            </span>
-          ) : null}
-        </div>
-        <div className="seat-id">
-          <b>{who.name}</b>
-          <small>{positionName(seat.position).toUpperCase()}</small>
-          <span className="stack">{chips(seat.stack)}</span>
-        </div>
-      </div>
-      <div className="seat-foot">
+      <span className="seat-face">
+        <Mascot shape={who.shape} cue={cueFor(moment, jevDecided)} cueKey={key} size={54} ink={who.color} paper={EYE_INK} title={`${who.name}, ${moment.replace('_', ' ')}`} />
+        {seat.position === 'BTN' ? (
+          <span className="dealer" title="dealer button">
+            D
+          </span>
+        ) : null}
+      </span>
+      <span className="seat-id">
+        <b>{who.name}</b>
+        <small>{positionName(seat.position).toUpperCase()}</small>
+        <span className="stack">{chips(seat.stack)}</span>
+      </span>
+      <span className="seat-bottom">
         <span className="seat-cards">
           {seat.hole && !dim ? seat.hole.map((c) => <PlayingCard key={c} code={c} small />) : [0, 1].map((i) => <span key={i} className="card gone">–</span>)}
         </span>
-        <span className={`act${acting ? ' now' : ''}`}>{acting ? 'Thinking…' : lastWord(seat)}</span>
-      </div>
-      <div className="seat-win" title="Chance this player wins the hand from here, from everyone's cards. The players can't see it.">
+        <span className={`seat-act${acting ? ' now' : ''}`}>{acting ? 'Thinking…' : lastWord(seat)}</span>
+      </span>
+      <span className="seat-win" title="Chance this player wins the hand from here, from everyone's cards. The players can't see it.">
         <span>Win chances</span>
         <b>{winWord(view, seat)}</b>
-      </div>
+      </span>
     </div>
   )
 }

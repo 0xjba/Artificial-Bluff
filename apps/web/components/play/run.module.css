@@ -1,0 +1,391 @@
+/* ---- run a table (design: "Run a table") ---- */
+.run-page {
+  max-width: 1232px;
+}
+.run-head {
+  padding: 30px 0 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-width: 820px;
+}
+.run-head .kicker {
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: 10px;
+  letter-spacing: 0.18em;
+  color: var(--gold);
+}
+.run-head h1 {
+  margin: 0;
+  font-size: 34px;
+  line-height: 1.08;
+}
+.run-head p {
+  margin: 0;
+  font-size: 14.5px;
+  line-height: 1.6;
+  color: var(--text);
+  text-wrap: pretty;
+}
+.run-cols {
+  padding: 0 0 30px;
+  display: grid;
+  grid-template-columns: minmax(0, 1.5fr) minmax(280px, 0.9fr);
+  gap: 20px;
+  align-items: start;
+}
+.run-main,
+.run-side {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+}
+.run-side {
+  position: sticky;
+  top: 20px;
+}
+.run-panel {
+  border: 1px solid var(--rule-2);
+  border-radius: 16px;
+  background: var(--bg-2);
+  overflow: hidden;
+}
+.run-panel.padded {
+  padding: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.run-panel .k {
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: 9.5px;
+  letter-spacing: 0.14em;
+  color: var(--dim);
+}
+.run-panel .hint {
+  font-size: 12.5px;
+  color: var(--dim-2, #9aa9a3);
+  line-height: 1.5;
+}
+.run-panel .hint.centred {
+  text-align: center;
+}
+.run-panel-head {
+  padding: 15px 18px;
+  border-bottom: 1px solid var(--rule-2);
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.run .seat-row {
+  padding: 14px 18px;
+  border-bottom: 1px solid #1a2421;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.run .seat-row:last-child {
+  border-bottom: 0;
+}
+.run .seat-mascot {
+  width: 48px;
+  height: 48px;
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--panel-3);
+  border-radius: 14px;
+}
+.run .seat-name {
+  width: 86px;
+  flex: none;
+}
+.run .seat-name b {
+  display: block;
+  font-weight: 700;
+  font-size: 15px;
+}
+.run .seat-name small {
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: 9.5px;
+  color: var(--dim);
+}
+.run .seat-pick {
+  position: relative;
+  flex: 1;
+  min-width: 200px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  border: 1px solid var(--rule-3);
+  border-radius: 10px;
+  padding: 11px 13px;
+  background: var(--bg);
+}
+.run .seat-pick:focus-within {
+  border-color: var(--gold);
+}
+.run .seat-model {
+  font-size: 13.5px;
+  color: var(--cream);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.run .seat-model.muted {
+  color: var(--dim);
+}
+.run .seat-pick .change {
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: 10px;
+  color: var(--dim);
+  flex: none;
+}
+/* The real control sits on top of the design's row, so the row itself is the picker. */
+.run .seat-pick select {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  cursor: pointer;
+  font: inherit;
+}
+.run .seat-key {
+  width: 150px;
+  flex: none;
+  border: 1px solid var(--rule-3);
+  border-radius: 10px;
+  padding: 11px 12px;
+  background: var(--bg);
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: 11px;
+  color: var(--dim);
+  text-align: center;
+}
+.run .seat-key.ok {
+  color: var(--street);
+}
+.run .seat-key.missing {
+  color: var(--down);
+  border-color: #5a3230;
+}
+.run .note-row {
+  gap: 9px;
+  align-items: flex-start;
+}
+.run .settings {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 14px;
+}
+.setting {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+.setting .note,
+.run-panel .note {
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: var(--dim-2, #9aa9a3);
+  margin: 0;
+}
+.picks {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.pick {
+  border: 1px solid var(--rule-3);
+  background: transparent;
+  color: var(--text);
+  border-radius: 8px;
+  padding: 8px 12px;
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.pick.on {
+  background: var(--gold);
+  border-color: var(--gold);
+  color: #14251f;
+}
+.budget {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.budget-slider {
+  flex: 1;
+  min-width: 220px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.budget-slider .track {
+  position: relative;
+  height: 8px;
+  border-radius: 4px;
+  background: #1b2521;
+}
+.budget-slider .fill {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  border-radius: 4px;
+  background: var(--gold);
+}
+.budget-slider .thumb {
+  position: absolute;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--cream);
+  border: 2px solid var(--bg-2);
+  pointer-events: none;
+}
+.budget-slider input[type='range'] {
+  position: absolute;
+  inset: -8px 0;
+  width: 100%;
+  margin: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+.budget-scale {
+  display: flex;
+  justify-content: space-between;
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: 10px;
+  color: var(--dim);
+}
+.budget-cap {
+  text-align: right;
+}
+.budget-cap b {
+  display: block;
+  font-size: 26px;
+  line-height: 1.1;
+}
+.run .key-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.run .key-row input[type='password'] {
+  flex: 1;
+  min-width: 200px;
+  font: inherit;
+  font-size: 13px;
+  background: var(--bg);
+  color: var(--cream);
+  border: 1px solid var(--rule-3);
+  border-radius: 10px;
+  padding: 10px 12px;
+}
+.run button {
+  font: inherit;
+}
+.run .key-row button,
+.run .note-row button {
+  font-size: 12.5px;
+  background: var(--panel-3);
+  color: var(--text);
+  border: 1px solid var(--rule-3);
+  border-radius: 10px;
+  padding: 9px 13px;
+  cursor: pointer;
+}
+.run .remember {
+  font-size: 12.5px;
+  color: var(--text);
+}
+.run-side .big {
+  font-size: 30px;
+  font-weight: 700;
+  line-height: 1.05;
+}
+.estimate-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 7px 0;
+  border-top: 1px solid #1a2421;
+  font-size: 12.5px;
+  color: var(--text);
+}
+.estimate-row b {
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--cream);
+}
+.run .problems {
+  margin: 0;
+  padding-left: 18px;
+  color: var(--down);
+  font-size: 12px;
+}
+.deal {
+  background: var(--gold);
+  color: #14251f;
+  border: 0;
+  border-radius: 11px;
+  padding: 14px;
+  text-align: center;
+  font-size: 14.5px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.deal:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.run-panel.notes {
+  background: #0f1815;
+  gap: 10px;
+}
+.note-row {
+  display: flex;
+  gap: 9px;
+  align-items: flex-start;
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: var(--text);
+  text-wrap: pretty;
+}
+.note-row .dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--gold);
+  margin-top: 7px;
+  flex: none;
+}
+@media (max-width: 1000px) {
+  .run-cols {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .run-side {
+    position: static;
+  }
+}
+
+
+.muted {
+  color: var(--dim);
+}
