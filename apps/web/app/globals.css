@@ -716,16 +716,17 @@ button.tag.live {
   flex-direction: column;
   gap: 10px;
 }
-.decision h2 {
+/* The heading names the panel, like HAND LOG; who acted reads on the line under it. */
+.who-did {
   display: flex;
   align-items: baseline;
   gap: 9px;
   flex-wrap: wrap;
+  margin: 0;
 }
-.decision h2 b {
+.who-did b {
   font-size: 19px;
   color: var(--cream);
-  letter-spacing: 0;
 }
 .decision .action {
   color: var(--gold);
@@ -759,9 +760,10 @@ button.tag.live {
 /* What each number is, in plain words: the labels alone don't say it. */
 .claims small {
   display: block;
-  margin-top: 2px;
-  font-size: 10px;
-  line-height: 1.25;
+  margin-top: 3px;
+  min-height: 24px;
+  font-size: 9.5px;
+  line-height: 1.3;
   color: var(--dim);
   text-wrap: pretty;
 }
