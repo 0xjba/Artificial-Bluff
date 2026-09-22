@@ -10,14 +10,14 @@ import {
 import type { Player } from '@ab/players'
 import { playHand } from './runner'
 import type { EventSink, GameEvent } from './events'
-import type { EventStore } from './store'
+import type { GameStore } from './game-store'
 
 export interface TournamentGameOptions {
   gameId: string
   /** Players in seat order. */
   players: Player[]
   tournament: TournamentConfig
-  store: EventStore
+  store: GameStore
   decisionTimeoutMs: number
   paceMs?: number
   /**

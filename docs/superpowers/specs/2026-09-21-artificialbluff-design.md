@@ -241,6 +241,41 @@ MIT notice.
 Removed from salvaged frontend: wallet/wagmi, token betting, claims, chain polling, snapshot-diff inference, all
 TEN branding and parody personas.
 
+### 7.1 Run your own table (Plan 5)
+
+- **/play:** visitors seat Jev (first seat only), any supported OpenRouter model, or a free bot in each of the five seats.
+  They watch a turbo tournament on the usual broadcast screen.
+- **Where the game runs:** in the visitor's browser: `LocalTable` with a `MemoryStore`, through `@ab/core/browser`, which
+  never imports SQLite or Node. Nothing is stored on our server, and browser tables are never mixed into research
+  results. Closing the tab ends the game.
+- **Keys:** kept in the tab's session storage, or in local storage if the visitor ticks "remember on this device".
+  "Sign in with OpenRouter" uses OAuth PKCE: no key pasting, and the key is user-controlled.
+- **Model seats** call OpenRouter directly (OpenRouter allows browser calls from any origin).
+- **Jev seats:** TypeSafe's API refuses browser (cross-origin) calls, so Jev calls go through a stateless relay,
+  `POST /api/typesafe/v1/systemone` on the web app. It forwards the visitor's key per request and never stores or logs
+  it. Limits:
+  - only the `v1/systemone` path;
+  - same-origin callers only, and redirects are never followed;
+  - streamed bodies are cut off at 64 KB (Caddy caps them too);
+  - 120 calls per minute per client (IPv6 counted per /64), with a total cap of 3,000 calls and 20,000 clients per
+    minute;
+  - the upstream call is dropped when the page gives up.
+
+  The page labels the relay next to the TypeSafe key field. Open item: TypeSafe to allow browser calls, then remove
+  the relay.
+- **Supported models** come from OpenRouter's public catalog:
+  - text in and out, with `structured_outputs`;
+  - no `:free`, `:batch` or `~alias` variants;
+  - a fixed price of at most $0.02 per decision (estimated at 800 prompt and 80 reply tokens).
+
+  Ten well-known models are listed first. Request settings are adapted per model as in `adaptLineup`.
+- **Cost:** the rough estimate assumes up to 120 decisions per paid seat. The spending cap defaults to $1 (range $0.10
+  to $20) and ends the game once reached. It can go slightly over: the last decision runs before the cap is checked.
+  Timed-out paid decisions, which providers may still bill without reporting a cost, count at their estimated price,
+  so a slow model can't overspend without limit. "Stop after this hand" ends the game early.
+- **Content-Security-Policy:** Caddy sends `connect-src 'self' https://openrouter.ai`, so an injected script
+  couldn't send stored keys anywhere else.
+
 ## 8. Brand
 
 - **Direction C, Broadcast.** Felt `#0B2A24`, panel `#0E3029` / `#123A32`, rule `#1F4A40`, cream text `#F3EBDD`,
