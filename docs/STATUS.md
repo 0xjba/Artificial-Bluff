@@ -108,7 +108,7 @@ Last updated: 2026-09-22
 - [x] Task 2: Web scaffold + pure logic (8aa85b1; spec ✅)
 - [x] Task 3: Broadcast screen components (34befb8; spec ✅)
 - [x] Task 4: Pages, styles, replays, research, about (645ac91; spec ✅; build clean; browser walkthrough on the repo build ✅)
-- [ ] Final branch review (opus)
+- [ ] Final branch review (opus): merge after fixes → replay double-apply fixed, sounds by line identity + audio unlock, feed reconnect with backoff (3-state), report folders + validation, rewrites limited to public API (+ API_URL at build), replay fetch timeout + id check + error.tsx, plain-English fallback notices (spec §9), quieter aria-live, eliminated at game end, sandboxed CSP, ignore next-dev AGENTS/CLAUDE.md (fix pending; web 15, total 412)
 
 ## Key decisions (summary; spec is authoritative)
 
@@ -160,6 +160,8 @@ Last updated: 2026-09-22
 - Scratch bloub preview (custom colours, Mascots.vue) lived in the session scratchpad; replaced by Plan 4b's `pnpm --filter @ab/mascot preview` → docs/brand/mascots.html.
 
 ## Execution log
+
+- TODO (Plan 4c review, deferred): /research charts (links to the full HTML report for now); running cost on seats (scoreboard has it); error boundary around applyEvent for unknown future event types; badge truncation at phone width; Jev comet replays on a mid-hand join.
 
 - 2026-09-22: Plan 4c written from a verified scratch reference (408 tests; next build clean; checked in the browser live, replay, research, about, phone width). Decisions: SSE via Next rewrite (streams fine); `@ab/core/view` export for the browser; running latency total in the view; compact rim seats, sidebar below table under 1200 px, 2-column seats under 720 px; synthesised muted-by-default sounds; browser replays without true equity.
 
