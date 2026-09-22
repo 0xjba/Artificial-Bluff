@@ -203,13 +203,21 @@ Per-decision cost, tokens and latency leave out auto-played decisions. `pnpm stu
 
 ## 7. Live server, replays, site
 
-**Server states:** `idle → live → ended → idle`; one live table in v1.
-- `POST /games` with `ADMIN_TOKEN` starts a live game (hidden admin button or curl).
+**Server states:** `idle → live → ended → idle`; one live table in v1. `pnpm live [--mock]` (Plan 4a; `tsx`, no build).
+- `POST /api/admin/games` with `Authorization: Bearer ADMIN_TOKEN` starts a live game (hidden admin button or curl);
+  `POST /api/admin/games/stop` ends it after the hand in progress. Admin API off unless `ADMIN_TOKEN` is set.
+- Deck seed: 16 random bytes per live game (never derived from the public game id). A running game's config and
+  events are withheld (`/api/games/:id` config null, `/events` 409) and published once it is over.
 - Idle: replays through the same event stream, labelled "REPLAY": past live games + an auto-picked highlight reel of
   study hands (biggest pots, all-ins, largest Jev-vs-LLM win-probability disagreements).
 - Per-game cost cap: game ends after the current hand; chip leader wins; UI shows "budget cap reached".
-- WebSocket: snapshot on connect (current state + recent events), then deltas. Spectators see all hole cards;
-  players only their own.
+- Feed: Server-Sent Events at `/api/feed` (spectators only receive, so SSE: plain HTTP, no dependency, browsers
+  reconnect by themselves; decided in Plan 4a instead of WebSocket). A snapshot on connect (channel + table view built
+  by `@ab/core`'s `applyEvent`, the same reducer the web UI uses), then events and true-equity updates. Spectators see
+  all hole cards; players are programs and never read the feed.
+- True equity on screen: each live player's chance of winning the main pot from here given every dealt card (outcome
+  C); exact when cheap (≤ 200k evaluations), otherwise a seeded 20,000-board estimate flagged `estimated`.
+- Crashed games are marked interrupted at start-up; SIGINT/SIGTERM stop the live game after its hand.
 
 **Pages:**
 - `/` table (live or replay): seats with mascot, character name, model badge, stack, last action, last decision
