@@ -3,7 +3,7 @@ import type { FeedMessage } from '@ab/server'
 import { describe, expect, it } from 'vitest'
 import { initialFeed, reduceFeed } from '../lib/feed'
 import type { ModelOption, SeatChoice } from '../lib/byo/models'
-import { checkSetup, DEFAULT_SEATS, LocalTable, seatId, type TableSetup } from '../lib/byo/table'
+import { blindLevels, checkSetup, DEFAULT_GAME, DEFAULT_SEATS, filledSeats, LocalTable, seatId, tournamentFor, type TableSetup } from '../lib/byo/table'
 
 type Call = { url: string; auth: string | null; referer: string | null }
 
@@ -26,7 +26,7 @@ function fakeNetwork(cost = 0.001) {
 const catalog = new Map<string, CatalogModel>([['acme/m', { id: 'acme/m', supported_parameters: ['structured_outputs', 'temperature'] }]])
 const models = new Map<string, ModelOption>([['acme/m', { id: 'acme/m', name: 'Acme M', decisionUsd: 0.001, featured: false }]])
 const seats: SeatChoice[] = [{ kind: 'jev' }, { kind: 'llm', model: 'acme/m' }, { kind: 'bot' }, { kind: 'bot' }, { kind: 'bot' }]
-const setup = (over: Partial<TableSetup> = {}): TableSetup => ({ seats, openrouterKey: 'or-key', typesafeKey: 'ts-key', budgetUsd: 5, ...over })
+const setup = (over: Partial<TableSetup> = {}): TableSetup => ({ seats, openrouterKey: 'or-key', typesafeKey: 'ts-key', budgetUsd: 5, game: { ...DEFAULT_GAME, hands: 40 }, ...over })
 const deps = (fetch: typeof globalThis.fetch) => ({ catalog, models, relayBase: 'https://site.test/api/typesafe', referer: 'https://site.test', fetch, seed: 'fixed', paceMs: 0 })
 
 describe('a table in the browser', () => {
@@ -42,8 +42,40 @@ describe('a table in the browser', () => {
       'seat 3: choose a model from the list',
     ])
     expect(checkSetup(setup({ seats: [{ kind: 'bot' }, { kind: 'bot' }, { kind: 'bot' }, { kind: 'bot' }, { kind: 'bot' }], openrouterKey: null, typesafeKey: null }), models)).toEqual([]) // a free all-bot table
+    expect(checkSetup(setup({ seats: [{ kind: 'bot' }, { kind: 'bot' }, { kind: 'empty' }, { kind: 'empty' }, { kind: 'empty' }], openrouterKey: null, typesafeKey: null }), models)).toEqual([]) // short-handed
+    expect(checkSetup(setup({ seats: [{ kind: 'bot' }, { kind: 'empty' }, { kind: 'empty' }, { kind: 'empty' }, { kind: 'empty' }], openrouterKey: null, typesafeKey: null }), models)).toEqual(['fill at least 2 seats'])
+    expect(filledSeats([{ kind: 'bot' }, { kind: 'empty' }, { kind: 'jev' }]).map((f) => f.index)).toEqual([0, 2])
     expect(DEFAULT_SEATS[0]).toEqual({ kind: 'jev' })
     expect([seatId({ kind: 'jev' }, 0), seatId({ kind: 'bot' }, 0), seatId({ kind: 'bot' }, 3)]).toEqual(['jev', 'pebble', 'drip'])
+  })
+
+  it('turns the game options into a tournament', () => {
+    expect(blindLevels(100, 200, 3)).toEqual([
+      { smallBlind: 100, bigBlind: 200 },
+      { smallBlind: 200, bigBlind: 400 },
+      { smallBlind: 400, bigBlind: 800 },
+    ])
+    const t = tournamentFor({ smallBlind: 50, bigBlind: 100, startingStack: 20_000, hands: 20, pace: 'fast' }, 'seed')
+    expect(t).toMatchObject({ startingStack: 20_000, maxHands: 20, handsPerLevel: 10, seed: 'seed' })
+    expect(t.levels[0]).toEqual({ smallBlind: 50, bigBlind: 100 })
+    expect(tournamentFor({ ...DEFAULT_GAME, hands: null }, 's').maxHands).toBe(200) // "until one seat is left", with a hard stop
+  })
+
+  it('plays a short-handed game of the chosen length, and only the seats that are filled', async () => {
+    const net = fakeNetwork()
+    const messages: FeedMessage[] = []
+    const table = new LocalTable(
+      setup({ seats: [{ kind: 'bot' }, { kind: 'empty' }, { kind: 'bot' }, { kind: 'empty' }, { kind: 'bot' }], openrouterKey: null, typesafeKey: null, game: { ...DEFAULT_GAME, hands: 3, pace: 'instant' } }),
+      deps(net.fetch),
+      (m) => messages.push(m),
+    )
+    await table.start()
+    expect(net.calls).toHaveLength(0) // bots cost nothing
+    let state = initialFeed()
+    for (const m of messages) state = reduceFeed(state, m, (id) => id.toUpperCase())
+    expect(state.view.seats.map((s) => s.playerId)).toEqual(['pebble', 'block', 'nimbus'])
+    expect(state.view.seats.every((s) => s.startingStack === DEFAULT_GAME.startingStack)).toBe(true)
+    expect(state.view.handsPlayed).toBe(3)
   })
 
   it('plays a whole game: models straight to OpenRouter, Jev through our relay, the feed a spectator screen understands', async () => {

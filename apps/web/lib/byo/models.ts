@@ -18,13 +18,13 @@ export interface ModelOption {
   featured: boolean
 }
 
-export type SeatChoice = { kind: 'jev' } | { kind: 'llm'; model: string } | { kind: 'bot' }
+export type SeatChoice = { kind: 'jev' } | { kind: 'llm'; model: string } | { kind: 'bot' } | { kind: 'empty' }
 
 /** Tokens per decision used for estimates: the prompt is about 800 tokens, a reply about 80. */
 export const PROMPT_TOKENS = 800
 export const REPLY_TOKENS = 80
-/** A turbo game rarely needs more decisions than this from one seat (mock games: 60 to 110). */
-export const DECISIONS_PER_SEAT = 120
+/** Decisions one seat makes in a hand, over a whole game (mock games: 0.8 to 1.1; rounded up). */
+export const DECISIONS_PER_SEAT_PER_HAND = 1.2
 /** Models dearer than this per decision are left out: one game could cost several dollars a seat. */
 export const MAX_DECISION_USD = 0.02
 
@@ -79,11 +79,13 @@ export function supportedModels(catalog: CatalogEntry[]): ModelOption[] {
   return options.sort((a, b) => rank(a) - rank(b) || a.name.localeCompare(b.name))
 }
 
-/** Estimated cost of a whole game (USD): each paid seat at DECISIONS_PER_SEAT decisions. Unknown models count 0. */
-export function estimateGameUsd(seats: SeatChoice[], models: Map<string, ModelOption>): number {
-  return seats.reduce((usd, s) => {
-    if (s.kind === 'jev') return usd + DECISIONS_PER_SEAT * jevDecisionUsd()
-    if (s.kind === 'llm') return usd + DECISIONS_PER_SEAT * (models.get(s.model)?.decisionUsd ?? 0)
-    return usd
-  }, 0)
+/** Estimated cost of one seat for a whole game (USD): a bot or an empty seat costs nothing. */
+export function estimateSeatUsd(seat: SeatChoice, models: Map<string, ModelOption>, hands: number): number {
+  const perDecision = seat.kind === 'jev' ? jevDecisionUsd() : seat.kind === 'llm' ? (models.get(seat.model.trim())?.decisionUsd ?? 0) : 0
+  return perDecision * hands * DECISIONS_PER_SEAT_PER_HAND
+}
+
+/** Estimated cost of a whole game (USD). Unknown models count 0. */
+export function estimateGameUsd(seats: SeatChoice[], models: Map<string, ModelOption>, hands: number): number {
+  return seats.reduce((usd, s) => usd + estimateSeatUsd(s, models, hands), 0)
 }
