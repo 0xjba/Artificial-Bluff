@@ -5,7 +5,15 @@ import { describe, expect, it } from 'vitest'
 
 const dir = mkdtempSync(join(tmpdir(), 'ab-reports-'))
 process.env.REPORTS_DIR = dir
-const report = (id: string, generatedAt: string) => ({ study: { id }, generatedAt })
+const report = (id: string, generatedAt: string) => ({
+  study: { id, configHash: 'h' },
+  generatedAt,
+  players: [],
+  results: [],
+  metrics: [],
+  calibration: [],
+  contrasts: [],
+})
 mkdirSync(join(dir, 'older'))
 writeFileSync(join(dir, 'older', 'report.json'), JSON.stringify(report('older', '2026-09-01T00:00:00Z')))
 writeFileSync(join(dir, 'older', 'report.html'), '<!doctype html><title>r</title>')
@@ -14,14 +22,23 @@ writeFileSync(join(dir, 'newer', 'report.json'), JSON.stringify(report('newer', 
 mkdirSync(join(dir, 'broken'))
 writeFileSync(join(dir, 'broken', 'report.json'), '{ half')
 mkdirSync(join(dir, 'empty'))
+// A mock report lives in <id>-mock; an old report without the current fields is skipped.
+mkdirSync(join(dir, 'older-mock'))
+writeFileSync(join(dir, 'older-mock', 'report.json'), JSON.stringify(report('older', '2026-09-10T00:00:00Z')))
+mkdirSync(join(dir, 'ancient'))
+writeFileSync(join(dir, 'ancient', 'report.json'), JSON.stringify({ study: { id: 'ancient' } }))
 
 const { listReports } = await import('../lib/reports')
 const { GET } = await import('../app/research/[id]/[file]/route')
 const get = (id: string, file: string) => GET(new Request('http://x'), { params: Promise.resolve({ id, file }) })
 
 describe('research reports', () => {
-  it('lists readable reports newest first and skips broken or empty ones', () => {
-    expect(listReports().map((r) => r.study.id)).toEqual(['newer', 'older'])
+  it('lists readable reports newest first with their folders, and skips broken, empty or outdated ones', () => {
+    expect(listReports().map((e) => [e.dir, e.report.study.id])).toEqual([
+      ['newer', 'newer'],
+      ['older-mock', 'older'],
+      ['older', 'older'],
+    ])
   })
 
   it('serves only allow-listed files of plain study ids, the HTML locked down', async () => {
@@ -35,5 +52,6 @@ describe('research reports', () => {
     expect((await get('older', 'secret.txt')).status).toBe(404)
     expect((await get('..', 'report.json')).status).toBe(404)
     expect((await get('newer', 'report.html')).status).toBe(404) // not written
+    expect(html.headers.get('content-security-policy')).toContain('sandbox')
   })
 })

@@ -17,7 +17,7 @@ export default async function Replays() {
   let games: GameSummary[] = []
   let error: string | null = null
   try {
-    const res = await fetch(`${API_URL}/api/games`, { cache: 'no-store' })
+    const res = await fetch(`${API_URL}/api/games`, { cache: 'no-store', signal: AbortSignal.timeout(10_000) })
     games = ((await res.json()) as { games: GameSummary[] }).games.filter((g) => g.kind === 'live' && g.status !== 'running')
   } catch {
     error = 'The live server is not reachable right now.'

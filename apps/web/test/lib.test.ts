@@ -1,7 +1,7 @@
 import { applyEvent, buildView, emptyView, type GameEvent, type TableView } from '@ab/core/view'
 import { describe, expect, it } from 'vitest'
 import { initialFeed, LOG_LIMIT, reduceFeed } from '../lib/feed'
-import { card, chips, ms, pct, shortModel, usd } from '../lib/format'
+import { card, chips, fallbackNotice, ms, pct, shortModel, usd } from '../lib/format'
 import { logLine } from '../lib/log'
 import { BIG_LOSS_BB, seatMoment } from '../lib/moments'
 import { soundFor } from '../lib/sounds'
@@ -67,6 +67,9 @@ describe('seatMoment', () => {
     expect(seatMoment(fell, 'jev')).toMatchObject({ moment: 'fallback', jevDecided: true, key: 'h1:3:fallback' })
     const fine = { ...fell, lastDecision: { ...decision, fallback: false } }
     expect(seatMoment(fine, 'jev')).toMatchObject({ moment: 'check_call', jevDecided: true })
+    // Broke when the game ended (knocked out in the last hand): eliminated, not waiting.
+    const over = { ...base, status: 'ended' as const, hand: hand({ ended: true }), seats: [seat({ stack: 0, committed: 50 })] }
+    expect(seatMoment(over, 'jev').moment).toBe('eliminated')
   })
 })
 
@@ -100,5 +103,8 @@ describe('feed', () => {
     expect(soundFor('action', 'PILL folds · 3 ms')).toBe('fold')
     expect(soundFor('action', 'JEV check · 1 ms')).toBeNull()
     expect(soundFor('action', 'JEV raise to 300 · 1 ms')).toBe('chip')
+    expect(fallbackNotice('auto', 'auto: too many failures')).toBe('connection lost: seat auto-played')
+    expect(fallbackNotice('auto', 'auto: budget cap reached')).toBe('budget cap reached')
+    expect(fallbackNotice('timeout', 'timeout')).toBe('timed out')
   })
 })

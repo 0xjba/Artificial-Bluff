@@ -2,7 +2,7 @@
 import type { GameEvent } from '@ab/core/view'
 import { characterFor } from '@ab/mascot'
 import type { FeedMessage } from '@ab/server'
-import { useEffect, useReducer, useState } from 'react'
+import { useEffect, useReducer, useRef, useState } from 'react'
 import { initialFeed, reduceFeed, type FeedState } from '../lib/feed'
 import { Broadcast } from './Broadcast'
 
@@ -28,23 +28,32 @@ export function ReplayScreen({ title, events }: { title: string; events: GameEve
   const [index, setIndex] = useState(0)
   const [playing, setPlaying] = useState(true)
   const [speed, setSpeed] = useState(1)
+  /** How many events have been applied: pausing or changing speed must never apply one twice. */
+  const applied = useRef(0)
 
   useEffect(() => {
     if (!playing || index >= events.length) return
     const e = events[index]!
-    dispatch({ type: 'event', event: e })
+    if (applied.current <= index) {
+      dispatch({ type: 'event', event: e })
+      applied.current = index + 1
+    }
     const timer = setTimeout(() => setIndex((i) => i + 1), replayPause(e) / speed)
     return () => clearTimeout(timer)
   }, [index, playing, speed, events])
 
   const restart = () => {
     dispatch({ type: 'reset' })
+    applied.current = 0
     setIndex(0)
     setPlaying(true)
   }
+  const done = index >= events.length
   const controls = (
     <span className="controls">
-      <button type="button" onClick={() => setPlaying((p) => !p)}>{playing ? 'Pause' : 'Play'}</button>
+      <button type="button" disabled={done} onClick={() => setPlaying((p) => !p)}>
+        {done ? 'Ended' : playing ? 'Pause' : 'Play'}
+      </button>
       {[1, 2, 4].map((s) => (
         <button key={s} type="button" aria-pressed={speed === s} onClick={() => setSpeed(s)}>
           {s}x

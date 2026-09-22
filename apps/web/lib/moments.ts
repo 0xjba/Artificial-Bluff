@@ -23,7 +23,8 @@ export function seatMoment(view: TableView, playerId: string): SeatMoment {
   const hand = view.hand
   const handId = hand?.handId ?? 'none'
   if (!seat) return { moment: 'waiting', jevDecided: false, key: `${handId}:unknown` }
-  if (seat.status === 'out') return { moment: 'eliminated', jevDecided: false, key: 'out' }
+  // Out of the game: dealt out of later hands, or broke when the game ended (the last hand's losers).
+  if (seat.status === 'out' || (view.status === 'ended' && seat.stack === 0)) return { moment: 'eliminated', jevDecided: false, key: 'out' }
   if (!hand) return { moment: 'waiting', jevDecided: false, key: 'no-hand' }
   if (hand.toAct === playerId) return { moment: 'deciding', jevDecided: false, key: `${handId}:turn:${seat.decisions}` }
   if (hand.ended) {

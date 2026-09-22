@@ -3,7 +3,7 @@ import type { TableView } from '@ab/core/view'
 import type { Channel } from '@ab/server'
 import { useEffect, useRef, useState } from 'react'
 import type { LogLine } from '../lib/log'
-import { playSound, soundFor } from '../lib/sounds'
+import { playSound, soundFor, unlockAudio } from '../lib/sounds'
 import { ActionLog } from './ActionLog'
 import { LowerThird } from './LowerThird'
 import { Scoreboard } from './Scoreboard'
@@ -17,7 +17,8 @@ export function Broadcast(props: {
   view: TableView
   log: LogLine[]
   decisionEquity: number | null
-  connected?: boolean
+  /** Feed connection, for the live screen: 'lost' shows a notice. */
+  connection?: 'connecting' | 'open' | 'lost'
   controls?: React.ReactNode
 }) {
   const [muted, setMuted] = useState(true)
@@ -29,6 +30,7 @@ export function Broadcast(props: {
     }
   }, [])
   const toggle = () => {
+    if (muted) unlockAudio() // browsers only allow audio after a click
     setMuted((m) => {
       try {
         localStorage.setItem(MUTE_KEY, m ? '0' : '1')
@@ -38,11 +40,13 @@ export function Broadcast(props: {
       return !m
     })
   }
-  const lastSeq = useRef(0)
+  // One sound per new log line. Lines are new objects, so a restart or a new programme (whose event
+  // numbers start low again) still makes sound; a snapshot clears the log, so joining is silent.
+  const lastLine = useRef<LogLine | undefined>(undefined)
   const newest = props.log.at(-1)
   useEffect(() => {
-    if (!newest || newest.seq <= lastSeq.current) return
-    lastSeq.current = newest.seq
+    if (!newest || newest === lastLine.current) return
+    lastLine.current = newest
     const sound = soundFor(newest.kind, newest.text)
     if (!muted && sound) playSound(sound)
   }, [newest, muted])
@@ -53,9 +57,9 @@ export function Broadcast(props: {
       <div className="programme">
         <span className={`tag ${mode}`}>{mode === 'live' ? '● LIVE' : mode === 'replay' ? 'REPLAY' : 'OFF AIR'}</span>
         <span className="title">{props.channel?.title ?? 'Connecting…'}</span>
-        {props.connected === false ? <span className="warn">reconnecting…</span> : null}
+        {props.connection === 'lost' ? <span className="warn">reconnecting…</span> : null}
         {props.controls}
-        <button type="button" className="mute" onClick={toggle} aria-pressed={!muted}>
+        <button type="button" className="mute" onClick={toggle}>
           {muted ? 'Sound off' : 'Sound on'}
         </button>
       </div>
