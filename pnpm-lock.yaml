@@ -23,6 +23,9 @@ importers:
 
   apps/study:
     dependencies:
+      '@ab/analysis':
+        specifier: workspace:*
+        version: link:../../packages/analysis
       '@ab/core':
         specifier: workspace:*
         version: link:../../packages/core
