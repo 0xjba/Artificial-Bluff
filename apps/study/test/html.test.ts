@@ -50,6 +50,21 @@ describe('renderReportHtml', () => {
     expect(html).not.toMatch(/<script|<link|src=|href=/) // nothing external, nothing executable
   })
 
+  it('keeps tiny costs and p-values readable, and flags mock and interim reports', async () => {
+    const r = await report()
+    r.metrics[0]!.costPerDecisionUsd = 0.0000084 // a Jev decision: ~200 tokens at $0.042 per million
+    r.contrasts[0]!.pValue = 1e-9
+    let html = renderReportHtml(r)
+    expect(html).toContain('$0.0000084')
+    expect(html).toContain('&lt;0.0001')
+    expect(html).toContain('Mock seats (JEV, DRIP)')
+    expect(html).not.toContain('Interim report')
+    expect(html).toContain('title="focus player">◆</span>')
+    r.study.status = 'running'
+    html = renderReportHtml(r)
+    expect(html).toContain('Interim report: the study has not ended (running)')
+  })
+
   it('escapes everything that comes from the log or the config', async () => {
     const r = await report()
     r.players[0]!.model = '<img src=x onerror=alert(1)>'

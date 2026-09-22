@@ -1,7 +1,7 @@
 import type { StudyConfig } from './config'
 import type { StudyProgress } from './progress'
 import { blockValues } from './results'
-import { studentTCdf, tInterval, type Interval } from './stats'
+import { studentTTail, tInterval, type Interval } from './stats'
 
 /** Focus player minus another player, in bb/100, paired by neighbour block. */
 export interface Contrast {
@@ -41,7 +41,7 @@ export function tTestPValue(values: readonly number[]): number | null {
   const sd = Math.sqrt(values.reduce((s, v) => s + (v - mean) ** 2, 0) / (n - 1))
   if (sd === 0) return mean === 0 ? 1 : 0
   const t = Math.abs(mean) / (sd / Math.sqrt(n))
-  return 2 * (1 - studentTCdf(t, n - 1))
+  return Math.min(1, 2 * studentTTail(t, n - 1))
 }
 
 /**

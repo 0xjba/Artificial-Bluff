@@ -68,6 +68,11 @@ function incompleteBeta(x: number, a: number, b: number): number {
   return x < (a + 1) / (a + b + 2) ? (front * betaContinuedFraction(a, b, x)) / a : 1 - (front * betaContinuedFraction(b, a, 1 - x)) / b
 }
 
+/** Upper tail P(T > |t|) of Student t, computed directly (no 1 - cdf cancellation for large t). */
+export function studentTTail(t: number, df: number): number {
+  return 0.5 * incompleteBeta(df / (df + t * t), df / 2, 0.5)
+}
+
 /** Student t CDF with `df` degrees of freedom. */
 export function studentTCdf(t: number, df: number): number {
   const tail = 0.5 * incompleteBeta(df / (df + t * t), df / 2, 0.5)

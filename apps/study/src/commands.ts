@@ -4,11 +4,11 @@ import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { parseStudyConfig, type StudyConfig } from './config'
 import { assertPreregMatches, preregistration } from './prereg'
-import { completedPrefix, readStoreProgress } from './progress'
+import { readStoreProgress } from './progress'
 import { summarize, type StudySummary } from './results'
 import { decisionsCsv } from './exports'
 import { renderReportHtml } from './html'
-import { analyseStudy, focusPlayer } from './report'
+import { analyseStudy, analysedGroupCount, focusPlayer } from './report'
 import { runStudy, type StudyOutcome } from './run'
 
 export function loadStudyConfig(path: string): StudyConfig {
@@ -109,8 +109,7 @@ export function statusCommand(config: StudyConfig, mock: boolean, store: EventSt
   }
   assertPreregMatches(game.config as Record<string, unknown>, c)
   const progress = readStoreProgress(store, c.id)
-  const finished = game.status === 'ended' && progress.analysedGroups !== null
-  const groups = finished ? progress.analysedGroups! : completedPrefix(progress, c.lineup.length, c.maxGroups)
+  const groups = analysedGroupCount(progress, game.status, c)
   deps.log(`study ${c.id}: ${game.status}${progress.lastEnd ? ` (${progress.lastEnd})` : ''}, ${progress.handsPlayed} hands played, hash ${game.configHash.slice(0, 12)}…`)
   formatSummary(summarize(progress, c, groups), store.gameCost(c.id)).forEach(deps.log)
 }

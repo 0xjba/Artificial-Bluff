@@ -37,6 +37,10 @@ describe('tTestPValue', () => {
     expect(tTestPValue([3, 3, 3])).toBe(0)
     expect(tTestPValue([0, 0])).toBe(1)
     expect(tTestPValue([5])).toBeNull()
+    // A huge t still gives a tiny positive p (the tail is computed directly, not as 1 - cdf).
+    const p = tTestPValue([10, 10.1, 9.9, 10, 10.05])!
+    expect(p).toBeGreaterThan(0)
+    expect(p).toBeLessThan(1e-6)
   })
 })
 
