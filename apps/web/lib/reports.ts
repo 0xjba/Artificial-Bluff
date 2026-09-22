@@ -19,19 +19,42 @@ export const REPORT_FILES: Record<string, string> = {
 /** Study ids are directory names we wrote: letters, digits, dot, dash, underscore. */
 export const SAFE_ID = /^[A-Za-z0-9][A-Za-z0-9._-]*$/
 
-/** Every report on disk, newest first. Unreadable ones are skipped. */
-export function listReports(dir = REPORTS_DIR): StudyReport[] {
+/** A report and the folder it was found in (links use the folder: mock reports live in `<id>-mock`). */
+export interface ReportEntry {
+  dir: string
+  report: StudyReport
+}
+
+/** Enough of a report's shape to render it; older or half-written files are skipped, not crashed on. */
+function looksLikeReport(r: unknown): r is StudyReport {
+  const x = r as Partial<StudyReport> | null
+  return (
+    !!x &&
+    typeof x.generatedAt === 'string' &&
+    typeof x.study?.id === 'string' &&
+    typeof x.study.configHash === 'string' &&
+    Array.isArray(x.players) &&
+    Array.isArray(x.results) &&
+    Array.isArray(x.metrics) &&
+    Array.isArray(x.calibration) &&
+    Array.isArray(x.contrasts)
+  )
+}
+
+/** Every readable report on disk, newest first. */
+export function listReports(dir = REPORTS_DIR): ReportEntry[] {
   if (!existsSync(dir)) return []
-  const out: StudyReport[] = []
-  for (const id of readdirSync(dir)) {
-    if (!SAFE_ID.test(id)) continue
-    const file = join(dir, id, 'report.json')
+  const out: ReportEntry[] = []
+  for (const name of readdirSync(dir)) {
+    if (!SAFE_ID.test(name)) continue
+    const file = join(dir, name, 'report.json')
     if (!existsSync(file)) continue
     try {
-      out.push(JSON.parse(readFileSync(file, 'utf8')) as StudyReport)
+      const report: unknown = JSON.parse(readFileSync(file, 'utf8'))
+      if (looksLikeReport(report)) out.push({ dir: name, report })
     } catch {
-      // a half-written or old report: skip it
+      // a half-written file: skip it
     }
   }
-  return out.sort((a, b) => b.generatedAt.localeCompare(a.generatedAt))
+  return out.sort((a, b) => b.report.generatedAt.localeCompare(a.report.generatedAt))
 }

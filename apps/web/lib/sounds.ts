@@ -17,6 +17,13 @@ const TONES: Record<Sound, Array<{ freq: number; at: number; length: number; typ
   ],
 }
 
+/** Creates or resumes the audio context; call from a click (browsers block audio until the user acts). */
+export function unlockAudio(): void {
+  if (typeof window === 'undefined' || !('AudioContext' in window)) return
+  context ??= new AudioContext()
+  void context.resume()
+}
+
 /** Plays a sound (quietly does nothing where Web Audio is unavailable). */
 export function playSound(kind: Sound): void {
   if (typeof window === 'undefined' || !('AudioContext' in window)) return

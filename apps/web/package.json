@@ -23,6 +23,7 @@
     "@ab/server": "workspace:*",
     "@ab/study": "workspace:*",
     "@types/react": "^19.3.0",
-    "@types/react-dom": "^19.3.0"
+    "@types/react-dom": "^19.3.0",
+    "jsdom": "^26.1.0"
   }
 }

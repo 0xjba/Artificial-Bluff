@@ -1,7 +1,7 @@
 'use client'
 import type { TableView } from '@ab/core/view'
 import { characterFor } from '@ab/mascot'
-import { ms, pct, shortModel, usd } from '../lib/format'
+import { fallbackNotice, ms, pct, shortModel, usd } from '../lib/format'
 
 const optionName = (id: string) => id.replace(/_/g, ' ').replace(/\b(\d)(\d)bb\b/, '$1.$2bb')
 
@@ -11,16 +11,24 @@ const optionName = (id: string) => id.replace(/_/g, ' ').replace(/\b(\d)(\d)bb\b
  */
 export function LowerThird({ view, decisionEquity }: { view: TableView; decisionEquity: number | null }) {
   const d = view.lastDecision
-  if (!d) return <section className="lower-third empty">Decisions will appear here.</section>
+  if (!d)
+    return (
+      <section className="lower-third empty">
+        Decisions will appear here.
+        <span className="sr-only" aria-live="polite" />
+      </section>
+    )
   const seat = view.seats.find((s) => s.playerId === d.playerId)
   const who = characterFor(d.playerId, view.seats.indexOf(seat!))
   const probs = d.optionProbabilities ? Object.entries(d.optionProbabilities).sort((a, b) => (b[1] ?? 0) - (a[1] ?? 0)).slice(0, 5) : null
   return (
-    <section className={`lower-third${seat?.kind === 'jev' ? ' jev' : ''}`} aria-live="polite">
+    <section className={`lower-third${seat?.kind === 'jev' ? ' jev' : ''}`}>
+      {/* Screen readers hear one short line per decision, not the whole panel. */}
+      <span className="sr-only" aria-live="polite">{`${who.name}: ${d.label}`}</span>
       <header>
         <b>{who.name}</b> <span className="badge">{shortModel(seat?.model ?? '')}</span>
         <span className="action">{d.label}</span>
-        {d.fallback ? <span className="warn">fallback: {d.fallbackKind}</span> : null}
+        {d.fallback ? <span className="warn">{fallbackNotice(d.fallbackKind, d.fallbackReason)}</span> : null}
         <span className="stats">
           {ms(d.latencyMs)} · {usd(d.costUsd)}
         </span>

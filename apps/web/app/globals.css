@@ -49,6 +49,14 @@ h3,
 .yes {
   color: var(--brass);
 }
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
 
 /* ---- site header ---- */
 header.site {

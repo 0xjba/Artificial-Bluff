@@ -8,13 +8,13 @@ export const metadata = { title: 'Research · artificialBluff' }
 const num = (x: number | null, d = 1) => (x === null || !Number.isFinite(x) ? '–' : x.toFixed(d))
 const ci = (low: number | null, high: number | null) => (low === null || high === null || !Number.isFinite(low) || !Number.isFinite(high) ? '[–∞, ∞]' : `[${low.toFixed(1)}, ${high.toFixed(1)}]`)
 
-function Study({ r }: { r: StudyReport }) {
+function Study({ r, dir }: { r: StudyReport; dir: string }) {
   const name = (id: string) => {
     const p = r.players.find((x) => x.playerId === id)
     return `${id.toUpperCase()} · ${p?.model ?? ''}`
   }
   const mock = r.players.some((p) => p.kind === 'mock')
-  const base = `/research/${encodeURIComponent(r.study.id)}`
+  const base = `/research/${encodeURIComponent(dir)}`
   return (
     <article className="study">
       <h2>{r.study.id}</h2>
@@ -86,7 +86,7 @@ export default async function Research() {
         <li>Calibration: stated win probability against the share of the pot actually won, and against the true odds at the moment of the decision.</li>
         <li>Costs as billed; latency as measured per decision. Download everything below.</li>
       </ul>
-      {reports.length === 0 ? <p className="muted">No study reports yet. Run a study, then `pnpm study report`.</p> : reports.map((r) => <Study key={r.study.id} r={r} />)}
+      {reports.length === 0 ? <p className="muted">No study reports yet. Run a study, then `pnpm study report`.</p> : reports.map((e) => <Study key={e.dir} r={e.report} dir={e.dir} />)}
     </section>
   )
 }
