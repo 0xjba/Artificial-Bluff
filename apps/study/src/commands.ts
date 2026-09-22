@@ -1,10 +1,14 @@
 import { configHash, EventStore } from '@ab/core'
 import { adaptLineup, createPlayers, fetchModelCatalog, type PlayerEnv, type PlayerSpec } from '@ab/players'
-import { readFileSync } from 'node:fs'
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { parseStudyConfig, type StudyConfig } from './config'
 import { assertPreregMatches, preregistration } from './prereg'
 import { completedPrefix, readStoreProgress } from './progress'
 import { summarize, type StudySummary } from './results'
+import { decisionsCsv } from './exports'
+import { renderReportHtml } from './html'
+import { analyseStudy, focusPlayer } from './report'
 import { runStudy, type StudyOutcome } from './run'
 
 export function loadStudyConfig(path: string): StudyConfig {
@@ -111,19 +115,48 @@ export function statusCommand(config: StudyConfig, mock: boolean, store: EventSt
   formatSummary(summarize(progress, c, groups), store.gameCost(c.id)).forEach(deps.log)
 }
 
+/**
+ * Writes the study report to `outDir`: report.html (self-contained), report.json (every number in the
+ * report), decisions.csv and decisions.json (one row per analysed decision, with its outcomes).
+ * Free: reads the event log only. Returns the files written.
+ */
+export function reportCommand(config: StudyConfig, mock: boolean, store: EventStore, outDir: string, deps: CommandDeps, generatedAt = new Date().toISOString()): string[] {
+  const c = mock ? mockVariant(config) : config
+  const started = Date.now()
+  const { report, decisions } = analyseStudy(store, c, { focusId: focusPlayer(config), generatedAt })
+  mkdirSync(outDir, { recursive: true })
+  const files: Array<[string, string]> = [
+    ['report.html', renderReportHtml(report)],
+    ['report.json', `${JSON.stringify(report, null, 2)}\n`],
+    ['decisions.csv', decisionsCsv(decisions)],
+    ['decisions.json', `${JSON.stringify(decisions)}\n`],
+  ]
+  const written = files.map(([name, content]) => {
+    const path = join(outDir, name)
+    writeFileSync(path, content)
+    return path
+  })
+  deps.log(`study ${c.id}: ${report.study.hands} hands, ${report.study.decisions} decisions analysed in ${((Date.now() - started) / 1000).toFixed(1)} s`)
+  for (const path of written) deps.log(`  wrote ${path}`)
+  return written
+}
+
 export interface CliArgs {
-  command: 'prereg' | 'run' | 'status'
+  command: 'prereg' | 'run' | 'status' | 'report'
   configPath: string
   mock: boolean
   live: boolean
   takeover: boolean
   db: string
+  /** report only: output directory (default reports/<study id>, "-mock" appended in mock mode). */
+  out: string | null
 }
 
 export const USAGE =
   'usage: pnpm study prereg <config.json> [--mock]\n' +
   '       pnpm study run    <config.json> (--mock | --live) [--takeover] [--db path]\n' +
-  '       pnpm study status <config.json> [--mock] [--db path]'
+  '       pnpm study status <config.json> [--mock] [--db path]\n' +
+  '       pnpm study report <config.json> [--mock] [--db path] [--out dir]'
 
 /**
  * Strict argument parsing: unknown arguments are errors, and `run` needs an explicit --mock (free)
@@ -131,9 +164,9 @@ export const USAGE =
  */
 export function parseCliArgs(argv: readonly string[]): CliArgs {
   const [command, configPath, ...rest] = argv
-  if (command !== 'prereg' && command !== 'run' && command !== 'status') throw new Error(`unknown command: ${command ?? '(none)'}`)
+  if (command !== 'prereg' && command !== 'run' && command !== 'status' && command !== 'report') throw new Error(`unknown command: ${command ?? '(none)'}`)
   if (!configPath || configPath.startsWith('-')) throw new Error('missing <config.json>')
-  const args: CliArgs = { command, configPath, mock: false, live: false, takeover: false, db: 'data/studies.db' }
+  const args: CliArgs = { command, configPath, mock: false, live: false, takeover: false, db: 'data/studies.db', out: null }
   for (let i = 0; i < rest.length; i++) {
     const a = rest[i]!
     if (a === '--mock') args.mock = true
@@ -143,6 +176,10 @@ export function parseCliArgs(argv: readonly string[]): CliArgs {
       const path = rest[++i]
       if (!path || path.startsWith('-')) throw new Error('--db needs a path')
       args.db = path
+    } else if (a === '--out' && command === 'report') {
+      const path = rest[++i]
+      if (!path || path.startsWith('-')) throw new Error('--out needs a directory')
+      args.out = path
     } else throw new Error(`unknown argument for ${command}: ${a}`)
   }
   if (args.mock && args.live) throw new Error('use --mock or --live, not both')
