@@ -2,7 +2,7 @@
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { emptyView } from '@ab/core/view'
+import { buildView, emptyView, type GameEvent } from '@ab/core/view'
 import { logLine } from '../lib/log'
 import { mockGame } from './fixtures'
 
@@ -15,6 +15,7 @@ vi.mock('../lib/sounds', async (load) => ({
 const { Broadcast } = await import('../components/Broadcast')
 const { ReplayScreen, replayPause } = await import('../components/ReplayScreen')
 const { useFeed, RECONNECT_MS } = await import('../components/useFeed')
+const { LiveScreen } = await import('../components/LiveScreen')
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
@@ -77,15 +78,19 @@ describe('Broadcast sounds', () => {
   const render = (lines: ReturnType<typeof line>[]) =>
     act(() => root!.render(<Broadcast channel={{ mode: 'live', title: 'LIVE' }} view={emptyViewForTest()} log={lines} decisionEquity={null} />))
 
-  it('is silent until unmuted, then plays one sound per new line, also after a restart', () => {
+  it('is silent until unmuted, then plays one sound per appended line, also after a restart; rebuilt logs are silent', () => {
     mount(<Broadcast channel={{ mode: 'live', title: 'LIVE' }} view={emptyViewForTest()} log={[]} decisionEquity={null} />)
-    render([line(5, 'JEV raise to 300 · 1 ms')])
+    const a = line(5, 'JEV raises to 300')
+    render([a])
     expect(played).toEqual([]) // muted by default
     click('Sound off')
-    render([line(5, 'JEV raise to 300 · 1 ms'), line(6, 'PILL folds · 2 ms')])
+    const b = line(6, 'PILL folds')
+    render([a, b])
+    expect(played).toEqual(['fold'])
+    render([line(1, 'Hand 1'), line(2, 'DRIP folds'), line(3, 'JEV raises to 300')]) // seeking or joining rebuilds the log at once
     expect(played).toEqual(['fold'])
     render([]) // a restart or a new programme clears the log
-    render([line(1, 'BLOCK call 50 · 1 ms')]) // low event numbers again
+    render([line(1, 'BLOCK calls 50')]) // low event numbers again
     expect(played).toEqual(['fold', 'chip'])
   })
 })
@@ -125,6 +130,69 @@ describe('useFeed', () => {
     act(() => vi.advanceTimersByTime(RECONNECT_MS[0]!))
     expect(sources).toHaveLength(2)
     act(() => sources[1]!.onmessage!({ data: JSON.stringify({ type: 'snapshot', channel: { id: 'c', mode: 'idle', title: 'x', gameId: null }, view: emptyViewForTest() }) }))
+  })
+})
+
+describe('LiveScreen time shift', () => {
+  it('seeks back and returns live; a reconnect or a new programme drops the past at once and reloads the history', async () => {
+    const events = await mockGame(3)
+    const sources: Array<{ onmessage: ((m: { data: string }) => void) | null }> = []
+    vi.stubGlobal(
+      'EventSource',
+      class {
+        static readonly CLOSED = 2
+        readyState = 1
+        onopen = null
+        onerror = null
+        onmessage: ((m: { data: string }) => void) | null = null
+        constructor() {
+          sources.push(this)
+        }
+        close() {}
+      },
+    )
+    const fetched: string[] = []
+    let backlog: GameEvent[] = events.slice(0, 40)
+    vi.stubGlobal('fetch', async (url: URL | string) => {
+      fetched.push(String(url))
+      const page = backlog
+      return { ok: true, json: async () => ({ events: page, next: null }) }
+    })
+    const settle = () => act(async () => await new Promise((r) => setTimeout(r, 0)))
+    const send = (m: unknown) => act(() => sources[0]!.onmessage!({ data: JSON.stringify(m) }))
+    const tag = () => host.querySelector('.programme .tag') as HTMLButtonElement
+    const back = () => act(() => (host.querySelector('button[aria-label="previous hand"]') as HTMLButtonElement).click())
+    const channel = { id: 'c1', mode: 'live', title: 'LIVE', gameId: 'g' }
+
+    mount(<LiveScreen feedUrl="/api/feed" />)
+    send({ type: 'snapshot', channel, view: buildView(events.slice(0, 40)) })
+    await settle()
+    for (const e of events.slice(40, 80)) send({ type: 'event', channelId: 'c1', event: e })
+    expect(fetched[0]).toMatch(/\/api\/games\/g\/events\?after=0$/)
+    expect(host.querySelector('.seek')).not.toBeNull()
+    expect(host.querySelectorAll('.log li.hand').length).toBeGreaterThan(0) // the log covers the game from its start
+
+    back()
+    expect(tag().className).toContain('behind')
+    act(() => tag().click())
+    expect(tag().className).not.toContain('behind')
+
+    // A reconnect (same channel, new snapshot): back to live at once, the history is fetched again.
+    back()
+    expect(tag().className).toContain('behind')
+    backlog = events.slice(0, 80)
+    send({ type: 'snapshot', channel, view: buildView(events.slice(0, 80)) })
+    expect(tag().className).not.toContain('behind')
+    await settle()
+    expect(fetched).toHaveLength(2)
+    expect(host.querySelector('.seek')).not.toBeNull()
+
+    // A new programme: the old game's past is never drawn, not even for one render.
+    back()
+    expect(tag().className).toContain('behind')
+    send({ type: 'snapshot', channel: { ...channel, id: 'c2' }, view: buildView(events.slice(0, 5)) })
+    expect(tag().className).not.toContain('behind')
+    expect(played).toEqual([]) // muted by default, and nothing to hear from rebuilt logs anyway
   })
 })
 
