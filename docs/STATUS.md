@@ -80,14 +80,14 @@ Last updated: 2026-09-22
 
 ### Plan 4a task progress
 
-- [ ] Task 1: Seeded equity estimate in the engine (engine 112)
-- [ ] Task 2: Table view reducer in core (core 38)
-- [ ] Task 3: Server package, config, public views (server 5)
-- [ ] Task 4: Hub + true-equity annotations (server 9)
-- [ ] Task 5: Replays and highlights (server 14)
-- [ ] Task 6: Live controller + director (server 22)
-- [ ] Task 7: Live line-up (server 25)
-- [ ] Task 8: HTTP API, app, pnpm live (server 31; total 294)
+- [x] Task 1: Seeded equity estimate in the engine (6b29863; spec ✅)
+- [x] Task 2: Table view reducer in core (faca4e0; spec ✅)
+- [x] Task 3: Server package, config, public views (72fb48a; spec ✅)
+- [x] Task 4: Hub + true-equity annotations (96142e9; spec ✅). Opus review of Tasks 1-4: approve with fixes → reducer clears equity at hand end (client == hub, tested), isOver (interrupted study keeps its seed secret), reels regroup interleaved study hands, strict MOCK/number/origin config, game_ended closes open hand, hand seatOrder, subscriber-copy broadcast, shared engine validator (follow-up pending)
+- [x] Task 5: Replays and highlights (37fb80b; spec ✅)
+- [x] Task 6: Live controller + director (4627e06; spec ✅)
+- [ ] Task 7: Live line-up (server 28)
+- [ ] Task 8: HTTP API, app, pnpm live (server 34; total 298)
 
 ## Key decisions (summary; spec is authoritative)
 
@@ -139,6 +139,8 @@ Last updated: 2026-09-22
 - Scratch bloub preview (custom colours, Mascots.vue) lived in the session scratchpad; recreate in Plan 4.
 
 ## Execution log
+
+- 2026-09-22: Plan 4a Task 6 implementer saw one transient apps/server failure under a concurrent full-workspace run (real-timer tests); not reproduced in 3 clean full runs. Watch for it; if it recurs, identify the test and make its timing robust.
 
 - 2026-09-22: Plan 4 split: 4a live server (headless, testable) and 4b web UI + mascots. Plan 4a written from a verified scratch reference (294 tests). Decisions: SSE instead of WebSocket (receive-only, no dependency); shared `applyEvent` table-view reducer in core; random 16-byte deck seed per live game (game ids are public); on-screen equity exact when cheap else seeded 20k-board estimate (exact preflop blocked the event loop / hung tests); `pnpm live` (pnpm server is a pnpm built-in); runtime tsx (resolves the Plan 1 open question).
 

@@ -18,8 +18,10 @@
 
 - **Money:** tests and `pnpm live --mock` are free (mock players, no keys, no network). A real `pnpm live` never spends anything until an admin starts a game (`POST /api/admin/games` with the token), and each game is capped by `LIVE_BUDGET_USD`. Never start a real game without the user's go-ahead.
 - **Transport: Server-Sent Events, not WebSocket.** Spectators only receive; SSE is plain HTTP (no dependency, proxies and CDNs handle it, browsers reconnect by themselves). Every connection gets a `snapshot` (channel + full table view), then `event` and `equity` messages. A client resets its view on each snapshot (new programme or reconnect).
-- **Secrets:** a live game's deck seed is 16 random bytes, never derived from the (public) game id. A running game's config (seeds) is never sent: `/api/games/:id` withholds it and `/api/games/:id/events` answers 409 until the game is over. Hole cards are public (spectators see every hand; the players are programs that never read the feed).
-- **Equity on screen:** each live player's chance of winning the main pot from here, given every dealt card (the study's outcome C). Exact when the remaining boards × players ≤ 200,000 evaluations (from the flop, or preflop after folds); otherwise a seeded 20,000-board estimate (±0.4 points), flagged `estimated`, so the event loop is never blocked for long. Research numbers stay exact.
+- **Secrets:** a live game's deck seed is 16 random bytes, never derived from the (public) game id. Seeds are published only once a game is over for good (`isOver`: ended, or an interrupted live game; an interrupted study can resume, so its master seed stays secret): until then `/api/games/:id` withholds the config and `/api/games/:id/events` answers 409, and study deck seeds in events are replaced by `WITHHELD_SEED` (-1). Hole cards are public (spectators see every hand; the players are programs that never read the feed).
+- **Equity on screen:** each live player's chance of winning the main pot from here, given every dealt card (the study's outcome C). Exact when the remaining boards × players ≤ 200,000 evaluations (from the flop on); otherwise (preflop) a seeded 20,000-board estimate (±0.4 points), flagged `estimated`, so the event loop is never blocked for long. Research numbers stay exact. The reducer clears equity when a hand ends, so a connected client (applying events and equity messages) always equals the hub's view; a test checks this after every event.
+- **Replays of studies:** parallel study tables interleave hands in the log; a highlight reel regroups each hand's events together (the reducer follows one hand at a time).
+- **Config is strict:** numbers must be plain decimals (whole numbers where it matters), `MOCK` must be 0 or 1 (never silently paid), `ALLOWED_ORIGIN` must be a bare origin.
 - **Programme:** a live game always wins: starting one interrupts the replay at once; its final result stays up for `COOLDOWN_MS`, then replays resume (past finished live games, newest first, alternating with study highlight reels). Highlights score chips won (bb), all-ins, and Jev and an LLM whose last stated chances of winning the same hand add up to more than 100%.
 - **Admin:** off unless `ADMIN_TOKEN` (16+ characters) is set; constant-time comparison; stop takes effect after the hand in progress. CORS only for `ALLOWED_ORIGIN` (the web app in development).
 - **Robustness:** games left `running` by a crash are marked `interrupted` at start-up; SIGINT/SIGTERM stop the live game after its hand, close connections and the store (a second signal quits at once); a spectator connection that breaks is dropped without disturbing the game; a real line-up is checked at start-up (model catalog, keys) so problems show before anyone presses start.
@@ -153,8 +155,9 @@ describe('mainPotShares', () => {
     const headsUp = sampleMainPotShares(holes, cards('Jh 5c 2s'), [1, 4], 20_000, 3)
     const exactHeadsUp = mainPotSharesBySubset(holes, cards('Jh 5c 2s'), [[1, 4]])[0]!
     headsUp.forEach((v, i) => expect(Math.abs(v - exactHeadsUp[i]!)).toBeLessThan(0.015))
+    expect(sampleMainPotShares(holes, cards('Jh 5c 2s'), [0, 1, 2, 3, 4], 20_000, 8)).not.toEqual(sampled) // another seed, another sample
     expect(() => sampleMainPotShares(holes, [], [0, 1], 0, 1)).toThrow(/samples/)
-    expect(() => sampleMainPotShares(holes, [], [0], 10, 1)).toThrow(/bad subset/)
+    expect(() => sampleMainPotShares(holes, [], [0], 10, 1)).toThrow(/at least two players/)
   })
 
   it('counts the boards still to come', () => {
@@ -162,6 +165,8 @@ describe('mainPotShares', () => {
     expect(remainingBoards(10, 0)).toBe(850_668) // five players preflop: C(42, 5)
     expect(remainingBoards(13, 3)).toBe(741) // five players on the flop: C(39, 2)
     expect(remainingBoards(15, 5)).toBe(1)
+    expect(() => remainingBoards(10, 2)).toThrow(/bad input/)
+    expect(() => remainingBoards(3, 0)).toThrow(/bad input/)
   })
 })
 ```
@@ -192,19 +197,8 @@ export function mainPotShares(holes: readonly (readonly Card[])[], board: readon
   return mainPotSharesBySubset(holes, board, [holes.map((_, i) => i)])[0]!
 }
 
-/**
- * mainPotShares for several subsets of the same players (e.g. who was still in the hand at each
- * decision of a deal) in one pass over the boards. `subsets[k]` lists indices into `holes` (at least
- * two each); result `[k][j]` is the share of player `subsets[k][j]`. Every player's hole cards are
- * dead, including those outside a subset (a folded hand's cards can't come on the board), so this is
- * the exact equity given every dealt card. Enumerating the boards once is what makes exact preflop
- * equity affordable for a whole study.
- */
-export function mainPotSharesBySubset(
-  holes: readonly (readonly Card[])[],
-  board: readonly Card[],
-  subsets: readonly (readonly number[])[],
-): number[][] {
+/** Checks a deal and its subsets (shared by the exact and sampled versions); returns every known card. */
+function validateDeal(holes: readonly (readonly Card[])[], board: readonly Card[], subsets: readonly (readonly number[])[]): Card[] {
   if (holes.length < 2) throw new Error('mainPotShares needs at least two players')
   if (![0, 3, 4, 5].includes(board.length)) throw new Error(`mainPotShares: a board has 0, 3, 4 or 5 cards, got ${board.length}`)
   for (const h of holes) if (h.length !== 2) throw new Error('mainPotShares: every player needs two hole cards')
@@ -218,6 +212,23 @@ export function mainPotSharesBySubset(
       throw new Error(`mainPotShares: bad subset ${sub.join(',')}`)
     }
   }
+  return known
+}
+
+/**
+ * mainPotShares for several subsets of the same players (e.g. who was still in the hand at each
+ * decision of a deal) in one pass over the boards. `subsets[k]` lists indices into `holes` (at least
+ * two each); result `[k][j]` is the share of player `subsets[k][j]`. Every player's hole cards are
+ * dead, including those outside a subset (a folded hand's cards can't come on the board), so this is
+ * the exact equity given every dealt card. Enumerating the boards once is what makes exact preflop
+ * equity affordable for a whole study.
+ */
+export function mainPotSharesBySubset(
+  holes: readonly (readonly Card[])[],
+  board: readonly Card[],
+  subsets: readonly (readonly number[])[],
+): number[][] {
+  const known = validateDeal(holes, board, subsets)
 
   const code = (c: Card) => cardCode(c[0]!, c[1]!)
   const holeCodes = holes.map((h) => h.map(code))
@@ -268,6 +279,9 @@ export function mainPotSharesBySubset(
 
 /** How many boards can still come, given the number of known cards (all hole cards plus the board). */
 export function remainingBoards(knownCards: number, boardLength: number): number {
+  if (![0, 3, 4, 5].includes(boardLength) || !Number.isInteger(knownCards) || knownCards < boardLength + 4 || knownCards > 52) {
+    throw new Error(`remainingBoards: bad input (${knownCards} known cards, board of ${boardLength})`)
+  }
   const rest = 52 - knownCards
   const k = 5 - boardLength
   let n = 1
@@ -283,17 +297,7 @@ export function remainingBoards(knownCards: number, boardLength: number): number
  */
 export function sampleMainPotShares(holes: readonly (readonly Card[])[], board: readonly Card[], subset: readonly number[], samples: number, seed: number): number[] {
   if (!Number.isInteger(samples) || samples < 1) throw new Error('sampleMainPotShares: samples must be a positive integer')
-  // Validates the input the same way as the exact version (cheap: one subset, river board not needed).
-  if (holes.length < 2) throw new Error('mainPotShares needs at least two players')
-  if (![0, 3, 4, 5].includes(board.length)) throw new Error(`mainPotShares: a board has 0, 3, 4 or 5 cards, got ${board.length}`)
-  for (const h of holes) if (h.length !== 2) throw new Error('mainPotShares: every player needs two hole cards')
-  const known = [...holes.flat(), ...board]
-  const bad = known.find((c) => !isCard(c))
-  if (bad !== undefined) throw new Error(`mainPotShares got a malformed card: ${bad}`)
-  if (new Set(known).size !== known.length) throw new Error(`mainPotShares got duplicate cards: ${known.join(' ')}`)
-  if (subset.length < 2 || new Set(subset).size !== subset.length || subset.some((i) => !Number.isInteger(i) || i < 0 || i >= holes.length)) {
-    throw new Error(`mainPotShares: bad subset ${subset.join(',')}`)
-  }
+  const known = validateDeal(holes, board, [subset])
 
   const code = (c: Card) => cardCode(c[0]!, c[1]!)
   const used = new Set(known)
@@ -431,7 +435,7 @@ describe('table view', () => {
     }
   })
 
-  it('never modifies the view it is given, and carries the equity annotation until the next hand', async () => {
+  it('never modifies the view it is given, and keeps the equity annotation until the hand ends', async () => {
     const events = await tournament('view-5')
     let v = emptyView()
     for (const e of events.slice(0, 40)) {
@@ -445,11 +449,24 @@ describe('table view', () => {
     expect(annotated.equityEstimated).toBe(true)
     expect(withEquity(v, null, true).equityEstimated).toBe(false)
     expect(v.equity).toBeNull()
-    const nextHand = events.findIndex((e, i) => i >= 40 && e.type === 'hand_started')
+    const handEnd = events.findIndex((e, i) => i >= 40 && e.type === 'hand_ended')
     let w = annotated
-    for (const e of events.slice(40, nextHand)) w = applyEvent(w, e)
+    for (const e of events.slice(40, handEnd)) w = applyEvent(w, e)
     expect(w.equity).toEqual({ jev: 0.5, pill: 0.5 })
-    expect(applyEvent(w, events[nextHand]!)).toMatchObject({ equity: null, equityEstimated: false })
+    expect(applyEvent(w, events[handEnd]!)).toMatchObject({ equity: null, equityEstimated: false })
+  })
+
+  it("keeps each hand's own seat order, and closes an open hand when the game stops mid-hand", async () => {
+    const events = await tournament('view-6')
+    const started = events.find((e): e is Extract<GameEvent, { type: 'hand_started' }> => e.type === 'hand_started')!
+    const firstTurn = events.findIndex((e) => e.type === 'turn_started')
+    const v = buildView(events.slice(0, firstTurn + 1))
+    expect(v.hand!.seatOrder).toEqual(started.seats.map((s) => s.playerId))
+    expect(v.hand!.toAct).not.toBeNull()
+    const crashed = applyEvent(withEquity(v, { jev: 1 }), {
+      type: 'game_ended', reason: 'interrupted', winner: null, stacks: {}, eliminated: [], handsPlayed: 0, gameId: 'g', seq: 9999, ts: 0,
+    })
+    expect(crashed).toMatchObject({ status: 'ended', equity: null, hand: { ended: true, toAct: null, options: null } })
   })
 })
 ```
@@ -510,6 +527,8 @@ export interface DecisionView {
 
 export interface HandView {
   handId: string | null
+  /** Player ids in this hand's seat order (buttonIndex indexes it; study hands reseat every hand). */
+  seatOrder: string[]
   buttonIndex: number
   smallBlind: number
   bigBlind: number
@@ -537,7 +556,8 @@ export interface TableView {
   result: { reason: EndReason; winner: string | null; stacks: Record<string, number> } | null
   /**
    * Each live player's true chance of winning the main pot from here (all hole cards known), set by the
-   * server with `withEquity` whenever the board or the live players change; null until computed.
+   * server with `withEquity` whenever the board or the live players change; null until computed, and
+   * cleared by the reducer when the hand ends (so every client clears it at the same event).
    */
   equity: Record<string, number> | null
   /** True when `equity` is a sampled estimate (early streets) rather than exact. */
@@ -553,12 +573,13 @@ export function emptyView(): TableView {
 /**
  * Folds one event into the view and returns the new view (the input is not modified). Pure and fast,
  * so the server (snapshots) and the browser (live updates) build identical views from the same events.
+ * A stream must start at its game_started event (it names the seats); events for unknown players throw.
  */
 export function applyEvent(prev: TableView, e: GameEvent): TableView {
   const v: TableView = {
     ...prev,
     seats: prev.seats.map((s) => ({ ...s })),
-    hand: prev.hand ? { ...prev.hand, board: [...prev.hand.board], awards: [...prev.hand.awards] } : null,
+    hand: prev.hand ? { ...prev.hand, board: [...prev.hand.board], awards: [...prev.hand.awards], seatOrder: [...prev.hand.seatOrder] } : null,
     lastSeq: e.seq,
   }
   const seat = (id: string) => {
@@ -619,6 +640,7 @@ export function applyEvent(prev: TableView, e: GameEvent): TableView {
       }
       v.hand = {
         handId: e.handId,
+        seatOrder: e.seats.map((s) => s.playerId),
         buttonIndex: e.buttonIndex,
         smallBlind: e.smallBlind,
         bigBlind: e.bigBlind,
@@ -700,12 +722,22 @@ export function applyEvent(prev: TableView, e: GameEvent): TableView {
         v.hand.toAct = null
         v.hand.options = null
       }
+      v.equity = null
+      v.equityEstimated = false
       v.handsPlayed++
       return v
     case 'game_ended':
       for (const [id, stack] of Object.entries(e.stacks)) seat(id).stack = stack
       v.status = 'ended'
       v.result = { reason: e.reason, winner: e.winner, stacks: { ...e.stacks } }
+      // A game that stopped mid-hand (a crash) closes the open hand too.
+      if (v.hand && !v.hand.ended) {
+        v.hand.ended = true
+        v.hand.toAct = null
+        v.hand.options = null
+      }
+      v.equity = null
+      v.equityEstimated = false
       return v
     default:
       return v
@@ -731,7 +763,7 @@ export * from './view'
 - [ ] **Step 4: Run tests and typecheck**
 
 Run: `pnpm --filter @ab/core exec vitest run && pnpm --filter @ab/core typecheck`
-Expected: PASS (38 tests); typecheck clean.
+Expected: PASS (39 tests); typecheck clean.
 
 - [ ] **Step 5: Commit**
 
@@ -813,6 +845,14 @@ describe('parseServerConfig', () => {
     expect(() => parseServerConfig({ LIVE_BUDGET_USD: '500' })).toThrow(/from 0.01 to 100/)
     expect(() => parseServerConfig({ ADMIN_TOKEN: 'short' })).toThrow(/at least 16 characters/)
     expect(() => parseServerConfig({}, ['--mok'])).toThrow(/unknown argument/)
+    // The free/paid switch accepts only 0 or 1: "true" must not quietly mean paid mode.
+    expect(() => parseServerConfig({ MOCK: 'true' })).toThrow(/MOCK must be 0 or 1/)
+    expect(parseServerConfig({ MOCK: '0' }).mock).toBe(false)
+    expect(() => parseServerConfig({ PORT: '8787.5' })).toThrow(/whole number/)
+    expect(() => parseServerConfig({ PORT: '0x10' })).toThrow(/PORT/)
+    expect(() => parseServerConfig({ MAX_CLIENTS: '1e3' })).toThrow(/MAX_CLIENTS/)
+    expect(() => parseServerConfig({ ALLOWED_ORIGIN: 'http://localhost:3000/' })).toThrow(/origin/)
+    expect(() => parseServerConfig({ ALLOWED_ORIGIN: '*' })).toThrow(/origin/)
   })
 })
 ```
@@ -821,26 +861,30 @@ describe('parseServerConfig', () => {
 ```ts
 import type { GameEvent, GameRow } from '@ab/core'
 import { describe, expect, it } from 'vitest'
-import { publicEvent, publicGame } from '../src/public'
+import { isOver, publicEvent, publicGame, WITHHELD_SEED } from '../src/public'
 
 const row = (status: GameRow['status']): GameRow => ({ id: 'g', kind: 'live', createdAt: 1, status, config: { tournament: { seed: 'secret' } }, configHash: 'h', endedAt: null })
 
 describe('public views', () => {
-  it('withholds a running game config (its seeds reveal the cards to come) and publishes it afterwards', () => {
+  it('withholds a config (its seeds reveal the cards to come) until the game is over for good', () => {
     expect(publicGame(row('running'))).toMatchObject({ id: 'g', configHash: 'h', config: null })
     expect(publicGame(row('ended')).config).toEqual({ tournament: { seed: 'secret' } })
-    expect(publicGame(row('interrupted')).config).toEqual({ tournament: { seed: 'secret' } })
+    expect(publicGame(row('interrupted')).config).toEqual({ tournament: { seed: 'secret' } }) // live games never resume
+    const study = (status: GameRow['status']): GameRow => ({ ...row(status), kind: 'study' })
+    expect(isOver(study('interrupted'))).toBe(false) // a stopped study can be resumed: its master seed stays secret
+    expect(publicGame(study('interrupted')).config).toBeNull()
+    expect(publicGame(study('ended')).config).not.toBeNull()
   })
 
-  it("hides a running study hand's deck seed, and nothing else", () => {
+  it("withholds a study hand's deck seed until the game is over, and nothing else", () => {
     const e = {
       type: 'hand_started', handId: '0:0#1', buttonIndex: 0, smallBlind: 50, bigBlind: 100, seats: [], posts: [],
       duplicate: { groupIndex: 0, rotation: 0, order: 1, seed: 12345, attempt: 1 }, gameId: 's', seq: 1, ts: 0,
     } as GameEvent
-    expect(publicEvent(e, true)).toMatchObject({ duplicate: { groupIndex: 0, seed: 0 } })
-    expect(publicEvent(e, false)).toBe(e)
+    expect(publicEvent(e, false)).toMatchObject({ duplicate: { groupIndex: 0, seed: WITHHELD_SEED } })
+    expect(publicEvent(e, true)).toBe(e)
     const dealt = { type: 'cards_dealt', handId: 'h', holes: { a: ['As', 'Kd'] }, gameId: 'g', seq: 2, ts: 0 } as GameEvent
-    expect(publicEvent(dealt, true)).toBe(dealt) // spectators see every hole card
+    expect(publicEvent(dealt, false)).toBe(dealt) // spectators see every hole card
   })
 })
 ```
@@ -882,12 +926,27 @@ export interface ServerConfig {
 
 type Env = Record<string, string | undefined>
 
-function number(env: Env, key: string, fallback: number, min: number, max: number): number {
-  const raw = env[key]
+function number(env: Env, key: string, fallback: number, min: number, max: number, integer = false): number {
+  const raw = env[key]?.trim()
   if (raw === undefined || raw === '') return fallback
-  const value = Number(raw)
-  if (!Number.isFinite(value) || value < min || value > max) throw new Error(`${key} must be a number from ${min} to ${max}, got "${raw}"`)
+  const value = /^\d+(\.\d+)?$/.test(raw) ? Number(raw) : Number.NaN
+  if (!Number.isFinite(value) || value < min || value > max || (integer && !Number.isInteger(value))) {
+    throw new Error(`${key} must be ${integer ? 'a whole number' : 'a number'} from ${min} to ${max}, got "${env[key]}"`)
+  }
   return value
+}
+
+function flag(env: Env, key: string): boolean {
+  const raw = env[key]?.trim() ?? ''
+  if (raw === '' || raw === '0') return false
+  if (raw === '1') return true
+  throw new Error(`${key} must be 0 or 1, got "${env[key]}"`)
+}
+
+function origin(env: Env, key: string): string | null {
+  const raw = env[key]?.trim() || null
+  if (raw !== null && !/^https?:\/\/[^/\s*]+$/.test(raw)) throw new Error(`${key} must be an origin like http://localhost:3000 (no path, no trailing slash, no *), got "${raw}"`)
+  return raw
 }
 
 /** Reads the server settings; throws on a malformed value so a typo can't silently change behaviour. */
@@ -897,19 +956,19 @@ export function parseServerConfig(env: Env, argv: readonly string[] = []): Serve
   const token = env.ADMIN_TOKEN?.trim() || null
   if (token !== null && token.length < 16) throw new Error('ADMIN_TOKEN must be at least 16 characters (or unset to disable the admin API)')
   return {
-    port: number(env, 'PORT', 8787, 0, 65_535),
+    port: number(env, 'PORT', 8787, 0, 65_535, true),
     host: env.HOST?.trim() || '127.0.0.1',
     dbPath: env.DB_PATH?.trim() || 'data/live.db',
     adminToken: token,
     lineupPath: env.LINEUP?.trim() || 'lineups/live.json',
-    mock: argv.includes('--mock') || env.MOCK === '1',
+    mock: argv.includes('--mock') || flag(env, 'MOCK'),
     liveBudgetUsd: number(env, 'LIVE_BUDGET_USD', 1, 0.01, 100),
-    paceMs: number(env, 'PACE_MS', 2500, 0, 60_000),
-    decisionTimeoutMs: number(env, 'DECISION_TIMEOUT_MS', 20_000, 1000, 300_000),
-    replayPaceMs: number(env, 'REPLAY_PACE_MS', 1500, 0, 60_000),
-    cooldownMs: number(env, 'COOLDOWN_MS', 30_000, 0, 600_000),
-    allowedOrigin: env.ALLOWED_ORIGIN?.trim() || null,
-    maxClients: number(env, 'MAX_CLIENTS', 500, 1, 100_000),
+    paceMs: number(env, 'PACE_MS', 2500, 0, 60_000, true),
+    decisionTimeoutMs: number(env, 'DECISION_TIMEOUT_MS', 20_000, 1000, 300_000, true),
+    replayPaceMs: number(env, 'REPLAY_PACE_MS', 1500, 0, 60_000, true),
+    cooldownMs: number(env, 'COOLDOWN_MS', 30_000, 0, 600_000, true),
+    allowedOrigin: origin(env, 'ALLOWED_ORIGIN'),
+    maxClients: number(env, 'MAX_CLIENTS', 500, 1, 100_000, true),
   }
 }
 ```
@@ -927,10 +986,18 @@ export interface PublicGame {
   endedAt: number | null
   configHash: string
   /**
-   * The full config (seeds included) once the game is over, so anyone can check it against the hash
-   * and replay the decks. Withheld while the game runs: seeds reveal every card still to come.
+   * The full config (seeds included) once the game is over for good (see isOver), so anyone can check
+   * it against the hash and replay the decks. Withheld until then: seeds reveal every card still to come.
    */
   config: unknown | null
+}
+
+/**
+ * Whether a game is over for good, so its seeds can be published: an ended game, or an interrupted live
+ * game (live games never resume). An interrupted study can be resumed, so its master seed stays secret.
+ */
+export function isOver(row: GameRow): boolean {
+  return row.status === 'ended' || (row.kind === 'live' && row.status === 'interrupted')
 }
 
 export function publicGame(row: GameRow): PublicGame {
@@ -941,20 +1008,19 @@ export function publicGame(row: GameRow): PublicGame {
     createdAt: row.createdAt,
     endedAt: row.endedAt,
     configHash: row.configHash,
-    config: row.status === 'running' ? null : row.config,
+    config: isOver(row) ? row.config : null,
   }
 }
 
+/** Stands in for a withheld deck seed (real seeds are unsigned 32-bit integers). */
+export const WITHHELD_SEED = -1
+
 /**
  * An event as spectators may see it. Hole cards are public (spectators see every hand; the players are
- * programs that never read the feed). While a game runs, a study hand's deck seed is removed: the other
- * rotations of its group deal the same deck.
+ * programs that never read the feed). Until a game is over, a study hand's deck seed is withheld.
  */
-export function publicEvent(e: GameEvent, running: boolean): GameEvent {
-  if (running && e.type === 'hand_started' && e.duplicate) {
-    const { seed: _seed, ...duplicate } = e.duplicate
-    return { ...e, duplicate: { ...duplicate, seed: 0 } }
-  }
+export function publicEvent(e: GameEvent, over: boolean): GameEvent {
+  if (!over && e.type === 'hand_started' && e.duplicate) return { ...e, duplicate: { ...e.duplicate, seed: WITHHELD_SEED } }
   return e
 }
 ```
@@ -990,7 +1056,7 @@ git -c user.email=jobinb6444@gmail.com -c user.name=0xjba commit -m "feat(server
 
 `apps/server/test/hub.test.ts`:
 ```ts
-import { buildView, EventStore, runTournamentGame, type GameEvent } from '@ab/core'
+import { applyEvent, buildView, emptyView, EventStore, runTournamentGame, withEquity, type GameEvent, type TableView } from '@ab/core'
 import { liveTurboConfig } from '@ab/engine'
 import { CallingStation, MockLlm, TagBot } from '@ab/players'
 import { describe, expect, it } from 'vitest'
@@ -1018,11 +1084,47 @@ describe('Hub', () => {
     const sent = got.filter((m): m is Extract<FeedMessage, { type: 'event' }> => m.type === 'event').map((m) => m.event)
     expect(sent).toEqual(events)
     const { view } = hub.current()
-    expect({ ...view, equity: null, equityEstimated: false }).toEqual(buildView(events))
+    expect(view).toEqual(buildView(events)) // the game has ended: no equity left on either side
     // A late subscriber starts from the same view.
     const late: FeedMessage[] = []
     hub.subscribe((m) => late.push(m))
     expect(late).toEqual([{ type: 'snapshot', channel: hub.current().channel, view }])
+  })
+
+  it('keeps a connected client exactly in step with the hub, equity included', async () => {
+    const hub = new Hub()
+    let client: TableView = emptyView()
+    let mismatches = 0
+    hub.subscribe((m) => {
+      if (m.type === 'snapshot') client = m.view
+      else if (m.type === 'event') client = applyEvent(client, m.event)
+      else client = withEquity(client, m.equity, m.estimated)
+    })
+    const store = new EventStore()
+    const players = [new MockLlm('jev'), new TagBot('pill'), new MockLlm('block'), new CallingStation('drip'), new MockLlm('nimbus')]
+    hub.begin({ mode: 'live', title: 'LIVE', gameId: 'g' })
+    await runTournamentGame({
+      gameId: 'g', players, tournament: { ...liveTurboConfig('step'), maxHands: 8 }, store, decisionTimeoutMs: 1000, budgetUsd: 100,
+      onEvent: (e) => {
+        hub.publish(e)
+        if (JSON.stringify(client) !== JSON.stringify(hub.current().view)) mismatches++
+      },
+    })
+    expect(mismatches).toBe(0)
+  })
+
+  it('does not send an event twice to someone who subscribes while it is being broadcast', () => {
+    const hub = new Hub()
+    hub.begin({ mode: 'live', title: 'LIVE', gameId: 'g' })
+    const late: string[] = []
+    let added = false
+    hub.subscribe((m) => {
+      if (m.type !== 'event' || added) return
+      added = true
+      hub.subscribe((m) => late.push(m.type))
+    })
+    hub.publish({ type: 'game_started', kind: 'live', configHash: 'h', players: [{ id: 'a', kind: 'bot', model: 'bot/tag' }], gameId: 'g', seq: 1, ts: 0 })
+    expect(late).toEqual(['snapshot']) // the snapshot already includes the event
   })
 
   it('annotates true equity whenever the board or the live players change', async () => {
@@ -1091,9 +1193,8 @@ export interface TableEquity {
 
 /**
  * Each live player's true chance of winning the main pot from here, given every dealt hole card and
- * the board (the same quantity as the study's outcome C). Exact when that is cheap (from the flop, or
- * preflop after folds); otherwise a reproducible 20,000-board estimate, so the event loop is never
- * blocked for long. Null when there is no hand in progress or fewer than two players are still in.
+ * the board (the same quantity as the study's outcome C). Exact when that is cheap (from the flop on);
+ * otherwise (preflop) a reproducible 20,000-board estimate, so the event loop is never blocked for long. Null when there is no hand in progress or fewer than two players are still in.
  */
 export function tableEquity(view: TableView): TableEquity | null {
   const hand = view.hand
@@ -1168,16 +1269,20 @@ export class Hub {
     return this.begin({ mode: 'idle', title, gameId: null })
   }
 
-  /** Adds an event to the current programme; recomputes true equity when the board or live players change. */
+  /**
+   * Adds an event to the current programme; recomputes true equity when the board or live players
+   * change. Clients apply the same event with applyEvent and each equity message with withEquity, so
+   * their view always equals the hub's (the reducer itself clears equity when a hand ends).
+   */
   publish(event: GameEvent): void {
     this.view = applyEvent(this.view, event)
     this.broadcast({ type: 'event', channelId: this.channel.id, event })
     const key = equityKey(this.view)
     if (key !== this.lastEquityKey) {
       this.lastEquityKey = key
-      const result = key === null ? null : tableEquity(this.view)
-      this.view = withEquity(this.view, result?.equity ?? null, result?.estimated ?? false)
       if (key !== null) {
+        const result = tableEquity(this.view)
+        this.view = withEquity(this.view, result?.equity ?? null, result?.estimated ?? false)
         this.broadcast({ type: 'equity', channelId: this.channel.id, handId: this.view.hand?.handId ?? null, equity: this.view.equity, estimated: this.view.equityEstimated })
       }
     }
@@ -1203,7 +1308,8 @@ export class Hub {
   }
 
   private broadcast(message: FeedMessage): void {
-    for (const fn of this.subscribers) this.safeSend(fn, message)
+    // A copy: someone subscribing mid-broadcast gets a snapshot that already includes this message.
+    for (const fn of [...this.subscribers]) this.safeSend(fn, message)
   }
 
   /** A subscriber that throws (a broken connection) is dropped; it never stops the game. */
@@ -1228,7 +1334,7 @@ export * from './hub'
 - [ ] **Step 4: Run tests and typecheck**
 
 Run: `pnpm --filter @ab/server exec vitest run && pnpm --filter @ab/server typecheck`
-Expected: PASS (9 tests); typecheck clean.
+Expected: PASS (11 tests); typecheck clean.
 
 - [ ] **Step 5: Commit**
 
@@ -1266,7 +1372,7 @@ export async function playLiveGame(store: EventStore, gameId: string, maxHands =
 `apps/server/test/replay.test.ts`:
 ```ts
 import type { HandRecord } from '@ab/analysis'
-import { EventStore, type GameEvent, type PlayerInfo } from '@ab/core'
+import { buildView, EventStore, type GameEvent, type PlayerInfo } from '@ab/core'
 import { describe, expect, it } from 'vitest'
 import { Hub, type FeedMessage } from '../src/hub'
 import { highlightReel, highlightScore, playReplay, replayDelay, replayQueue } from '../src/replay'
@@ -1305,6 +1411,26 @@ describe('highlights', () => {
     expect(starts).toHaveLength(3)
     expect([...starts].sort((a, b) => Number(a.split('-')[1]) - Number(b.split('-')[1]))).toEqual(starts)
     expect(highlightReel([], 3, 'x')).toBeNull()
+  })
+
+  it('keeps each hand of a reel together even when the log interleaves hands (parallel study tables)', async () => {
+    const a = await playLiveGame(new EventStore(), 'g', 4)
+    const started = a[0]!
+    const hands = new Map<string, GameEvent[]>()
+    for (const e of a.slice(1)) {
+      if (!('handId' in e) || e.handId === null) continue
+      hands.set(e.handId, [...(hands.get(e.handId) ?? []), e])
+    }
+    // Interleave the hands' events round-robin, as parallel tables would log them.
+    const lists = [...hands.values()]
+    const mixed: GameEvent[] = [started]
+    for (let i = 0; i < Math.max(...lists.map((l) => l.length)); i++) for (const l of lists) if (l[i]) mixed.push(l[i]!)
+    const reel = highlightReel(mixed, 3, 'reel')!
+    const order = reel.events.slice(1).map((e) => (e as { handId: string }).handId)
+    const runs = order.filter((id, i) => i === 0 || id !== order[i - 1])
+    expect(runs).toHaveLength(3) // three hands, each in one unbroken run
+    expect(new Set(runs).size).toBe(3)
+    expect(buildView(reel.events).handsPlayed).toBe(3) // and the reducer can follow it
   })
 
   it('alternates finished live games (newest first) with study reels, and skips unfinished games', async () => {
@@ -1418,7 +1544,10 @@ export function highlightScore(hand: HandRecord, players: Map<string, PlayerInfo
   return wonBb + allIn + 100 * clash
 }
 
-/** The `limit` most watchable hands of a game, in play order, as one replay (game_started + those hands). */
+/**
+ * The `limit` most watchable hands of a game as one replay: game_started, then each hand's events in
+ * full, hand after hand, in the order the hands started.
+ */
 export function highlightReel(events: readonly GameEvent[], limit: number, title: string): ReplayItem | null {
   const started = events.find((e) => e.type === 'game_started')
   if (!started) return null
@@ -1429,8 +1558,15 @@ export function highlightReel(events: readonly GameEvent[], limit: number, title
     .slice(0, limit)
   if (best.length === 0) return null
   const keep = new Set(best.map((b) => b.id))
-  const handEvents = events.filter((e) => 'handId' in e && e.handId !== null && keep.has(e.handId))
-  return { title, gameId: started.gameId, events: [started, ...handEvents] }
+  // One hand after another: a study with parallel tables logs several hands' events interleaved.
+  const byHand = new Map<string, GameEvent[]>()
+  for (const e of events) {
+    if (!('handId' in e) || e.handId === null || !keep.has(e.handId)) continue
+    const list = byHand.get(e.handId)
+    if (list) list.push(e)
+    else byHand.set(e.handId, [e])
+  }
+  return { title, gameId: started.gameId, events: [started, ...[...byHand.values()].flat()] }
 }
 
 /**
@@ -1477,7 +1613,7 @@ export async function playReplay(hub: Hub, item: ReplayItem, opts: { paceMs: num
   hub.begin({ mode: 'replay', title: item.title, gameId: item.gameId })
   for (const e of item.events) {
     if (opts.signal?.aborted) return false
-    hub.publish(publicEvent(e, false))
+    hub.publish(publicEvent(e, true)) // only finished games are replayed
     const ms = replayDelay(e, opts.paceMs)
     if (ms > 0) await wait(ms, opts.signal)
   }
@@ -1498,7 +1634,7 @@ export * from './replay'
 - [ ] **Step 4: Run tests and typecheck**
 
 Run: `pnpm --filter @ab/server exec vitest run && pnpm --filter @ab/server typecheck`
-Expected: PASS (14 tests); typecheck clean.
+Expected: PASS (17 tests); typecheck clean.
 
 - [ ] **Step 5: Commit**
 
@@ -1760,7 +1896,7 @@ export class LiveController {
       budgetUsd: this.deps.budgetUsd,
       ...(this.deps.meta ? { meta: this.deps.meta } : {}),
       signal: abort.signal,
-      onEvent: (e) => this.deps.hub.publish(publicEvent(e, true)),
+      onEvent: (e) => this.deps.hub.publish(publicEvent(e, false)),
       onListenerError: (e) => this.deps.log?.(`feed error: ${String(e)}`),
       ...(this.deps.sleep ? { sleep: this.deps.sleep } : {}),
     })
@@ -1877,7 +2013,7 @@ export * from './director'
 - [ ] **Step 4: Run tests and typecheck**
 
 Run: `pnpm --filter @ab/server exec vitest run && pnpm --filter @ab/server typecheck`
-Expected: PASS (22 tests; the live-game tests play whole mock tournaments and take ~15 s); typecheck clean.
+Expected: PASS (25 tests; the live-game tests play whole mock tournaments and take ~15 s); typecheck clean.
 
 - [ ] **Step 5: Commit**
 
@@ -2020,7 +2156,7 @@ export * from './players'
 - [ ] **Step 4: Run tests and typecheck**
 
 Run: `pnpm --filter @ab/server exec vitest run && pnpm --filter @ab/server typecheck`
-Expected: PASS (25 tests); typecheck clean.
+Expected: PASS (28 tests); typecheck clean.
 
 - [ ] **Step 5: Commit**
 
@@ -2198,7 +2334,7 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import type { ServerConfig } from './config'
 import type { FeedMessage, Hub } from './hub'
 import { LiveBusyError, type LiveController } from './live'
-import { publicGame } from './public'
+import { isOver, publicGame } from './public'
 
 export interface HttpDeps {
   config: Pick<ServerConfig, 'adminToken' | 'allowedOrigin' | 'maxClients' | 'mock'>
@@ -2229,7 +2365,7 @@ function send(res: ServerResponse, status: number, body: unknown): void {
  * - GET  /api/feed              Server-Sent Events: a snapshot, then events and equity updates
  * - GET  /api/games             finished and running games (configs withheld while running)
  * - GET  /api/games/:id         one game
- * - GET  /api/games/:id/events  every event of a finished game
+ * - GET  /api/games/:id/events  every event of a game that is over for good (see isOver)
  * - POST /api/admin/games       start a live game (Authorization: Bearer ADMIN_TOKEN)
  * - POST /api/admin/games/stop  stop the live game after the current hand
  */
@@ -2317,7 +2453,7 @@ export function createHttpServer(deps: HttpDeps): Server {
         const row = deps.store.game(game[1]!)
         if (!row) return send(res, 404, { error: 'no such game' })
         if (!game[2]) return send(res, 200, publicGame(row))
-        if (row.status === 'running') return send(res, 409, { error: 'the game is still running: watch /api/feed' })
+        if (!isOver(row)) return send(res, 409, { error: 'the game is not over yet (running, or a study that can still resume)' })
         return send(res, 200, { game: publicGame(row), events: deps.store.events(row.id) })
       }
       if (method === 'POST' && path === '/api/admin/games') {
@@ -2504,7 +2640,7 @@ ADMIN_TOKEN=
 - [ ] **Step 4: Run everything, then the free server**
 
 Run: `pnpm test && pnpm typecheck`
-Expected: PASS (engine 112, players 44, core 38, analysis 20, server 31, study 49); typecheck clean.
+Expected: PASS (engine 112, players 44, core 39, analysis 20, server 34, study 49); typecheck clean.
 
 Then (free; mock players):
 ```bash
