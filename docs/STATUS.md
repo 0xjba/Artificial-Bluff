@@ -75,7 +75,7 @@ Last updated: 2026-09-22
 - [x] Task 6: Report model + CSV export (a80ed5a + b7f39c3; spec ✅)
 - [x] Task 7: HTML report (d122fac; spec ✅)
 - [x] Task 8: pnpm study report (9e2c24d; spec ✅; 256 tests)
-- [ ] Final branch review (opus)
+- [ ] Final branch review (opus): merge after fixes → prereg fixes contrast family + per-action rules, single log snapshot, logged stop honoured before study_ended, direct t tail + `<0.0001`, ≥3 sig-digit costs, winnablePot in CSV, CSV formula defusing, mock/interim banners, focus marker (fix pending; expect study 49, total 258)
 
 ## Key decisions (summary; spec is authoritative)
 
