@@ -8,6 +8,7 @@ import { usd } from '../../lib/format'
 import { listReports } from '../../lib/reports'
 import { NO_REPORT_PAGES, reportPages } from '../../lib/reportPages'
 import { researchHeadline, researchMetrics } from '../../lib/research'
+import styles from './research.module.css'
 
 export const metadata: Metadata = { title: 'Research · artificialBluff' }
 
@@ -54,9 +55,9 @@ export default async function Research() {
     : []
 
   return (
-    <div className="research-page">
-      <section className="intro">
-        <span className="kicker">RESEARCH</span>
+    <div className={`${styles['research-page']} research-light`}>
+      <section className={styles.intro}>
+        <span className={styles.kicker}>RESEARCH</span>
         <h1>I&apos;m Jobin Ayathil.</h1>
         <p>
           I&apos;ve spent the last five years in developer relations, which mostly means sitting where a complicated system meets the people trying to use it,
@@ -68,17 +69,17 @@ export default async function Research() {
           table, logs every decision with the probability the model claimed, and compares that against the true chance computed from all the cards. What comes
           out is not a leaderboard of cleverness but a record of which models know what they don&apos;t know.
         </p>
-        <div className="links">
+        <div className={styles.links}>
           <a href="https://github.com/0xjba">GitHub</a>
           <a href="https://www.linkedin.com/in/0xjba/">LinkedIn</a>
           <a href="mailto:jobinb6444@gmail.com">jobinb6444@gmail.com</a>
         </div>
       </section>
 
-      <section className="hands-say">
-        <div className="inner">
-          <div className="lead">
-            <span className="kicker">WHAT THE HANDS SAY</span>
+      <section className={styles['hands-say']}>
+        <div className={styles.inner}>
+          <div className={styles.lead}>
+            <span className={styles.kicker}>WHAT THE HANDS SAY</span>
             <h2>{table && table.hands > 0 ? researchHeadline(table) : 'No games have finished yet.'}</h2>
             <p>
               {metrics.length
@@ -89,15 +90,15 @@ export default async function Research() {
 
           {metrics.length ? (
             <>
-              <div className="metrics">
+              <div className={styles.metrics}>
                 {metrics.map((m) => (
                   <div key={m.what}>
-                    <span className="v">{m.value}</span>
-                    <span className="k">{m.what}</span>
+                    <span className={styles.v}>{m.value}</span>
+                    <span className={styles.k}>{m.what}</span>
                   </div>
                 ))}
               </div>
-              <p className="caveat">
+              <p className={styles.caveat}>
                 Figures come from the event log of {table!.games} finished live {table!.games === 1 ? 'game' : 'games'} ({table!.hands} hands,{' '}
                 {table!.seats.length} seats) and are demo scale, not a study result: the sample is small, blinds rise throughout, and the line-up can change
                 between games. The report below is the pre-registered version, with the method, the equity computation and every limitation.
@@ -105,7 +106,7 @@ export default async function Research() {
             </>
           ) : null}
 
-          <div className="findings">
+          <div className={styles.findings}>
             {FINDINGS.map((f) => (
               <div key={f.h}>
                 <h3>{f.h}</h3>
@@ -116,10 +117,10 @@ export default async function Research() {
         </div>
       </section>
 
-      <section className="report">
-        <div className="inner">
-          <div className="lead">
-            <span className="kicker">TECHNICAL REPORT</span>
+      <section className={styles.report}>
+        <div className={styles.inner}>
+          <div className={styles.lead}>
+            <span className={styles.kicker}>TECHNICAL REPORT</span>
             <h2>Measuring stated confidence against true equity in AI-vs-AI Texas Hold&apos;em</h2>
             <p>
               {latest
@@ -130,20 +131,20 @@ export default async function Research() {
 
           <ReportViewer pages={pages} label={latest ? `${latest.report.study.id}.report` : 'artificial-bluff-report'} files={files} />
 
-          <div className="sections">
+          <div className={styles.sections}>
             {pages.map((p) => (
               <div key={p.n}>
-                <span className="no">{String(p.n).padStart(2, '0')}</span>
+                <span className={styles.no}>{String(p.n).padStart(2, '0')}</span>
                 <div>
-                  <div className="t">{p.title}</div>
-                  <div className="p">PAGE {p.n}</div>
+                  <div className={styles.t}>{p.title}</div>
+                  <div className={styles.p}>PAGE {p.n}</div>
                 </div>
               </div>
             ))}
           </div>
 
           {reports.length > 1 ? (
-            <p className="caveat">
+            <p className={styles.caveat}>
               Earlier studies:{' '}
               {reports.slice(1).map((e, i) => (
                 <span key={e.dir}>
@@ -156,13 +157,13 @@ export default async function Research() {
         </div>
       </section>
 
-      <footer className="research-footer">
-        <div className="inner">
-          <span className="logo">
+      <footer className={styles['research-footer']}>
+        <div className={styles.inner}>
+          <span className={styles.logo}>
             ARTIFICIAL<span>BLUFF</span>
           </span>
-          <span className="blurb">A research benchmark that happens to be watchable. Chips are play money; models spend real tokens.</span>
-          <span className="links">
+          <span className={styles.blurb}>A research benchmark that happens to be watchable. Chips are play money; models spend real tokens.</span>
+          <span className={styles.links}>
             <Link href="/models">Models</Link>
             <Link href="/replays">Replays</Link>
             <Link href="/play">Run a table</Link>

@@ -6,6 +6,7 @@ import { connection } from 'next/server'
 import { MascotBadge } from '../../components/MascotBadge'
 import { API_URL } from '../../lib/api'
 import { ms, pct, shortModel, signedChips, usd } from '../../lib/format'
+import styles from './models.module.css'
 
 export const metadata: Metadata = { title: 'Models · artificialBluff' }
 
@@ -38,9 +39,9 @@ export default async function Models() {
   const seats = table?.seats ?? []
 
   return (
-    <div className="models">
-      <header className="models-head">
-        <span className="kicker">THE TABLE</span>
+    <div className={styles.models}>
+      <header className={styles['models-head']}>
+        <span className={styles.kicker}>THE TABLE</span>
         <h1>{seats.length ? `${seats.length} seats, ${new Set(seats.map((s) => s.model)).size} models, one set of rules` : 'The table'}</h1>
         <p>
           Each mascot is a permanent seat; the model behind it can change between games. Everything here is measured from the event log of every hand played —
@@ -49,59 +50,59 @@ export default async function Models() {
       </header>
 
       {!table ? (
-        <p className="models-empty warn">The live server isn&apos;t reachable, so there is nothing to show.</p>
+        <p className={`${styles['models-empty']} warn`}>The live server isn&apos;t reachable, so there is nothing to show.</p>
       ) : seats.length === 0 ? (
-        <p className="models-empty muted">No game has finished yet. This page fills in once the first live game ends.</p>
+        <p className={`${styles['models-empty']} muted`}>No game has finished yet. This page fills in once the first live game ends.</p>
       ) : (
         <>
-          <div className="models-scroll">
-            <div className="models-board">
-              <div className="row-head">
+          <div className={styles['models-scroll']}>
+            <div className={styles['models-board']}>
+              <div className={styles['row-head']}>
                 <span>#</span>
                 <span />
                 <span>SEAT / MODEL</span>
-                <span className="r">CHIPS WON</span>
-                <span className="r">HANDS</span>
+                <span className={styles.r}>CHIPS WON</span>
+                <span className={styles.r}>HANDS</span>
                 <span>WIN RATE</span>
-                <span className="r">AVG TIME</span>
-                <span className="r">AVG ERROR</span>
+                <span className={styles.r}>AVG TIME</span>
+                <span className={styles.r}>AVG ERROR</span>
               </div>
               {seats.map((s, i) => {
                 const who = characterFor(s.playerId, i)
                 return (
-                  <div className="row" key={s.playerId} style={{ '--seat': who.color } as React.CSSProperties}>
-                    <span className="rank">{i + 1}</span>
+                  <div className={styles.row} key={s.playerId} style={{ '--seat': who.color } as React.CSSProperties}>
+                    <span className={styles.rank}>{i + 1}</span>
                     <span className="face">
                       <MascotBadge playerId={s.playerId} index={i} size={28} />
                     </span>
-                    <span className="who">
-                      <span className="who-top">
+                    <span className={styles.who}>
+                      <span className={styles['who-top']}>
                         <b>{who.name}</b>
-                        <span className="chip">{shortModel(s.model)}</span>
-                        {s.models.length > 1 ? <span className="chip">+{s.models.length - 1} more</span> : null}
+                        <span className={styles.chip}>{shortModel(s.model)}</span>
+                        {s.models.length > 1 ? <span className={styles.chip}>+{s.models.length - 1} more</span> : null}
                       </span>
-                      <span className="style">{styleLine(s)}</span>
+                      <span className={styles.style}>{styleLine(s)}</span>
                     </span>
-                    <span className={`r chips ${s.chipsWon < 0 ? 'down' : 'up'}`}>{signedChips(s.chipsWon)}</span>
-                    <span className="r mono">{s.hands}</span>
-                    <span className="rate">
-                      <span className="bar">
+                    <span className={`${styles.r} ${styles.chips} ${s.chipsWon < 0 ? 'down' : 'up'}`}>{signedChips(s.chipsWon)}</span>
+                    <span className={`${styles.r} ${styles.mono}`}>{s.hands}</span>
+                    <span className={styles.rate}>
+                      <span className={styles.bar}>
                         <span style={{ width: `${Math.round((s.winRate ?? 0) * 100)}%` }} />
                       </span>
-                      <span className="mono">{pct(s.winRate)}</span>
+                      <span className={styles.mono}>{pct(s.winRate)}</span>
                     </span>
-                    <span className="r mono">{ms(s.latencyMeanMs)}</span>
-                    <span className="r mono">{absPts(s.errorPts)}</span>
+                    <span className={`${styles.r} ${styles.mono}`}>{ms(s.latencyMeanMs)}</span>
+                    <span className={`${styles.r} ${styles.mono}`}>{absPts(s.errorPts)}</span>
                   </div>
                 )
               })}
             </div>
           </div>
 
-          <div className="models-section">
-            <span className="k">SEAT DOSSIERS</span>
+          <div className={styles['models-section']}>
+            <span className={styles.k}>SEAT DOSSIERS</span>
           </div>
-          <div className="dossiers">
+          <div className={styles.dossiers}>
             {seats.map((s, i) => {
               const who = characterFor(s.playerId, i)
               const traits: Array<[string, number | null, string]> = [
@@ -110,44 +111,44 @@ export default async function Models() {
                 ['TO SHOWDOWN', s.style.wtsd, pct(s.style.wtsd)],
               ]
               return (
-                <article className="dossier" key={s.playerId} style={{ '--seat': who.color } as React.CSSProperties}>
-                  <div className="dossier-top">
-                    <span className="face big">
+                <article className={styles.dossier} key={s.playerId} style={{ '--seat': who.color } as React.CSSProperties}>
+                  <div className={styles['dossier-top']}>
+                    <span className={`face ${styles.big}`}>
                       <MascotBadge playerId={s.playerId} index={i} size={48} />
                     </span>
                     <div>
-                      <div className="name">{who.name}</div>
-                      <div className="model">{s.models.map(shortModel).join(', ')}</div>
-                      <div className="style">{styleLine(s)}</div>
+                      <div className={styles.name}>{who.name}</div>
+                      <div className={styles.model}>{s.models.map(shortModel).join(', ')}</div>
+                      <div className={styles.style}>{styleLine(s)}</div>
                     </div>
                   </div>
-                  <div className="traits">
+                  <div className={styles.traits}>
                     {traits.map(([k, value, label]) => (
-                      <div className="trait" key={k}>
-                        <span className="k">{k}</span>
-                        <span className="bar">
+                      <div className={styles.trait} key={k}>
+                        <span className={styles.k}>{k}</span>
+                        <span className={styles.bar}>
                           <span style={{ width: `${Math.round((value ?? 0) * 100)}%` }} />
                         </span>
-                        <span className="v">{label}</span>
+                        <span className={styles.v}>{label}</span>
                       </div>
                     ))}
                   </div>
-                  <div className="dossier-foot">
+                  <div className={styles['dossier-foot']}>
                     <div>
-                      <div className="k">SPENT</div>
-                      <div className="v">{usd(s.costUsd)}</div>
+                      <div className={styles.k}>SPENT</div>
+                      <div className={styles.v}>{usd(s.costUsd)}</div>
                     </div>
                     <div>
-                      <div className="k">PER DECISION</div>
-                      <div className="v">{s.costPerDecisionUsd === null ? '–' : usd(s.costPerDecisionUsd)}</div>
+                      <div className={styles.k}>PER DECISION</div>
+                      <div className={styles.v}>{s.costPerDecisionUsd === null ? '–' : usd(s.costPerDecisionUsd)}</div>
                     </div>
                     <div>
-                      <div className="k">LEANS</div>
-                      <div className="v">{signedPts(s.biasPts)}</div>
+                      <div className={styles.k}>LEANS</div>
+                      <div className={styles.v}>{signedPts(s.biasPts)}</div>
                     </div>
                     <div>
-                      <div className="k">FALLBACKS</div>
-                      <div className="v">{s.fallbacks}</div>
+                      <div className={styles.k}>FALLBACKS</div>
+                      <div className={styles.v}>{s.fallbacks}</div>
                     </div>
                   </div>
                 </article>
@@ -157,8 +158,8 @@ export default async function Models() {
         </>
       )}
 
-      <section className="models-method">
-        <span className="k">HOW THESE ARE MEASURED</span>
+      <section className={styles['models-method']}>
+        <span className={styles.k}>HOW THESE ARE MEASURED</span>
         <p>
           Win rate is hands where a seat won or shared the main pot, of hands it was dealt into. Average error is the mean distance between the win chance a
           model stated before acting and the true chance worked out from every hole card, in percentage points, whichever way it leaned; &quot;leans&quot; is

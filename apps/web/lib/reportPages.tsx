@@ -1,6 +1,7 @@
 import type { StudyReport } from '@ab/study'
 import type { ReportPage } from '../components/research/ReportViewer'
 import { ms, usd } from './format'
+import styles from '../app/research/research.module.css'
 
 const num = (x: number | null | undefined, d = 1) => (x === null || x === undefined || !Number.isFinite(x) ? '–' : x.toFixed(d))
 const ci = (low: number | null, high: number | null) => (low === null || high === null || !Number.isFinite(low) || !Number.isFinite(high) ? '[–, –]' : `[${low.toFixed(1)}, ${high.toFixed(1)}]`)
@@ -47,8 +48,8 @@ export function reportPages(r: StudyReport): ReportPage[] {
       title: 'Method and table rules',
       body: (
         <>
-          {mock ? <p className="flag">Mock seats: scripted stand-ins with simulated costs. Not research results.</p> : null}
-          {r.study.status !== 'ended' ? <p className="flag">Interim: this study has not ended.</p> : null}
+          {mock ? <p className={styles.flag}>Mock seats: scripted stand-ins with simulated costs. Not research results.</p> : null}
+          {r.study.status !== 'ended' ? <p className={styles.flag}>Interim: this study has not ended.</p> : null}
           <p>
             Duplicate format: every deal is replayed with each seat in each position, so the cards cancel out and what remains is the decisions. The analysis
             was fixed before the run and hashed; the study ran until the stopping rule was met or the budget was spent.
@@ -78,7 +79,7 @@ export function reportPages(r: StudyReport): ReportPage[] {
             </div>
             <div>
               <dt>Pre-registration</dt>
-              <dd className="mono">{r.study.configHash.slice(0, 24)}…</dd>
+              <dd className={styles.mono}>{r.study.configHash.slice(0, 24)}…</dd>
             </div>
           </dl>
         </>
@@ -107,18 +108,18 @@ export function reportPages(r: StudyReport): ReportPage[] {
           <thead>
             <tr>
               <th>Seat</th>
-              <th className="n">bb/100</th>
-              <th className="n">95% CI</th>
-              <th className="n">Hands</th>
+              <th className={styles.n}>bb/100</th>
+              <th className={styles.n}>95% CI</th>
+              <th className={styles.n}>Hands</th>
             </tr>
           </thead>
           <tbody>
             {r.results.map((res) => (
               <tr key={res.playerId} className={res.playerId === r.focusId ? 'focus' : ''}>
                 <td>{name(res.playerId)}</td>
-                <td className="n">{num(res.bb100.mean)}</td>
-                <td className="n">{ci(res.bb100.low, res.bb100.high)}</td>
-                <td className="n">{res.hands}</td>
+                <td className={styles.n}>{num(res.bb100.mean)}</td>
+                <td className={styles.n}>{ci(res.bb100.low, res.bb100.high)}</td>
+                <td className={styles.n}>{res.hands}</td>
               </tr>
             ))}
           </tbody>
@@ -134,18 +135,18 @@ export function reportPages(r: StudyReport): ReportPage[] {
             <thead>
               <tr>
                 <th>Against</th>
-                <th className="n">Difference</th>
-                <th className="n">95% CI</th>
-                <th className="n">Holm p</th>
+                <th className={styles.n}>Difference</th>
+                <th className={styles.n}>95% CI</th>
+                <th className={styles.n}>Holm p</th>
               </tr>
             </thead>
             <tbody>
               {r.contrasts.map((c) => (
                 <tr key={c.otherId} className={c.significant ? 'focus' : ''}>
                   <td>{name(c.otherId)}</td>
-                  <td className="n">{num(c.diff.mean)}</td>
-                  <td className="n">{ci(c.diff.low, c.diff.high)}</td>
-                  <td className="n">{p(c.pHolm)}</td>
+                  <td className={styles.n}>{num(c.diff.mean)}</td>
+                  <td className={styles.n}>{ci(c.diff.low, c.diff.high)}</td>
+                  <td className={styles.n}>{p(c.pHolm)}</td>
                 </tr>
               ))}
             </tbody>
@@ -165,20 +166,20 @@ export function reportPages(r: StudyReport): ReportPage[] {
             <thead>
               <tr>
                 <th>Seat</th>
-                <th className="n">Brier (won)</th>
-                <th className="n">Brier (equity)</th>
-                <th className="n">Cal. error</th>
-                <th className="n">Decisions</th>
+                <th className={styles.n}>Brier (won)</th>
+                <th className={styles.n}>Brier (equity)</th>
+                <th className={styles.n}>Cal. error</th>
+                <th className={styles.n}>Decisions</th>
               </tr>
             </thead>
             <tbody>
               {r.calibration.map((c) => (
                 <tr key={c.playerId} className={c.playerId === r.focusId ? 'focus' : ''}>
                   <td>{name(c.playerId)}</td>
-                  <td className="n">{num(c.winA.brier, 3)}</td>
-                  <td className="n">{num(c.winC.brier, 3)}</td>
-                  <td className="n">{num(c.winC.ece, 3)}</td>
-                  <td className="n">{c.winA.n}</td>
+                  <td className={styles.n}>{num(c.winA.brier, 3)}</td>
+                  <td className={styles.n}>{num(c.winC.brier, 3)}</td>
+                  <td className={styles.n}>{num(c.winC.ece, 3)}</td>
+                  <td className={styles.n}>{c.winA.n}</td>
                 </tr>
               ))}
             </tbody>
@@ -193,18 +194,18 @@ export function reportPages(r: StudyReport): ReportPage[] {
           <thead>
             <tr>
               <th>Seat</th>
-              <th className="n">$ / 100 hands</th>
-              <th className="n">Latency p50</th>
-              <th className="n">Fallbacks</th>
+              <th className={styles.n}>$ / 100 hands</th>
+              <th className={styles.n}>Latency p50</th>
+              <th className={styles.n}>Fallbacks</th>
             </tr>
           </thead>
           <tbody>
             {r.metrics.map((m) => (
               <tr key={m.playerId} className={m.playerId === r.focusId ? 'focus' : ''}>
                 <td>{name(m.playerId)}</td>
-                <td className="n">{m.costPer100HandsUsd === null ? '–' : usd(m.costPer100HandsUsd)}</td>
-                <td className="n">{ms(m.latencyP50Ms)}</td>
-                <td className="n">{Object.values(m.fallbacks).reduce((sum, n) => sum + n, 0)}</td>
+                <td className={styles.n}>{m.costPer100HandsUsd === null ? '–' : usd(m.costPer100HandsUsd)}</td>
+                <td className={styles.n}>{ms(m.latencyP50Ms)}</td>
+                <td className={styles.n}>{Object.values(m.fallbacks).reduce((sum, n) => sum + n, 0)}</td>
               </tr>
             ))}
           </tbody>

@@ -9,6 +9,7 @@ import { loadCatalog, supportedModels, type CatalogEntry, type ModelOption, type
 import { checkSetup, DEFAULT_GAME, DEFAULT_SEATS, LocalTable, PACES } from '../../lib/byo/table'
 import { Broadcast } from '../Broadcast'
 import { PlaySetup, type SetupState } from './PlaySetup'
+import styles from './run.module.css'
 
 const name = (id: string) => characterFor(id).name
 /** The seats and cap, kept for this tab across the round trip to OpenRouter's sign-in page. */
@@ -136,7 +137,7 @@ export function PlayScreen({ paceMs }: { paceMs?: number }) {
 
   if (phase === 'setup') {
     return (
-      <div className="run-page">
+      <div className={styles['run-page']}>
         {error ? <p className="warn">{error}</p> : null}
         <PlaySetup
           value={setup}

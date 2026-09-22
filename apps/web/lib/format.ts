@@ -34,6 +34,7 @@ export function fallbackNotice(kind: string | null, reason: string | null): stri
   return 'fallback'
 }
 
+/** Seat positions in plain words, short enough for a seat on the felt. */
 const POSITION_NAMES: Record<string, string> = {
   BTN: 'Dealer',
   SB: 'Small blind',
@@ -44,7 +45,7 @@ const POSITION_NAMES: Record<string, string> = {
   MP: 'Middle',
   LJ: 'Middle',
   HJ: 'Middle',
-  CO: 'Before dealer',
+  CO: 'Cutoff',
 }
 
 /** A table position in plain words: "BB" → "Big blind", "CO" → "Before dealer". */

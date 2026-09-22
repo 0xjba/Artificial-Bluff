@@ -1,0 +1,250 @@
+/* ---- models (design: "Models") ---- */
+.models-head {
+  padding: 30px 24px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-width: 900px;
+}
+.models .kicker,
+.replays .kicker {
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: 10px;
+  letter-spacing: 0.18em;
+  color: var(--gold);
+}
+.models-head h1 {
+  margin: 0;
+  font-size: 34px;
+  line-height: 1.08;
+}
+.models-head p {
+  margin: 0;
+  font-size: 14.5px;
+  line-height: 1.6;
+  color: var(--text);
+  text-wrap: pretty;
+}
+.models-empty {
+  padding: 0 24px 24px;
+}
+.models-scroll {
+  padding: 6px 24px 0;
+  overflow-x: auto;
+}
+.models-board {
+  min-width: 920px;
+  display: flex;
+  flex-direction: column;
+}
+.models-board .row-head,
+.models-board .row {
+  display: grid;
+  grid-template-columns: 34px 46px minmax(0, 1.5fr) 92px 78px 92px 92px 110px;
+  gap: 12px;
+  align-items: center;
+}
+.models-board .row-head {
+  padding: 0 6px 9px;
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: 9.5px;
+  letter-spacing: 0.1em;
+  color: var(--dim);
+  border-bottom: 1px solid var(--rule-2);
+}
+.models-board .r {
+  text-align: right;
+}
+.models-board .row {
+  padding: 12px 6px;
+  border-bottom: 1px solid #1a2421;
+}
+.models-board .rank {
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: 12px;
+  color: var(--dim);
+}
+.models-board .face,
+.dossier .face {
+  width: 38px;
+  height: 38px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--panel-3);
+  border-radius: 12px;
+}
+.dossier .face.big {
+  width: 64px;
+  height: 64px;
+  border-radius: 18px;
+  flex: none;
+}
+.models-board .who {
+  min-width: 0;
+  display: block;
+}
+.who-top {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.who-top b {
+  font-weight: 700;
+  font-size: 16px;
+}
+.chip {
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: 10px;
+  color: var(--dim);
+  border: 1px solid var(--rule-3);
+  border-radius: 3px;
+  padding: 1px 6px;
+}
+.models-board .style,
+.dossier .style {
+  display: block;
+  font-size: 12px;
+  color: var(--dim-2, #9aa9a3);
+  margin-top: 2px;
+}
+.models-board .mono,
+.dossier .v {
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: 12.5px;
+  color: var(--text);
+}
+.models-board .chips {
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: 14px;
+  font-weight: 600;
+}
+.models-board .chips.up {
+  color: var(--gold);
+}
+.models-board .chips.down {
+  color: var(--down);
+}
+.models-board .rate {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+.models-board .rate .bar,
+.trait .bar {
+  flex: 1;
+  height: 7px;
+  border-radius: 4px;
+  background: #1b2521;
+  overflow: hidden;
+  display: block;
+}
+.models-board .rate .bar span,
+.trait .bar span {
+  display: block;
+  height: 100%;
+  background: var(--seat, var(--gold));
+}
+.models-board .rate .mono {
+  font-size: 11.5px;
+}
+.models-section,
+.replays-section {
+  padding: 26px 24px 8px;
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+}
+.models-section .k,
+.replays-section .k,
+.models-method .k {
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: 9.5px;
+  letter-spacing: 0.16em;
+  color: var(--dim);
+}
+.dossiers {
+  padding: 0 24px 26px;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 14px;
+}
+.dossier {
+  border: 1px solid var(--rule-2);
+  border-radius: 16px;
+  background: var(--bg-2);
+  padding: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.dossier-top {
+  display: flex;
+  align-items: center;
+  gap: 13px;
+}
+.dossier .name {
+  font-weight: 700;
+  font-size: 19px;
+  line-height: 1.1;
+}
+.dossier .model {
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: 11px;
+  color: var(--dim);
+  margin-top: 3px;
+}
+.traits {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+}
+.trait {
+  display: grid;
+  grid-template-columns: 110px minmax(0, 1fr) 44px;
+  gap: 10px;
+  align-items: center;
+}
+.trait .k {
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: 9.5px;
+  letter-spacing: 0.08em;
+  color: var(--dim);
+}
+.trait .v {
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: 11px;
+  text-align: right;
+  color: var(--text);
+}
+.dossier-foot {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  padding-top: 12px;
+  border-top: 1px solid #1a2421;
+}
+.dossier-foot .k {
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: 8.5px;
+  letter-spacing: 0.1em;
+  color: var(--dim);
+}
+.dossier-foot .v {
+  font-size: 13px;
+}
+.dossier-foot div:nth-child(even) {
+  padding-left: 11px;
+  border-left: 1px solid #1a2421;
+}
+.models-method {
+  padding: 8px 24px 40px;
+  max-width: 980px;
+}
+.models-method p {
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--muted);
+}
+

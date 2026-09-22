@@ -3,6 +3,7 @@ import { characterFor } from '@ab/mascot'
 import Link from 'next/link'
 import { chips } from '../lib/format'
 import { MascotBadge } from './MascotBadge'
+import styles from '../app/replays/replays.module.css'
 
 const TAG_LABEL: Record<string, string> = {
   'biggest-pot': 'BIGGEST POT',
@@ -27,25 +28,25 @@ export function HandCard({ hand }: { hand: HandSummary }) {
   const winners = hand.winners.map((id) => characterFor(id).name).join(' and ')
   const each = hand.winners.length > 1 ? (hand.won[hand.winners[0]!] ?? hand.pot / hand.winners.length) : hand.pot
   return (
-    <Link className="hand-card" href={`/replays/${encodeURIComponent(hand.gameId)}?hand=${hand.number}`}>
-      <span className="hand-card-top">
-        <span className={`tag ${tag ?? 'hand'}`}>{(tag && TAG_LABEL[tag]) || 'HAND'}</span>
-        <span className="when">
+    <Link className={styles['hand-card']} href={`/replays/${encodeURIComponent(hand.gameId)}?hand=${hand.number}`}>
+      <span className={styles['hand-card-top']}>
+        <span className={`${styles.tag} ${styles[tag ?? 'hand'] ?? ''}`}>{(tag && TAG_LABEL[tag]) || 'HAND'}</span>
+        <span className={styles.when}>
           HAND {hand.number} · {length(hand.seconds)}
         </span>
       </span>
-      <span className="title">{hand.headline}</span>
-      <span className="hand-card-seats">
-        <span className="faces">
+      <span className={styles.title}>{hand.headline}</span>
+      <span className={styles['hand-card-seats']}>
+        <span className={styles.faces}>
           {hand.players.map((id, i) => (
             <MascotBadge key={id} playerId={id} index={i} size={22} />
           ))}
         </span>
-        <span className="pot">POT {chips(hand.pot)}</span>
+        <span className={styles.pot}>POT {chips(hand.pot)}</span>
       </span>
-      <span className="hand-card-foot">
-        <span className="winner">{hand.winners.length > 1 ? `${winners} take ${chips(each)} each` : `${winners} wins ${chips(hand.pot)}`}</span>
-        <span className="watch">Watch →</span>
+      <span className={styles['hand-card-foot']}>
+        <span className={styles.winner}>{hand.winners.length > 1 ? `${winners} take ${chips(each)} each` : `${winners} wins ${chips(hand.pot)}`}</span>
+        <span className={styles.watch}>Watch →</span>
       </span>
     </Link>
   )

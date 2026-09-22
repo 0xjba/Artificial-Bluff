@@ -1,5 +1,6 @@
 'use client'
 import { useState } from 'react'
+import styles from '../../app/research/research.module.css'
 
 export interface ReportPage {
   /** Page number, from 1. */
@@ -24,55 +25,55 @@ export function ReportViewer({ pages, label, files }: { pages: ReportPage[]; lab
   const step = (by: number) => setAt((i) => Math.max(0, Math.min(pages.length - perSpread, i + by * perSpread)))
 
   return (
-    <div className="reader">
-      <div className="reader-bar">
-        <span className="file">{label}</span>
-        <span className="tools">
+    <div className={styles.reader}>
+      <div className={styles['reader-bar']}>
+        <span className={styles.file}>{label}</span>
+        <span className={styles.tools}>
           <button type="button" aria-pressed={fitWidth} onClick={() => setFitWidth((f) => !f)}>
             {fitWidth ? 'TWO PAGES' : 'FIT WIDTH'}
           </button>
           {files.map((f) => (
-            <a key={f.href} className="download" href={f.href}>
+            <a key={f.href} className={styles.download} href={f.href}>
               {f.label}
             </a>
           ))}
         </span>
       </div>
 
-      <div className="reader-spread">
-        <div className={`spread${fitWidth ? ' one' : ''}`}>
+      <div className={styles['reader-spread']}>
+        <div className={`${styles.spread}${fitWidth ? ` ${styles.one}` : ''}`}>
           {shown.map((p) => (
-            <article className="sheet" key={p.n} aria-label={`page ${p.n}: ${p.title}`}>
+            <article className={styles.sheet} key={p.n} aria-label={`page ${p.n}: ${p.title}`}>
               <h3>{p.title}</h3>
               {p.body}
-              <span className="folio">{p.n}</span>
+              <span className={styles.folio}>{p.n}</span>
             </article>
           ))}
         </div>
       </div>
 
-      <div className="reader-nav">
+      <div className={styles['reader-nav']}>
         <button type="button" aria-label="previous page" disabled={start === 0} onClick={() => step(-1)}>
           ←
         </button>
         <button type="button" aria-label="next page" disabled={start + perSpread >= pages.length} onClick={() => step(1)}>
           →
         </button>
-        <span className="count">
+        <span className={styles.count}>
           {first === last ? `PAGE ${first}` : `PAGES ${first}–${last}`} OF {pages.length}
         </span>
-        <span className="segments">
+        <span className={styles.segments}>
           {pages.map((p) => (
             <button
               key={p.n}
               type="button"
-              className={p.n >= first && p.n <= last ? 'on' : ''}
+              className={p.n >= first && p.n <= last ? styles.on : ''}
               aria-label={`go to page ${p.n}`}
               onClick={() => setAt(fitWidth ? p.n - 1 : Math.floor((p.n - 1) / 2) * 2)}
             />
           ))}
         </span>
-        <span className="hint">Every page is built from the study&apos;s own numbers.</span>
+        <span className={styles.hint}>Every page is built from the study&apos;s own numbers.</span>
       </div>
     </div>
   )
