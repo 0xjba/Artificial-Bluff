@@ -25,7 +25,7 @@ Last updated: 2026-09-22
 |---|---|---|
 | 1 | Monorepo + game engine (`packages/engine`) | ✅ Merged to master (9de0579), 99 tests |
 | 2 | Players (Jev, LLM, bots, mock), table runner, SQLite event log | ✅ Merged to master (b94a7be), 181 tests |
-| 3 | Study runner (duplicate, budget cap, resume, CI stop) + report/charts | 3a study runner: ✅ merged (04bc98f), 220 tests; 3b analysis + report: ✅ built and reviewed on `feat/plan-3b-report` (258 tests), ready to merge |
+| 3 | Study runner (duplicate, budget cap, resume, CI stop) + report/charts | 3a study runner: ✅ merged (04bc98f), 220 tests; 3b analysis + report: ✅ merged (0d46196), 258 tests |
 | 4 | Live server (WebSocket, replays, admin start) + web (Broadcast UI) + mascots (bloub) | Not written yet |
 
 ### Plan 1 task progress
@@ -127,6 +127,8 @@ Last updated: 2026-09-22
 - Scratch bloub preview (custom colours, Mascots.vue) lived in the session scratchpad; recreate in Plan 4.
 
 ## Execution log
+
+- 2026-09-22: Plan 3b merged to master (0d46196). Next: Plan 4 (live server + Broadcast web UI + mascots). master not yet pushed to GitHub since the merge.
 
 - 2026-09-22: Opus review of Plan 3b Tasks 1-4 (equity, outcomes A/C, calibration math confirmed correct). Adopted: calls scored by equity vs winnable-pot odds (mirror of folds); per-action calibration published per action type only (pooling rewards passive play); auto-played decisions excluded from latency/tokens/cost per decision; headline fallback rate = model-output failures; VPIP/PFR exclude walks; hands grouped by game+hand id. Reference: analysis 20, study 47 (256 total).
 
