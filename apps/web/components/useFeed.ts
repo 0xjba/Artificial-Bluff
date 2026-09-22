@@ -2,7 +2,8 @@
 import { characterFor } from '@ab/mascot'
 import type { FeedMessage } from '@ab/server'
 import { useEffect, useReducer, useState } from 'react'
-import { initialFeed, reduceFeed, type FeedState } from '../lib/feed'
+import type { GameEvent } from '@ab/core/view'
+import { initialFeed, reduceFeed, type FeedState, type HistoryMessage } from '../lib/feed'
 
 const name = (id: string) => characterFor(id).name
 
@@ -17,7 +18,7 @@ export const RECONNECT_MS = [3000, 6000, 12_000, 30_000]
  * then this opens a new connection, backing off from 3 s to 30 s.
  */
 export function useFeed(url: string): FeedState & { connection: Connection } {
-  const [state, dispatch] = useReducer((s: FeedState, m: FeedMessage) => reduceFeed(s, m, name), undefined, initialFeed)
+  const [state, dispatch] = useReducer((s: FeedState, m: FeedMessage | HistoryMessage) => reduceFeed(s, m, name), undefined, initialFeed)
   const [connection, setConnection] = useState<Connection>('connecting')
   useEffect(() => {
     let source: EventSource | null = null
@@ -52,5 +53,37 @@ export function useFeed(url: string): FeedState & { connection: Connection } {
       source?.close()
     }
   }, [url])
+
+  // Joining a live game: fetch its events so far, so viewers can seek back to before they arrived.
+  const channelId = state.channel?.id
+  const liveGame = state.channel?.mode === 'live' ? state.channel.gameId : null
+  useEffect(() => {
+    if (!channelId || !liveGame) return
+    let stopped = false
+    void loadHistory(liveGame).then((events) => {
+      if (!stopped && events) dispatch({ type: 'history', channelId, events })
+    })
+    return () => {
+      stopped = true
+    }
+  }, [channelId, liveGame])
   return { ...state, connection }
+}
+
+/** A game's events so far (paged by the API), or null if they can't be read now. */
+async function loadHistory(gameId: string): Promise<GameEvent[] | null> {
+  const events: GameEvent[] = []
+  let after = 0
+  try {
+    for (;;) {
+      const res = await fetch(`/api/games/${encodeURIComponent(gameId)}/events?after=${after}`, { cache: 'no-store' })
+      if (!res.ok) return null
+      const page = (await res.json()) as { events: GameEvent[]; next: number | null }
+      events.push(...page.events)
+      if (page.next === null) return events
+      after = page.next
+    }
+  } catch {
+    return null // no seeking back before joining; the feed's own events still can be
+  }
 }

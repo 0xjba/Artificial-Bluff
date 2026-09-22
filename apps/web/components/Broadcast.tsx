@@ -20,6 +20,8 @@ export function Broadcast(props: {
   /** Feed connection, for the live screen: 'lost' shows a notice. */
   connection?: 'connecting' | 'open' | 'lost'
   controls?: React.ReactNode
+  /** Live time shift: `behind` dims the LIVE tag (watching the past); clicking it returns to live. */
+  live?: { behind: boolean; onGoLive: () => void }
 }) {
   const [muted, setMuted] = useState(true)
   useEffect(() => {
@@ -55,8 +57,19 @@ export function Broadcast(props: {
   return (
     <div className="broadcast">
       <div className="programme">
-        <span className={`tag ${mode}`}>{mode === 'live' ? '● LIVE' : mode === 'replay' ? 'REPLAY' : 'OFF AIR'}</span>
-        <span className="title">{props.channel?.title ?? 'Connecting…'}</span>
+        {mode === 'live' && props.live ? (
+          <button
+            type="button"
+            className={`tag live${props.live.behind ? ' behind' : ''}`}
+            onClick={props.live.onGoLive}
+            title={props.live.behind ? 'Back to live' : 'You are watching live'}
+          >
+            ● LIVE
+          </button>
+        ) : (
+          <span className={`tag ${mode}`}>{mode === 'live' ? '● LIVE' : mode === 'replay' ? 'REPLAY' : 'OFF AIR'}</span>
+        )}
+        <span className="title">{programmeTitle(props.channel, props.view)}</span>
         {props.connection === 'lost' ? <span className="warn">reconnecting…</span> : null}
         {props.controls}
         <button type="button" className="mute" onClick={toggle}>
@@ -75,4 +88,17 @@ export function Broadcast(props: {
       </div>
     </div>
   )
+}
+
+/**
+ * The title beside the tag, without repeating it: a live game shows its hand number, a replay its
+ * subject ("REPLAY · live game x" → "live game x").
+ */
+export function programmeTitle(channel: Pick<Channel, 'mode' | 'title'> | null, view: TableView): string {
+  if (!channel) return 'Connecting…'
+  if (channel.mode === 'live') {
+    const hand = view.hand && !view.hand.ended ? view.handsPlayed + 1 : view.handsPlayed
+    return hand > 0 ? `Hand ${hand}` : ''
+  }
+  return channel.title.replace(/^REPLAY\s*·\s*/i, '')
 }

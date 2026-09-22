@@ -113,6 +113,28 @@ main {
 .programme .tag.live {
   background: var(--alert);
   color: #fff;
+  border: 0;
+  transition: background 0.2s, color 0.2s;
+}
+button.tag.live {
+  cursor: pointer;
+}
+.programme .tag.live.behind {
+  background: #5a2f2e;
+  color: rgba(255, 255, 255, 0.55);
+}
+.programme .tag.live.behind:hover {
+  background: var(--alert);
+  color: #fff;
+}
+.controls.timeshift {
+  flex: 1;
+  min-width: 220px;
+}
+.controls .seek {
+  flex: 1;
+  min-width: 120px;
+  accent-color: var(--alert);
 }
 .programme .tag.replay {
   background: var(--brass);
@@ -364,43 +386,50 @@ main {
 
 /* ---- cards ---- */
 .card {
-  display: inline-flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  width: 42px;
-  height: 58px;
-  border-radius: 5px;
-  background: #fbf8f1;
+  display: inline-block;
+  flex: none;
+  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.45));
+}
+.card text {
+  font-family: var(--font-display), 'Barlow Condensed', Georgia, serif;
+  font-weight: 700;
+  fill: #16211e;
+}
+.card.red text {
+  fill: #c0392b;
+}
+.card .card-face {
+  fill: #fbf8f1;
+  stroke: #d8d0c0;
+  stroke-width: 1.5;
+}
+.card .court-frame {
+  fill: none;
+  stroke: currentColor;
   color: #16211e;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
-  line-height: 1;
+  stroke-width: 1.5;
+  opacity: 0.35;
 }
-.card b {
-  font-size: 18px;
-}
-.card i {
-  font-style: normal;
-  font-size: 18px;
-}
-.card.red {
+.card.red .court-frame {
   color: #c0392b;
 }
-.card.small {
-  width: 26px;
-  height: 34px;
+.card .card-back {
+  fill: #1f5547;
+  stroke: #fbf8f1;
+  stroke-width: 4;
 }
-.card.small b,
-.card.small i {
-  font-size: 12px;
-}
-.card.back {
-  background: repeating-linear-gradient(45deg, #2b6d5c, #2b6d5c 4px, #1f5547 4px, #1f5547 8px);
+.card .card-back-inner {
+  fill: none;
+  stroke: #e8b04a;
+  stroke-width: 2;
+  opacity: 0.7;
 }
 .card.slot {
-  background: transparent;
+  width: 50px;
+  height: 70px;
+  border-radius: 5px;
   border: 1px dashed rgba(157, 184, 174, 0.35);
-  box-shadow: none;
+  filter: none;
 }
 
 /* ---- lower third ---- */
@@ -535,13 +564,24 @@ main {
   padding: 2px 0;
 }
 .log li.hand {
-  color: var(--muted);
+  color: var(--cream);
+  font-weight: 600;
   border-top: 1px solid var(--rule);
-  margin-top: 4px;
-  padding-top: 4px;
+  margin-top: 6px;
+  padding-top: 6px;
+}
+.log li.hand:first-child {
+  border-top: 0;
+  margin-top: 0;
+}
+.log li.action,
+.log li.street,
+.log li.win {
+  padding-left: 10px;
 }
 .log li.street {
   color: var(--muted);
+  font-weight: 600;
 }
 .log li.win,
 .log li.end {

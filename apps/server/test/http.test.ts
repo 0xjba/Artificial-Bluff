@@ -146,12 +146,15 @@ describe('HTTP API', () => {
     expect(started.status).toBe(201)
     const { gameId } = await started.json()
     expect((await admin(a, '/api/admin/games')).status).toBe(409)
-    // While it runs: the feed shows it, its config and events are withheld.
+    // While it runs: the feed shows it and its events so far can be read (to seek back), but its config is withheld.
     const feed = await readFeed(a, (m) => m.filter((x) => x.type === 'event').length >= 20)
     expect(feed[0]).toMatchObject({ type: 'snapshot', channel: { mode: 'live', gameId } })
     expect(feed.filter((m) => m.type === 'event').every((m) => (m as { event: { gameId: string } }).event.gameId === gameId)).toBe(true)
     expect((await (await fetch(`${a.url}/api/games/${gameId}`)).json()).config).toBeNull()
-    expect((await fetch(`${a.url}/api/games/${gameId}/events`)).status).toBe(409)
+    const sofar = await (await fetch(`${a.url}/api/games/${gameId}/events`)).json()
+    expect(sofar.game).toMatchObject({ id: gameId, status: 'running', config: null })
+    expect(sofar.events[0]).toMatchObject({ type: 'game_started', gameId })
+    expect(sofar.events.length).toBeGreaterThanOrEqual(20)
     const list = await (await fetch(`${a.url}/api/games`)).json()
     expect(list.games[0]).toMatchObject({ id: gameId, status: 'running' })
     expect(list.games[0]).not.toHaveProperty('config')
