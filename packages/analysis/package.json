@@ -1,5 +1,5 @@
 {
-  "name": "@ab/study",
+  "name": "@ab/analysis",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -10,9 +10,10 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@ab/analysis": "workspace:*",
     "@ab/core": "workspace:*",
-    "@ab/engine": "workspace:*",
+    "@ab/engine": "workspace:*"
+  },
+  "devDependencies": {
     "@ab/players": "workspace:*"
   }
 }

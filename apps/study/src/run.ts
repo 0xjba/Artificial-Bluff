@@ -164,7 +164,10 @@ export async function runStudy(opts: RunStudyOptions): Promise<StudyOutcome> {
           ...(opts.sleep ? { sleep: opts.sleep } : {}),
         })
         p.handsPlayed++
-        if (!capped) p.valid.set(key, result.net)
+        if (!capped) {
+          p.valid.set(key, result.net)
+          p.validHandIds.set(key, `${key}#${attempt}`)
+        }
         checkpoints()
       } catch (e) {
         failure ??= e
