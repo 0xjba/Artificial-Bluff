@@ -25,7 +25,7 @@ Last updated: 2026-09-22
 |---|---|---|
 | 1 | Monorepo + game engine (`packages/engine`) | ✅ Merged to master (9de0579), 99 tests |
 | 2 | Players (Jev, LLM, bots, mock), table runner, SQLite event log | ✅ Merged to master (b94a7be), 181 tests |
-| 3 | Study runner (duplicate, budget cap, resume, CI stop) + report/charts | 3a study runner: ✅ merged (04bc98f), 220 tests; 3b analysis + report: plan written & verified in scratch (251 tests), executing on `feat/plan-3b-report` |
+| 3 | Study runner (duplicate, budget cap, resume, CI stop) + report/charts | 3a study runner: ✅ merged (04bc98f), 220 tests; 3b analysis + report: ✅ built and reviewed on `feat/plan-3b-report` (258 tests), ready to merge |
 | 4 | Live server (WebSocket, replays, admin start) + web (Broadcast UI) + mascots (bloub) | Not written yet |
 
 ### Plan 1 task progress
@@ -75,7 +75,7 @@ Last updated: 2026-09-22
 - [x] Task 6: Report model + CSV export (a80ed5a + b7f39c3; spec ✅)
 - [x] Task 7: HTML report (d122fac; spec ✅)
 - [x] Task 8: pnpm study report (9e2c24d; spec ✅; 256 tests)
-- [ ] Final branch review (opus): merge after fixes → prereg fixes contrast family + per-action rules, single log snapshot, logged stop honoured before study_ended, direct t tail + `<0.0001`, ≥3 sig-digit costs, winnablePot in CSV, CSV formula defusing, mock/interim banners, focus marker (fix pending; expect study 49, total 258)
+- [x] Final branch review (opus): merge after fixes → fixed in acd70d1 + 85e0454; re-review: **ready to merge** (258 tests)
 
 ## Key decisions (summary; spec is authoritative)
 
@@ -134,6 +134,7 @@ Last updated: 2026-09-22
 
 - 2026-09-21: Plan 3a Task 1-3 stats follow-up committed (f0b5424, byte-identical to reference). Task 4 committed (f7c2b56, spec ✅). Opus review of Task 4: approve with fixes → deterministic check schedule (every boundary in order; resume from last checkpoint; results pinned to the stop boundary via study_ended.analysedGroups), ci_target wins over budget_cap, claimGame + --takeover (no double runs), prereg must match config, budget overshoot documented, dead format check removed, 7 new tests. Prototyped in reference: engine 104, players 44, core 35, study 35. Follow-up fix to be applied on branch next, then Task 5.
 - 2026-09-21: Task 5 committed (80b8083, identical to reference). Opus re-review of Task 4 fixes: approve with fixes → read progress after claimGame; early return uses study_ended.analysedGroups; minGroups multiple of checkEvery. Not done (by design): checking Player kind/model against the pre-registered seat (tests deliberately use bots in mock seats; the CLI builds players from the same line-up). Reference: core 35, study 35.
+- Note (Plan 3b): the pre-registration record gained `contrasts` + `outcomes.perAction`, so studies created before it (only mock/demo data in data/*.db) won't resume under the same id: delete the db or use a new id.
 - TODO (after-merge polish, final re-review): `run --live` on a finished study should return before the REAL RUN line/createPlayers; ignore a second SIGINT within ~100 ms of the first (tsx re-sends SIGINT after 30 ms during slow sync steps).
 - TODO (from final review, deferred): mock seats all play the same TAG strategy, so mock rehearsals always give 0 ± 0 (give mocks varied styles); fixed-size studies that meet the CI report ci_target rather than max_groups (cosmetic); --takeover trusts the user (could store pid/host); main study at $25 will likely end on budget_cap (~200 groups) — choose target/budget knowingly before pre-registering.
 - TODO (minor, from review): budget-cap-then-ci_target test; stronger concurency-skip test (checkEvery 4, ~200 groups).

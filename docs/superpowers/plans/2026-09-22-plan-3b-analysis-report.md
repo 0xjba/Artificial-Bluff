@@ -1414,7 +1414,7 @@ In `apps/study/src/progress.ts`:
       }
 ```
 
-In `apps/study/src/stats.ts`, add immediately before `export function studentTCdf`:
+In `apps/study/src/stats.ts`, add immediately before the doc comment of `studentTCdf` (`/** Student t CDF …`):
 ```ts
 /** Upper tail P(T > |t|) of Student t, computed directly (no 1 - cdf cancellation for large t). */
 export function studentTTail(t: number, df: number): number {
