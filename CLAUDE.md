@@ -18,4 +18,5 @@ plus a live spectator game.
 - Commit identity: `git -c user.email=jobinb6444@gmail.com -c user.name=0xjba commit ...`
 - Secrets only in `.env` (git-ignored).
 - `pnpm demo` plays a free mock tournament into `data/demo.db`. `pnpm smoke lineups/live.json` spends real money (OpenRouter + TypeSafe): never run it without the user's explicit go-ahead. Line-ups: `lineups/*.example.json`; keys in `.env` (see `.env.example`).
+- `pnpm study report <study.json> [--mock]` writes `reports/<id>/report.html` plus JSON/CSV exports from the event log (free).
 - `pnpm study run <study.json> --mock` is a free rehearsal; `--live` spends real money (up to the study's budget): never run `--live` without the user's explicit go-ahead.

@@ -28,7 +28,9 @@
 - **Play style:** VPIP (voluntary preflop call or raise), PFR (preflop raise), both over hands with a preflop decision (walks don't count), AF (postflop bets+raises ÷ calls; undefined with no calls), WTSD (showdowns ÷ hands seen to the flop). Bets are logged as raises (`currentBet` was 0).
 - **Per-decision cost, tokens and latency** leave out auto-played decisions (a seat skipped after repeated failures is logged at 0 ms and $0, which would flatter a flaky model); timeouts count at the time limit. The headline fallback rate is model-output failures only (invalid, empty, refused, truncated); provider errors and timeouts are listed separately.
 - **Hands are grouped by game and hand id**, so logs of several games can be analysed together.
-- **HTML safety:** every string from the log or config is escaped; the page has no scripts, links or external requests.
+- **HTML safety:** every string from the log or config is escaped; the page has no scripts, links or external requests. CSV text starting with `= + - @` gets a leading `'` so spreadsheets don't evaluate it.
+- **Pre-registered analysis:** the record hashes the comparison family (first Jev seat minus each other seat, Holm over those n − 1; no other pairwise claims) and the per-action rules. The report reads the log once (one consistent snapshot) and, before `study_ended`, honours a logged `stop: true` checkpoint (a crash, or hands still finishing) rather than the growing prefix.
+- **Readable numbers:** costs keep ≥ 3 significant digits (a Jev decision costs ~$0.0000084); p-values below 0.0001 show as `<0.0001` and are computed from the t tail directly. Mock seats and unfinished studies get a banner.
 
 ## File map
 
@@ -1312,7 +1314,7 @@ git -c user.email=jobinb6444@gmail.com -c user.name=0xjba commit -m "feat(analys
 
 **Files:**
 - Create: `apps/study/src/contrasts.ts`
-- Modify: `apps/study/src/progress.ts`, `apps/study/src/run.ts`, `apps/study/src/results.ts`, `apps/study/src/index.ts`
+- Modify: `apps/study/src/stats.ts`, `apps/study/src/progress.ts`, `apps/study/src/run.ts`, `apps/study/src/results.ts`, `apps/study/src/index.ts`
 - Test: `apps/study/test/contrasts.test.ts`
 
 - [ ] **Step 1: Write the failing test**
@@ -1358,6 +1360,10 @@ describe('tTestPValue', () => {
     expect(tTestPValue([3, 3, 3])).toBe(0)
     expect(tTestPValue([0, 0])).toBe(1)
     expect(tTestPValue([5])).toBeNull()
+    // A huge t still gives a tiny positive p (the tail is computed directly, not as 1 - cdf).
+    const p = tTestPValue([10, 10.1, 9.9, 10, 10.05])!
+    expect(p).toBeGreaterThan(0)
+    expect(p).toBeLessThan(1e-6)
   })
 })
 
@@ -1406,6 +1412,14 @@ In `apps/study/src/progress.ts`:
         p.valid.set(h.key, e.net)
         p.validHandIds.set(h.key, e.handId)
       }
+```
+
+In `apps/study/src/stats.ts`, add immediately before `export function studentTCdf`:
+```ts
+/** Upper tail P(T > |t|) of Student t, computed directly (no 1 - cdf cancellation for large t). */
+export function studentTTail(t: number, df: number): number {
+  return 0.5 * incompleteBeta(df / (df + t * t), df / 2, 0.5)
+}
 ```
 
 In `apps/study/src/run.ts`, replace `if (!capped) p.valid.set(key, result.net)` with:
@@ -1492,7 +1506,7 @@ export function blockValues(p: StudyProgress, config: StudyConfig, prefixGroups:
 import type { StudyConfig } from './config'
 import type { StudyProgress } from './progress'
 import { blockValues } from './results'
-import { studentTCdf, tInterval, type Interval } from './stats'
+import { studentTTail, tInterval, type Interval } from './stats'
 
 /** Focus player minus another player, in bb/100, paired by neighbour block. */
 export interface Contrast {
@@ -1532,7 +1546,7 @@ export function tTestPValue(values: readonly number[]): number | null {
   const sd = Math.sqrt(values.reduce((s, v) => s + (v - mean) ** 2, 0) / (n - 1))
   if (sd === 0) return mean === 0 ? 1 : 0
   const t = Math.abs(mean) / (sd / Math.sqrt(n))
-  return 2 * (1 - studentTCdf(t, n - 1))
+  return Math.min(1, 2 * studentTTail(t, n - 1))
 }
 
 /**
@@ -1576,7 +1590,7 @@ git -c user.email=jobinb6444@gmail.com -c user.name=0xjba commit -m "feat(study)
 
 **Files:**
 - Create: `apps/study/src/report.ts`, `apps/study/src/exports.ts`
-- Modify: `apps/study/package.json`, `apps/study/src/index.ts`
+- Modify: `apps/study/package.json`, `apps/study/src/prereg.ts`, `apps/study/src/index.ts`
 - Test: `apps/study/test/report.test.ts`
 
 - [ ] **Step 1: Add the dependency and write the failing test**
@@ -1591,7 +1605,8 @@ import { describe, expect, it } from 'vitest'
 import { parseStudyConfig, type StudyConfig } from '../src/config'
 import { decisionsCsv } from '../src/exports'
 import { preregistration } from '../src/prereg'
-import { analyseStudy, focusPlayer, studyHands } from '../src/report'
+import { analyseStudy, analysedGroupCount, focusPlayer, studyHands } from '../src/report'
+import { emptyProgress, handKeyOf } from '../src/progress'
 import { runStudy } from '../src/run'
 
 const ids = ['jev', 'pill', 'block', 'drip', 'nimbus']
@@ -1637,6 +1652,8 @@ describe('study report', () => {
     // Chips are conserved in every analysed hand, so bb/100 sums to zero.
     expect(report.results.reduce((s, r) => s + r.bb100.mean, 0)).toBeCloseTo(0, 9)
     expect(JSON.parse(JSON.stringify(report))).toEqual(report) // JSON-safe
+    // The comparison family and the per-action rules are part of the pre-registration.
+    expect(report.study.preregistration).toMatchObject({ contrasts: expect.stringContaining('Holm'), outcomes: { perAction: expect.stringContaining('winnable pot') } })
   })
 
   it('leaves out hands cut off by the budget cap, using the replayed attempt instead', async () => {
@@ -1651,6 +1668,20 @@ describe('study report', () => {
     expect(hands.some((h) => !h.handId.endsWith('#1'))).toBe(true) // a replayed attempt is used
     const { report } = analyseStudy(store, config({ budgetUsd: 50 }), { focusId: 'jev', generatedAt: at })
     expect(report.study.costUsd).toBeGreaterThan(report.metrics.reduce((s, m) => s + m.costUsd, 0)) // cut-off hands cost money too
+  })
+
+  it('uses the logged stopping boundary until the study ends, and analysedGroups after', () => {
+    const c = config({ minGroups: 40, maxGroups: 80 })
+    const p = emptyProgress()
+    for (let g = 0; g < 12; g++) for (let r = 0; r < 5; r++) p.valid.set(handKeyOf(g, r), {})
+    expect(analysedGroupCount(p, 'running', c)).toBe(12) // no stop logged: the completed prefix
+    p.lastCheckpoint = { groups: 8, stop: true } // rule met at 8, hands still finishing (or a crash)
+    expect(analysedGroupCount(p, 'running', c)).toBe(8)
+    p.analysedGroups = 8
+    expect(analysedGroupCount(p, 'ended', c)).toBe(8)
+    p.lastCheckpoint = { groups: 4, stop: false }
+    p.analysedGroups = null
+    expect(analysedGroupCount(p, 'interrupted', c)).toBe(12)
   })
 
   it('picks the Jev seat as the focus and refuses a config that is not the study', async () => {
@@ -1677,6 +1708,11 @@ describe('decisionsCsv', () => {
     expect(lines).toHaveLength(decisions.length + 1)
     expect(lines[0]!.split(',').slice(0, 3)).toEqual(['handId', 'index', 'playerId'])
     expect(decisionsCsv([{ ...decisions[0]!, model: 'a "quoted", model' }])).toContain('"a ""quoted"", model"')
+    expect(lines[0]).toContain(',pot,winnablePot,toCall,')
+    // Text that a spreadsheet would evaluate is defused; negative numbers are not.
+    const row = decisionsCsv([{ ...decisions[0]!, model: '=HYPERLINK("x")', stackChange: -150 }]).split('\n')[1]!
+    expect(row).toContain(`"'=HYPERLINK(""x"")"`)
+    expect(row.endsWith(',-150')).toBe(true)
   })
 })
 ```
@@ -1702,11 +1738,11 @@ import {
   type ScoredDecision,
   type ShareCache,
 } from '@ab/analysis'
-import type { EventStore, GameStatus, StudyEndReason } from '@ab/core'
+import type { EventStore, GameEvent, GameStatus, StudyEndReason } from '@ab/core'
 import type { StudyConfig } from './config'
 import { pairedContrasts, type Contrast } from './contrasts'
 import { assertPreregMatches } from './prereg'
-import { completedPrefix, handKeyOf, readStoreProgress } from './progress'
+import { completedPrefix, handKeyOf, readProgress, type StudyProgress } from './progress'
 import { summarize, type PlayerResult } from './results'
 
 export interface PlayerCalibration {
@@ -1724,6 +1760,10 @@ export interface PlayerCalibration {
   actionByType: Record<'fold' | 'check' | 'call' | 'raise', Calibration>
 }
 
+/**
+ * Everything the HTML report shows. In report.json, infinite interval bounds (fewer than 2 blocks)
+ * and undefined values (NaN) appear as null.
+ */
 export interface StudyReport {
   kind: 'artificialBluff study report'
   version: 1
@@ -1762,18 +1802,35 @@ export function focusPlayer(config: StudyConfig): string {
 }
 
 /**
- * The hands the published results use: for every group in the analysed prefix (whole blocks; the
- * stopping boundary once the study ended), the valid attempt of each rotation.
+ * How many groups the results use: `analysedGroups` once the study has ended; the boundary of a met
+ * stopping check that never reached study_ended (a crash, or hands still finishing); otherwise the
+ * completed prefix. Always whole neighbour blocks (summarize truncates).
  */
-export function studyHands(store: EventStore, config: StudyConfig): { hands: HandRecord[]; groups: number } {
-  const progress = readStoreProgress(store, config.id)
+export function analysedGroupCount(progress: StudyProgress, status: GameStatus | null, config: StudyConfig): number {
+  if (status === 'ended' && progress.analysedGroups !== null) return progress.analysedGroups
+  if (progress.lastCheckpoint?.stop) return progress.lastCheckpoint.groups
+  return completedPrefix(progress, config.lineup.length, config.maxGroups)
+}
+
+/**
+ * The hands the published results use: for every group in the analysed groups (whole blocks), the
+ * valid attempt of each rotation. Works on one snapshot of the log, so a report taken while the study
+ * runs is consistent.
+ */
+export function selectStudyHands(events: readonly GameEvent[], status: GameStatus | null, config: StudyConfig): { hands: HandRecord[]; groups: number; progress: StudyProgress } {
+  const progress = readProgress(events)
   const n = config.lineup.length
-  const ended = store.game(config.id)?.status === 'ended' && progress.analysedGroups !== null
-  const groups = summarize(progress, config, ended ? progress.analysedGroups! : completedPrefix(progress, n, config.maxGroups)).groups
+  const groups = summarize(progress, config, analysedGroupCount(progress, status, config)).groups
   const wanted = new Set<string>()
   for (let g = 0; g < groups; g++) for (let r = 0; r < n; r++) wanted.add(progress.validHandIds.get(handKeyOf(g, r))!)
-  const hands = extractHands(store.events(config.id)).filter((h) => wanted.has(h.handId))
+  const hands = extractHands(events).filter((h) => wanted.has(h.handId))
   if (hands.length !== wanted.size) throw new Error(`study ${config.id}: found ${hands.length} of ${wanted.size} analysed hands in the log`)
+  return { hands, groups, progress }
+}
+
+/** selectStudyHands on the study's current log. */
+export function studyHands(store: EventStore, config: StudyConfig): { hands: HandRecord[]; groups: number } {
+  const { hands, groups } = selectStudyHands(store.events(config.id), store.game(config.id)?.status ?? null, config)
   return { hands, groups }
 }
 
@@ -1789,11 +1846,13 @@ export function analyseStudy(store: EventStore, config: StudyConfig, opts: { foc
   const game = store.game(config.id)
   if (!game || game.kind !== 'study') throw new Error(`study ${config.id} has not started`)
   assertPreregMatches(game.config as Record<string, unknown>, config)
-  const progress = readStoreProgress(store, config.id)
-  const { hands, groups } = studyHands(store, config)
+  // One read of the log: everything below comes from the same snapshot.
+  const events = store.events(config.id)
+  const { hands, groups, progress } = selectStudyHands(events, game.status, config)
   const summary = summarize(progress, config, groups)
   const decisions = scoreDecisions(hands, opts.cache ?? new Map())
-  const info = playerInfo(store.events(config.id))
+  const info = playerInfo(events)
+  const spent = events.reduce((sum, e) => sum + (e.type === 'decision' ? e.costUsd : 0), 0)
 
   const calibrationOf = (playerId: string): PlayerCalibration => {
     const mine = decisions.filter((d) => d.playerId === playerId && !d.fallback)
@@ -1823,7 +1882,7 @@ export function analyseStudy(store: EventStore, config: StudyConfig, opts: { foc
       blocks: summary.blocks,
       hands: hands.length,
       decisions: decisions.length,
-      costUsd: store.gameCost(config.id),
+      costUsd: spent,
       preregistration: game.config,
     },
     players: config.lineup.map((s) => ({
@@ -1839,16 +1898,35 @@ export function analyseStudy(store: EventStore, config: StudyConfig, opts: { foc
     calibration: config.lineup.map((s) => calibrationOf(s.id)),
     notes: [
       'VPIP and PFR leave out walks (hands with no preflop decision). AF is postflop bets and raises per call (undefined with no calls); WTSD is showdowns per hand seen to the flop.',
-      'bb/100: 95% Student t CIs over neighbour blocks of seed groups (df = blocks - 1); the percentile bootstrap CI is a sensitivity check. Per-player CIs are marginal: claims about pairs rest on the Holm-corrected paired contrasts.',
+      'bb/100: 95% Student t CIs over neighbour blocks of seed groups (df = blocks - 1); the percentile bootstrap CI is a sensitivity check. Per-player CIs are marginal: claims about Jev versus another player rest on the pre-registered paired contrasts (Jev minus each other seat, Holm-corrected over those comparisons); no other pairwise claims are made.',
       'Calibration A (headline): stated win probability vs the share of the main pot actually won (1, 1/k for a k-way split, 0 after any fold). Calibration C: vs the expected main-pot share at the decision from all hole cards (exact enumeration), which removes later actions and board luck.',
       "Per-action calibration, by action type only: confidence vs whether the action was right. Folds and calls are scored by all-in equity (outcome C) against the pot odds of the pot the player could win: a fold is right below them, a call at or above them. This treats the hand as if it went to showdown now and ignores players still to act, a standard approximation. Checks and raises have no such rule: they count as right if the player's stack didn't shrink from that point to the end of the hand, so later streets feed into their score.",
       "Confidence means different things: Jev's is derived from its option probabilities, the LLMs' is self-reported. Compare each player with itself, not the two kinds with each other.",
       "Decisions that fell back to check/fold (timeouts, invalid output, provider errors) are excluded from calibration and counted under fallbacks; only invalid, empty, refused or truncated output counts against the model itself. Latency, tokens and cost per decision include timeouts (at the time limit) but not auto-played decisions (a seat skipped after repeated failures).",
-      'Cost: LLMs as reported per call by OpenRouter; Jev as input tokens x the published price (see the pre-registration).',
+      'Cost: LLMs as reported per call by OpenRouter; Jev as input tokens x the published price (see the pre-registration). "Spent" is everything the study paid for, including hands cut off by the budget cap and hands outside the analysed groups, so it can exceed the per-player totals, which cover analysed hands only.',
     ],
   }
   return { report, decisions }
 }
+```
+
+In `apps/study/src/prereg.ts`, replace the `outcomes: { ... },` entry of the record with (pre-registers the per-action rules and the comparison family, so neither can change after the data is seen):
+```ts
+    outcomes: {
+      calibrationHeadline: 'main-pot share: 1 if won alone, 1/k if split k ways, 0 if lost or folded at any point',
+      calibrationSecond: 'expected main-pot share at decision time from all hole cards (exact enumeration)',
+      perAction:
+        'confidence vs 0/1 per action type, never pooled: fold right if all-in equity < toCall / (winnable pot + toCall), ' +
+        "call right if >= it; check and raise right if the player's stack did not shrink from the action to the end of the hand",
+    },
+    contrasts:
+      'the first jev seat minus each other seat in bb/100, paired by neighbour block: 95% t CI and two-sided paired t test, ' +
+      'Holm correction over those n - 1 comparisons; no other pairwise claims',
+    stopping:
+      'every checkEvery groups: over the completed prefix of groups in whole neighbour blocks, stop when every ' +
+      "player's 95% Student t CI (df = blocks - 1) half-width of bb/100 is at most targetHalfWidthBb100; never " +
+      'before minGroups (at least 10 blocks and a check boundary, unless the study has a fixed size); at most maxGroups; every check is ' +
+      'logged as a study_checkpoint event; hands cut short by the budget cap are excluded and replayed on resume',
 ```
 
 `apps/study/src/exports.ts`:
@@ -1856,7 +1934,7 @@ export function analyseStudy(store: EventStore, config: StudyConfig, opts: { foc
 import type { ScoredDecision } from '@ab/analysis'
 
 const COLUMNS = [
-  'handId', 'index', 'playerId', 'street', 'position', 'model', 'optionId', 'actionType', 'chipsIn', 'pot', 'toCall',
+  'handId', 'index', 'playerId', 'street', 'position', 'model', 'optionId', 'actionType', 'chipsIn', 'pot', 'winnablePot', 'toCall',
   'stackBefore', 'board', 'live', 'winProbability', 'confidence', 'optionProbabilities', 'latencyMs', 'inputTokens',
   'outputTokens', 'reasoningTokens', 'costUsd', 'retries', 'fallback', 'fallbackKind', 'mainPotShare', 'expectedShare',
   'actionGood', 'stackChange',
@@ -1864,11 +1942,16 @@ const COLUMNS = [
 
 function cell(value: unknown): string {
   if (value === null || value === undefined) return ''
-  const text = Array.isArray(value) ? value.join(' ') : typeof value === 'object' ? JSON.stringify(value) : String(value)
+  let text = Array.isArray(value) ? value.join(' ') : typeof value === 'object' ? JSON.stringify(value) : String(value)
+  // Text a spreadsheet would run as a formula gets a leading apostrophe (numbers are left alone).
+  if (typeof value === 'string' && /^[=+\-@\t\r]/.test(value)) text = `'${text}`
   return /[",\n\r]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text
 }
 
-/** One row per decision (RFC 4180 quoting); arrays are space-separated, objects are JSON. */
+/**
+ * One row per decision (RFC 4180 quoting); arrays are space-separated, objects are JSON, and text
+ * starting with = + - @ is prefixed with ' so spreadsheets don't evaluate it.
+ */
 export function decisionsCsv(decisions: readonly ScoredDecision[]): string {
   const lines = [COLUMNS.join(',')]
   for (const d of decisions) lines.push(COLUMNS.map((c) => cell(d[c])).join(','))
@@ -1885,7 +1968,7 @@ export * from './exports'
 - [ ] **Step 4: Run tests and typecheck**
 
 Run: `pnpm --filter @ab/study exec vitest run && pnpm --filter @ab/study typecheck`
-Expected: PASS (44 tests); typecheck clean.
+Expected: PASS (45 tests); typecheck clean.
 
 - [ ] **Step 5: Commit**
 
@@ -1959,6 +2042,21 @@ describe('renderReportHtml', () => {
     expect(html).not.toMatch(/<script|<link|src=|href=/) // nothing external, nothing executable
   })
 
+  it('keeps tiny costs and p-values readable, and flags mock and interim reports', async () => {
+    const r = await report()
+    r.metrics[0]!.costPerDecisionUsd = 0.0000084 // a Jev decision: ~200 tokens at $0.042 per million
+    r.contrasts[0]!.pValue = 1e-9
+    let html = renderReportHtml(r)
+    expect(html).toContain('$0.0000084')
+    expect(html).toContain('&lt;0.0001')
+    expect(html).toContain('Mock seats (JEV, DRIP)')
+    expect(html).not.toContain('Interim report')
+    expect(html).toContain('title="focus player">◆</span>')
+    r.study.status = 'running'
+    html = renderReportHtml(r)
+    expect(html).toContain('Interim report: the study has not ended (running)')
+  })
+
   it('escapes everything that comes from the log or the config', async () => {
     const r = await report()
     r.players[0]!.model = '<img src=x onerror=alert(1)>'
@@ -1989,7 +2087,14 @@ export function esc(value: unknown): string {
 
 const num = (x: number | null | undefined, digits = 1) => (x === null || x === undefined || !Number.isFinite(x) ? '–' : x.toFixed(digits))
 const pct = (x: number | null | undefined, digits = 1) => (x === null || x === undefined ? '–' : `${(x * 100).toFixed(digits)}%`)
-const usd = (x: number | null | undefined) => (x === null || x === undefined ? '–' : x === 0 ? '$0' : x < 0.01 ? `$${x.toFixed(5)}` : `$${x.toFixed(4)}`)
+/** Dollars with at least three significant digits (Jev's cost per decision is millionths of a dollar). */
+const usd = (x: number | null | undefined) => {
+  if (x === null || x === undefined) return '–'
+  if (x === 0) return '$0'
+  const digits = Math.min(12, Math.max(4, Math.ceil(-Math.log10(Math.abs(x))) + 2))
+  return `$${x.toFixed(digits)}`
+}
+const pValue = (p: number | null) => (p === null ? '–' : p < 0.0001 ? '&lt;0.0001' : p.toFixed(4))
 const ms = (x: number | null | undefined) => (x === null || x === undefined ? '–' : x >= 1000 ? `${(x / 1000).toFixed(2)} s` : x < 1 ? '<1 ms' : `${x.toFixed(0)} ms`)
 const ci = (low: number, high: number) => (Number.isFinite(low) && Number.isFinite(high) ? `[${low.toFixed(1)}, ${high.toFixed(1)}]` : '[–∞, ∞]')
 
@@ -2082,6 +2187,8 @@ svg .lbl{fill:var(--cream);font-size:13px}svg .tick{fill:var(--muted);font-size:
 .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:12px}
 figure.rel{margin:0}figcaption{font-size:13px;color:var(--muted);margin-top:4px}figcaption b{color:var(--cream)}
 .yes{color:var(--brass);font-weight:600}.no{color:var(--muted)}
+.mark{color:var(--brass)}
+.banner{border:1px solid var(--alert);color:var(--cream);background:rgba(217,83,79,.12);border-radius:6px;padding:8px 12px;margin:0 0 16px}
 .note{color:var(--muted)}ul.notes li{margin-bottom:6px}
 td span.note{white-space:normal;display:inline-block;min-width:240px;text-align:left}
 details{background:var(--panel);border:1px solid var(--rule);border-radius:6px;padding:8px 12px}
@@ -2098,7 +2205,8 @@ export function renderReportHtml(report: StudyReport): string {
       return [p.playerId, text.length > 26 ? `${text.slice(0, 25)}…` : text]
     }),
   )
-  const name = (id: string) => esc(label.get(id) ?? id)
+  const name = (id: string) =>
+    esc(label.get(id) ?? id) + (id === report.focusId ? ' <span class="mark" title="focus player">◆</span>' : '')
   const focusRow = (id: string) => (id === report.focusId ? ' class="focus"' : '')
   const rowsWithFocus = (html: string, ids: string[]) => {
     let i = 0
@@ -2106,13 +2214,17 @@ export function renderReportHtml(report: StudyReport): string {
   }
   const s = report.study
   const ids = report.players.map((p) => p.playerId)
+  const mocks = report.players.filter((p) => p.kind === 'mock').map((p) => p.playerId.toUpperCase())
+  const banners =
+    (mocks.length ? `<p class="banner">Mock seats (${esc(mocks.join(', '))}): free stand-ins with scripted play and simulated costs. Not research results.</p>` : '') +
+    (s.status !== 'ended' ? `<p class="banner">Interim report: the study has not ended (${esc(s.status)}). Numbers will change.</p>` : '')
 
   const meta = [
     ['Study', s.id],
     ['Status', `${s.status}${s.endReason ? ` (${s.endReason})` : ''}`],
     ['Analysed', `${s.analysedGroups} groups · ${s.blocks} blocks · ${s.hands} hands`],
     ['Decisions', String(s.decisions)],
-    ['Spent', usd(s.costUsd)],
+    ['Spent (all hands)', usd(s.costUsd)],
     ['Pre-registration hash', s.configHash],
     ['Generated', report.generatedAt],
   ]
@@ -2146,13 +2258,13 @@ export function renderReportHtml(report: StudyReport): string {
       'bb/100 difference',
     ) +
     table(
-      ['Opponent', 'Difference (bb/100)', '95% t CI', 'p', 'p (Holm)', 'Significant'],
+      ['Opponent', 'Difference (bb/100)', '95% t CI (unadjusted)', 'p', 'p (Holm)', 'Significant'],
       report.contrasts.map((c) => [
         name(c.otherId),
         num(c.diff.mean),
         ci(c.diff.low, c.diff.high),
-        num(c.pValue, 4),
-        num(c.pHolm, 4),
+        pValue(c.pValue),
+        pValue(c.pHolm),
         c.significant ? '<span class="yes">yes</span>' : '<span class="no">no</span>',
       ]),
     )
@@ -2240,7 +2352,8 @@ export function renderReportHtml(report: StudyReport): string {
 <body>
 <main>
 <h1>artificial<span>Bluff</span> · study ${esc(s.id)}</h1>
-<p class="sub">Duplicate-format No-Limit Hold'em: Jev against LLMs on results, cost, latency and calibration.</p>
+<p class="sub">Duplicate-format No-Limit Hold'em: Jev against LLMs on results, cost, latency and calibration. ◆ marks the focus player of the head-to-head comparisons.</p>
+${banners}
 <dl class="meta">${meta}</dl>
 <h2>Line-up</h2>${lineup}
 <h2>1. Results</h2>${results}
@@ -2278,7 +2391,7 @@ export * from './html'
 - [ ] **Step 4: Run tests and typecheck**
 
 Run: `pnpm --filter @ab/study exec vitest run && pnpm --filter @ab/study typecheck`
-Expected: PASS (46 tests); typecheck clean.
+Expected: PASS (48 tests); typecheck clean.
 
 - [ ] **Step 5: Commit**
 
@@ -2434,11 +2547,11 @@ import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { parseStudyConfig, type StudyConfig } from './config'
 import { assertPreregMatches, preregistration } from './prereg'
-import { completedPrefix, readStoreProgress } from './progress'
+import { readStoreProgress } from './progress'
 import { summarize, type StudySummary } from './results'
 import { decisionsCsv } from './exports'
 import { renderReportHtml } from './html'
-import { analyseStudy, focusPlayer } from './report'
+import { analyseStudy, analysedGroupCount, focusPlayer } from './report'
 import { runStudy, type StudyOutcome } from './run'
 
 export function loadStudyConfig(path: string): StudyConfig {
@@ -2539,8 +2652,7 @@ export function statusCommand(config: StudyConfig, mock: boolean, store: EventSt
   }
   assertPreregMatches(game.config as Record<string, unknown>, c)
   const progress = readStoreProgress(store, c.id)
-  const finished = game.status === 'ended' && progress.analysedGroups !== null
-  const groups = finished ? progress.analysedGroups! : completedPrefix(progress, c.lineup.length, c.maxGroups)
+  const groups = analysedGroupCount(progress, game.status, c)
   deps.log(`study ${c.id}: ${game.status}${progress.lastEnd ? ` (${progress.lastEnd})` : ''}, ${progress.handsPlayed} hands played, hash ${game.configHash.slice(0, 12)}…`)
   formatSummary(summarize(progress, c, groups), store.gameCost(c.id)).forEach(deps.log)
 }
@@ -2629,7 +2741,7 @@ Replace `apps/study/src/cli.ts` with:
  * pnpm study report <config.json> [--mock] [--out dir]       write the HTML report and CSV/JSON exports (free)
  * Options: --db <path> (default data/studies.db); --takeover resumes a study a crash left marked
  * running (only if no other run of it is active). Keys come from .env (see .env.example).
- * Exit codes: 0 finished (or prereg/status), 1 error, 2 usage, 3 stopped early (budget cap or
+ * Exit codes: 0 finished (or prereg/status/report), 1 error, 2 usage, 3 stopped early (budget cap or
  * interrupted: resume by running again).
  */
 import { EventStore } from '@ab/core'
@@ -2696,7 +2808,7 @@ reports/
 - [ ] **Step 4: Run everything, then a free report**
 
 Run: `pnpm test && pnpm typecheck`
-Expected: PASS (engine 110, players 44, core 35, analysis 20, study 47); typecheck clean.
+Expected: PASS (engine 110, players 44, core 35, analysis 20, study 49); typecheck clean.
 
 Then (free):
 ```bash
