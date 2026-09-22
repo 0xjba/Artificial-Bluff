@@ -568,38 +568,9 @@ button.tag.live {
   filter: drop-shadow(0 2px 6px rgba(0, 0, 0, 0.35));
 }
 .card text {
+  /* Colours are attributes on the drawing itself (see PlayingCard.tsx). */
   font-family: var(--font-body), system-ui, sans-serif;
   font-weight: 700;
-  fill: #16211e;
-}
-.card.red text {
-  fill: #c0392b;
-}
-.card .card-face {
-  fill: #fbf8f1;
-  stroke: #d8d0c0;
-  stroke-width: 1.5;
-}
-.card .court-frame {
-  fill: none;
-  stroke: currentColor;
-  color: #16211e;
-  stroke-width: 1.5;
-  opacity: 0.35;
-}
-.card.red .court-frame {
-  color: #c0392b;
-}
-.card .card-back {
-  fill: #1f5547;
-  stroke: #fbf8f1;
-  stroke-width: 4;
-}
-.card .card-back-inner {
-  fill: none;
-  stroke: var(--gold);
-  stroke-width: 2;
-  opacity: 0.7;
 }
 .card.slot {
   width: 56px;
@@ -1014,7 +985,7 @@ code {
   margin-bottom: 20px;
 }
 .play-head .kicker,
-.card h2 .step {
+.panel h2 .step {
   font-family: var(--font-mono), ui-monospace, monospace;
   font-size: 10px;
   letter-spacing: 0.16em;
@@ -1042,13 +1013,14 @@ code {
   gap: 14px;
   min-width: 0;
 }
-.card {
+/* A panel on the pages (not a playing card: `.card` is the card drawing). */
+.panel {
   background: var(--panel);
   border: 1px solid var(--rule);
   border-radius: 14px;
   padding: 14px 16px 16px;
 }
-.card h2 {
+.panel h2 {
   display: flex;
   align-items: baseline;
   gap: 8px;
@@ -1060,7 +1032,7 @@ code {
   color: var(--muted);
   margin: 0 0 10px;
 }
-.card h2 small {
+.panel h2 small {
   font-family: var(--font-body), system-ui, sans-serif;
   font-size: 12.5px;
   letter-spacing: 0;

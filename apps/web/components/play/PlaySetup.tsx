@@ -81,7 +81,7 @@ export function PlaySetup(props: {
 
       <div className="play-cols">
         <div className="play-main">
-          <section className="card">
+          <section className="panel">
             <h2>
               <span className="step">1</span> THE LINE-UP <small>Pick a model per seat. Leave a seat empty to play short-handed.</small>
             </h2>
@@ -141,7 +141,7 @@ export function PlaySetup(props: {
             {props.models === null && !props.modelsError ? <p className="muted">Loading OpenRouter&apos;s models…</p> : null}
           </section>
 
-          <section className="card">
+          <section className="panel">
             <h2>
               <span className="step">2</span> THE GAME
             </h2>
@@ -185,7 +185,7 @@ export function PlaySetup(props: {
             </div>
           </section>
 
-          <section className="card">
+          <section className="panel">
             <h2>
               <span className="step">3</span> BUDGET CAP
             </h2>
@@ -209,7 +209,7 @@ export function PlaySetup(props: {
         </div>
 
         <aside className="play-side">
-          <section className="card estimate">
+          <section className="panel estimate">
             <h2>ESTIMATE</h2>
             <b className="big">≈ {usd(estimate)}</b>
             <small>
@@ -246,7 +246,7 @@ export function PlaySetup(props: {
             <small className="centred">You can stop after any hand. Chips are play money.</small>
           </section>
 
-          <section className="card keys">
+          <section className="panel keys">
             <h2>YOUR KEYS</h2>
             {needsOpenRouter ? (
               <div className="key-row">
@@ -274,7 +274,7 @@ export function PlaySetup(props: {
             ) : null}
           </section>
 
-          <section className="card notes">
+          <section className="panel notes">
             <h2>WHERE YOUR KEYS GO</h2>
             <ul>
               <li>Model calls go straight from your browser to OpenRouter. Your key never reaches our server.</li>

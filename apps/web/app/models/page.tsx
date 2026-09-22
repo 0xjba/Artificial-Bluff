@@ -106,7 +106,7 @@ export default async function Models() {
                 ['TO SHOWDOWN', s.style.wtsd],
               ]
               return (
-                <article className="card dossier" key={s.playerId} style={{ '--seat': who.color } as React.CSSProperties}>
+                <article className="panel dossier" key={s.playerId} style={{ '--seat': who.color } as React.CSSProperties}>
                   <div className="dossier-top">
                     <MascotBadge playerId={s.playerId} index={i} size={40} />
                     <div>

@@ -24,7 +24,7 @@ export function HandCard({ hand }: { hand: HandSummary }) {
   const winners = hand.winners.map((id) => characterFor(id).name).join(' and ')
   const each = hand.winners.length > 1 ? (hand.won[hand.winners[0]!] ?? hand.pot / hand.winners.length) : hand.pot
   return (
-    <article className="card hand-card">
+    <article className="panel hand-card">
       <div className="hand-card-top">
         <span className="tag-chip">{(tag && TAG_LABEL[tag]) || 'HAND'}</span>
         <span className="hand-no">
