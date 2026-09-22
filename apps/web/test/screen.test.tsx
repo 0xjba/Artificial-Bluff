@@ -25,8 +25,9 @@ describe('Broadcast screen', () => {
     )
     for (const who of ['JEV', 'PILL', 'BLOCK', 'DRIP', 'NIMBUS']) expect(html).toContain(`<b>${who}</b>`)
     expect(html).toContain('mock/jev') // the model, in the players panel
-    // A mascot per seat, on the felt and in the panel, plus the sound icon.
-    expect(html.match(/<svg /g)!.length - (html.match(/<svg class="card/g)?.length ?? 0)).toBe(11)
+    // A mascot per seat on the felt, named with what it is doing; the panel's are decorative.
+    expect(html.match(/aria-label="[A-Z]+, [a-z ]+"/g)!.length).toBe(view.seats.length)
+    expect(html.match(/class="player[ "]/g)!.length).toBe(view.seats.length) // one panel row per seat
     expect(html).toContain('LIVE')
     expect(html).toContain('IT SAID')
     expect(html).toContain('>30%</b>') // the true chance, against what the model said
@@ -95,7 +96,7 @@ describe('end to end', () => {
       expect(state.view.seats).toHaveLength(5)
       const html = renderToStaticMarkup(<Broadcast channel={state.channel} view={state.view} log={state.log} decisionEquity={state.decisionEquity} />)
       expect(html).toContain('LIVE')
-      expect(html.match(/<svg /g)!.length - (html.match(/<svg class="card/g)?.length ?? 0)).toBe(11)
+      expect(html.match(/aria-label="[A-Z]+, [a-z ]+"/g)!.length).toBe(state.view.seats.length)
       expect(state.log.length).toBeGreaterThan(0)
     } finally {
       await app.close()

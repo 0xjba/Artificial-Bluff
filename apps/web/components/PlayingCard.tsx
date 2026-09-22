@@ -38,7 +38,7 @@ const PIP_BOX = { x: 33, y: 16, w: 34, h: 108 }
  * middle, so both stay readable at that size. `code` null draws the back.
  */
 export function PlayingCard({ code, small = false }: { code: string | null; small?: boolean }) {
-  const size = small ? { width: 30, height: 42 } : { width: 56, height: 78 }
+  const size = small ? { width: 26, height: 36 } : { width: 56, height: 78 }
   if (!code) {
     return (
       <svg className="card back" viewBox={`0 0 ${W} ${H}`} {...size} role="img" aria-label="face-down card">
