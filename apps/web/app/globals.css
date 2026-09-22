@@ -747,15 +747,22 @@ button.tag.live {
 }
 .claims span {
   display: block;
+  /* Two lines' worth, so a label that wraps doesn't push its number out of line with the others. */
+  min-height: 22px;
   font-family: var(--font-mono), ui-monospace, monospace;
   font-size: 9px;
   letter-spacing: 0.12em;
+  line-height: 1.2;
   color: var(--dim);
 }
 .claims b {
   display: block;
   font-size: 20px;
   line-height: 1.15;
+}
+/* The measured number is the one to look at (as in the design). */
+.claims b.true {
+  color: var(--gold);
 }
 /* What each number is, in plain words: the labels alone don't say it. */
 .claims small {
@@ -766,17 +773,6 @@ button.tag.live {
   line-height: 1.3;
   color: var(--dim);
   text-wrap: pretty;
-}
-/* And what the measured one actually counts, since a percentage alone says little. */
-.claims-note {
-  margin: 0;
-  font-size: 11px;
-  line-height: 1.45;
-  color: var(--dim);
-  text-wrap: pretty;
-}
-.claims b.true {
-  color: var(--gold);
 }
 .decision .reasoning {
   margin: 0;

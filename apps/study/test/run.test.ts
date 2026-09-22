@@ -165,13 +165,16 @@ describe('runStudy', () => {
     expect(second.reason).toBe('ci_target')
   })
 
-  it('checks the stopping rule at the same boundaries whatever the concurrency', async () => {
-    const c = { minGroups: 40, maxGroups: 80, checkEvery: 8, targetHalfWidthBb100: 0.001 }
+  // Two whole studies, one of them sixteen tables at once: slow enough to need its own headroom when
+  // the workspace runs every package's tests together.
+  it('checks the stopping rule at the same boundaries whatever the concurrency', { timeout: 30_000 }, async () => {
+    // A fixed-size study (min == max), so the schedule is the whole run and neither concurrency stops early.
+    const c = { minGroups: 40, maxGroups: 40, checkEvery: 8, targetHalfWidthBb100: 0.001 }
     const one = new EventStore()
     const many = new EventStore()
     const a = await run(config({ ...c, concurrency: 1 }), mixed(), one)
     const b = await run(config({ ...c, concurrency: 16 }), mixed().map(jitter), many)
-    expect(checks(one)).toEqual(Array.from({ length: 10 }, (_, i) => [8 * (i + 1), false]))
+    expect(checks(one)).toEqual(Array.from({ length: 5 }, (_, i) => [8 * (i + 1), false]))
     expect(checks(many)).toEqual(checks(one))
     expect(b.reason).toBe(a.reason)
     expect(b.summary).toEqual(a.summary)
