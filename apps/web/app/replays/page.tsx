@@ -52,7 +52,7 @@ export default async function Replays({ searchParams }: { searchParams: Promise<
           </div>
 
           {featured ? (
-            <section className="card featured">
+            <section className="panel featured">
               <div className="featured-main">
                 <span className="tag-chip">FEATURED · HAND {featured.number}</span>
                 <h2>{featured.headline}</h2>
