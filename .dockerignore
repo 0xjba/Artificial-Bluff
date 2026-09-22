@@ -1,0 +1,16 @@
+# Never send secrets, local data or build output into the image.
+.env
+.env.*
+!.env.example
+**/node_modules
+**/.next
+data
+reports
+lineups/*.json
+!lineups/*.example.json
+salvage
+.git
+.claude
+**/*.tsbuildinfo
+*.log
+.DS_Store
