@@ -1,7 +1,7 @@
 import { extractHands, playerInfo, type HandRecord } from '@ab/analysis'
 import type { EventStore, GameEvent, PlayerInfo } from '@ab/core'
 import type { Hub } from './hub'
-import { publicEvent } from './public'
+import { isOver, publicEvent } from './public'
 import { sleep as realSleep, type Sleep } from './sleep'
 
 /** One programme for the idle screen: a whole past live game, or a reel of study highlights. */
@@ -54,19 +54,32 @@ export function highlightReel(events: readonly GameEvent[], limit: number, title
   return { title, gameId: started.gameId, events: [started, ...[...byHand.values()].flat()] }
 }
 
+/** Replays already built, by game id (games that are over never change). */
+export type ReplayCache = Map<string, ReplayItem | null>
+
 /**
- * What to show when no live game is on: the latest past live games (whole) alternating with highlight
- * reels of finished studies. Only finished games are replayed (their seeds may be public by then).
+ * What to show when no live game is on: the latest past live games (whole; stopped or crashed ones
+ * too) alternating with highlight reels of finished studies. Only games that are over for good are
+ * replayed (see isOver). Pass a cache to avoid re-reading their logs every round.
  */
-export function replayQueue(store: EventStore, opts: { liveGames?: number; studies?: number; handsPerReel?: number } = {}): ReplayItem[] {
+export function replayQueue(store: EventStore, opts: { liveGames?: number; studies?: number; handsPerReel?: number } = {}, cache: ReplayCache = new Map()): ReplayItem[] {
   const newestFirst = <T extends { createdAt: number }>(rows: T[]) => [...rows].sort((a, b) => b.createdAt - a.createdAt)
-  const live = newestFirst(store.games('live').filter((g) => g.status === 'ended'))
+  const cached = (id: string, build: () => ReplayItem | null) => {
+    if (!cache.has(id)) cache.set(id, build())
+    return cache.get(id)!
+  }
+  const live = newestFirst(store.games('live').filter(isOver))
     .slice(0, opts.liveGames ?? 5)
-    .map((g): ReplayItem => ({ title: `REPLAY · live game ${g.id}`, gameId: g.id, events: store.events(g.id) }))
-    .filter((item) => item.events.some((e) => e.type === 'hand_ended'))
-  const studies = newestFirst(store.games('study').filter((g) => g.status === 'ended'))
+    .map((g) =>
+      cached(g.id, () => {
+        const events = store.events(g.id)
+        return events.some((e) => e.type === 'hand_ended') ? { title: `REPLAY · live game ${g.id}`, gameId: g.id, events } : null
+      }),
+    )
+    .filter((item): item is ReplayItem => item !== null)
+  const studies = newestFirst(store.games('study').filter(isOver))
     .slice(0, opts.studies ?? 3)
-    .map((g) => highlightReel(store.events(g.id), opts.handsPerReel ?? 8, `REPLAY · study ${g.id} highlights`))
+    .map((g) => cached(g.id, () => highlightReel(store.events(g.id), opts.handsPerReel ?? 8, `REPLAY · study ${g.id} highlights`)))
     .filter((item): item is ReplayItem => item !== null)
   const queue: ReplayItem[] = []
   for (let i = 0; i < Math.max(live.length, studies.length); i++) {

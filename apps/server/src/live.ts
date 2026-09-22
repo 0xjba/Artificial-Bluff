@@ -53,19 +53,22 @@ export class LiveController {
     const now = this.deps.now ?? Date.now
     const gameId = `live-${new Date(now()).toISOString().replace(/[:.]/g, '-')}`
     const abort = new AbortController()
-    // Claim the table before any await, so two quick starts can't both run.
-    const slot = { gameId, abort, done: Promise.resolve() }
+    // Claim the table before any await, so two quick starts can't both run. `done` settles when the
+    // table is free again (never resolved early, so idle() waits instead of spinning).
+    let finished!: () => void
+    const slot = { gameId, abort, done: new Promise<void>((resolve) => (finished = resolve)) }
     this.current = slot
     let players: Player[]
     try {
       players = await this.deps.makePlayers()
     } catch (e) {
       this.current = null
+      finished()
       throw e
     }
     this.deps.hub.begin({ mode: 'live', title: 'LIVE', gameId })
     this.emit('live', gameId)
-    slot.done = runTournamentGame({
+    void runTournamentGame({
       gameId,
       players,
       tournament: liveTurboConfig(randomBytes(16).toString('hex')),
@@ -83,6 +86,7 @@ export class LiveController {
       .catch((e) => this.deps.log?.(`live game ${gameId} failed: ${e instanceof Error ? e.message : String(e)}`))
       .finally(() => {
         this.current = null
+        finished()
         this.emit('idle', gameId)
       })
     return { gameId }

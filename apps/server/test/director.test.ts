@@ -59,6 +59,26 @@ describe('Director', () => {
     expect(wrong).toEqual([])
   })
 
+  it('survives a failing replay: logs it, shows the idle screen and tries again', async () => {
+    const store = new EventStore()
+    const hub = new Hub()
+    const live = new LiveController({ store, hub, makePlayers: mockPlayers, budgetUsd: 10, paceMs: 1, decisionTimeoutMs: 1000 })
+    const logs: string[] = []
+    let calls = 0
+    const director = new Director({
+      hub, live, replayPaceMs: 5, cooldownMs: 0, emptyWaitMs: 10, log: (l) => logs.push(l),
+      queue: () => {
+        if (++calls === 1) throw new Error('corrupt log')
+        return []
+      },
+    })
+    director.start()
+    await until(() => calls >= 3)
+    await director.stop()
+    expect(logs).toEqual(['director: corrupt log'])
+    expect(hub.current().channel.mode).toBe('idle')
+  })
+
   it('shows the idle screen when there is nothing to replay', async () => {
     const { hub, director } = await setup(() => [])
     director.start()

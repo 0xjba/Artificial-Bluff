@@ -71,9 +71,22 @@ describe('highlights', () => {
     store.createGame('st', 'study', {})
     for (const { gameId: _g, seq: _s, ts: _t, ...body } of study) store.append('st', body as never)
     store.setStatus('st', 'ended')
-    const queue = replayQueue(store)
+    store.createGame('resumable', 'study', {})
+    store.setStatus('resumable', 'interrupted') // a stopped study can still resume: not replayed
+    const cache = new Map()
+    const queue = replayQueue(store, {}, cache)
     expect(queue.map((q) => q.title)).toEqual(['REPLAY · live game new', 'REPLAY · study st highlights', 'REPLAY · live game old'])
     expect(queue[1]!.events.every((e) => e.gameId === 'st')).toBe(true)
+    // A stopped live game is over for good, so it is replayed too; built games come from the cache.
+    await playLiveGame(store, 'stopped', 2)
+    store.setStatus('stopped', 'interrupted')
+    store.db.prepare("UPDATE games SET created_at = 0 WHERE id = 'stopped'").run()
+    let reads = 0
+    const events = store.events.bind(store)
+    store.events = (...args: Parameters<typeof store.events>) => (reads++, events(...args))
+    const again = replayQueue(store, {}, cache)
+    expect(again.map((q) => q.gameId)).toEqual(['new', 'st', 'old', 'stopped'])
+    expect(reads).toBe(1) // only the new game's log was read
   })
 })
 

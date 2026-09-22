@@ -35,5 +35,6 @@ describe('parseServerConfig', () => {
     expect(() => parseServerConfig({ MAX_CLIENTS: '1e3' })).toThrow(/MAX_CLIENTS/)
     expect(() => parseServerConfig({ ALLOWED_ORIGIN: 'http://localhost:3000/' })).toThrow(/origin/)
     expect(() => parseServerConfig({ ALLOWED_ORIGIN: '*' })).toThrow(/origin/)
+    expect(() => parseServerConfig({ REPLAY_PACE_MS: '0' })).toThrow(/REPLAY_PACE_MS/) // would replay in a tight loop
   })
 })
