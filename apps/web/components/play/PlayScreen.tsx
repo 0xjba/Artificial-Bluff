@@ -136,7 +136,7 @@ export function PlayScreen({ paceMs }: { paceMs?: number }) {
 
   if (phase === 'setup') {
     return (
-      <div className="page play">
+      <div className="run-page">
         {error ? <p className="warn">{error}</p> : null}
         <PlaySetup
           value={setup}

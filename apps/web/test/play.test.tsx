@@ -64,23 +64,24 @@ describe('/play', () => {
   it('starts with Jev and four models, and says what is missing', async () => {
     await mount()
     expect(text()).toContain('JEV')
-    expect((host.querySelector('[aria-label="seat 2 model"]') as HTMLInputElement).value).toBe('anthropic/claude-sonnet-5')
+    expect((host.querySelector('[aria-label="seat 2 player"]') as HTMLSelectElement).value).toBe('anthropic/claude-sonnet-5')
+    expect(text()).toContain('anthropic/claude-sonnet-5')
     expect(text()).toContain('connect OpenRouter (or paste a key) for the model seats')
     expect(text()).toContain('add a TypeSafe key for the Jev seat')
-    expect(text()).toContain('OPENROUTER KEY NEEDED')
-    expect(text()).toContain('TYPESAFE KEY NEEDED') // the Jev relay is explained next to the TypeSafe key
+    expect(host.querySelectorAll('.seat-key.missing').length).toBe(5) // every seat is waiting for a key
+    expect(text()).toContain('KEY NEEDED') // the Jev relay is explained next to the TypeSafe key
     expect(button('Deal the first hand')!.disabled).toBe(true)
     choose('OpenRouter key', 'sk-or-test')
     choose('TypeSafe key', 'ts-test')
     expect(button('Deal the first hand')!.disabled).toBe(false)
-    expect(host.querySelectorAll('#play-models option')).toHaveLength(5)
+    expect(host.querySelectorAll('[aria-label="seat 2 player"] option').length).toBeGreaterThanOrEqual(5 + 2)
   })
 
   it('runs a free all-bot table on the broadcast screen, keeping no keys', async () => {
     await mount()
     for (let i = 1; i <= 5; i++) choose(`seat ${i} player`, 'bot')
     expect(text()).toContain('PEBBLE') // seat 1 without Jev
-    expect(text()).not.toContain('TYPESAFE')
+    expect(text()).not.toContain('KEY NEEDED')
     expect(text()).toContain('≈ $0')
     await act(async () => button('Deal the first hand')!.click())
     for (let i = 0; i < 50 && !button('New table'); i++) await settle()
@@ -104,7 +105,7 @@ describe('/play', () => {
     catalogUp = true
     await act(async () => button('Retry')!.click())
     await settle()
-    expect(host.querySelectorAll('#play-models option')).toHaveLength(5)
+    expect(host.querySelectorAll('[aria-label="seat 2 player"] option').length).toBeGreaterThanOrEqual(5 + 2)
   })
 
   it('saves or forgets keys as soon as they or the Remember choice change', async () => {
@@ -132,7 +133,7 @@ describe('/play', () => {
     expect(exchanged[0]).toContain('"code_verifier":"the-verifier"')
     expect(window.location.search).toBe('') // the code is not left in the address bar
     expect((host.querySelector('[aria-label="OpenRouter key"]') as HTMLInputElement).value).toBe('sk-or-from-signin')
-    expect((host.querySelector('[aria-label="seat 5 model"]') as HTMLInputElement).value).toBe('acme/other')
+    expect((host.querySelector('[aria-label="seat 5 player"]') as HTMLSelectElement).value).toBe('acme/other')
     expect((host.querySelector('[aria-label="spending cap"]') as HTMLInputElement).value).toBe('2.5')
   })
 

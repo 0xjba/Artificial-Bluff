@@ -1,13 +1,15 @@
 import type { ModelsTable } from '@ab/server'
-import type { StudyReport } from '@ab/study'
 import type { Metadata } from 'next'
+import Link from 'next/link'
 import { connection } from 'next/server'
-import { ms, usd } from '../../lib/format'
-import { listReports } from '../../lib/reports'
-import { researchHeadline, researchMetrics } from '../../lib/research'
+import { ReportViewer } from '../../components/research/ReportViewer'
 import { API_URL } from '../../lib/api'
+import { usd } from '../../lib/format'
+import { listReports } from '../../lib/reports'
+import { NO_REPORT_PAGES, reportPages } from '../../lib/reportPages'
+import { researchHeadline, researchMetrics } from '../../lib/research'
 
-export const revalidate = 0
+export const metadata: Metadata = { title: 'Research · artificialBluff' }
 
 /** What every model has done across the finished live games (the live server does the arithmetic). */
 async function loadModels(): Promise<ModelsTable | null> {
@@ -20,80 +22,39 @@ async function loadModels(): Promise<ModelsTable | null> {
   }
 }
 
-export const metadata: Metadata = { title: 'Research · artificialBluff' }
-
-const num = (x: number | null, d = 1) => (x === null || !Number.isFinite(x) ? '–' : x.toFixed(d))
-const ci = (low: number | null, high: number | null) => (low === null || high === null || !Number.isFinite(low) || !Number.isFinite(high) ? '[–∞, ∞]' : `[${low.toFixed(1)}, ${high.toFixed(1)}]`)
-
-function Study({ r, dir }: { r: StudyReport; dir: string }) {
-  const name = (id: string) => {
-    const p = r.players.find((x) => x.playerId === id)
-    return `${id.toUpperCase()} · ${p?.model ?? ''}`
-  }
-  const mock = r.players.some((p) => p.kind === 'mock')
-  const base = `/research/${encodeURIComponent(dir)}`
-  return (
-    <article className="study">
-      <h2>{r.study.id}</h2>
-      {mock ? <p className="warn">Mock seats: scripted stand-ins with simulated costs. Not research results.</p> : null}
-      {r.study.status !== 'ended' ? <p className="warn">Interim: the study has not ended.</p> : null}
-      <p className="muted">
-        {r.study.hands} hands in {r.study.blocks} blocks · {r.study.endReason ?? r.study.status} · spent {usd(r.study.costUsd)} · pre-registration{' '}
-        <code>{r.study.configHash.slice(0, 16)}…</code>
-      </p>
-      <div className="scroll">
-        <table>
-          <thead>
-            <tr>
-              <th>Player</th>
-              <th className="n">bb/100</th>
-              <th className="n">95% CI</th>
-              <th className="n">$ / 100 hands</th>
-              <th className="n">Latency p50</th>
-              <th className="n">Calibration (Brier, A)</th>
-            </tr>
-          </thead>
-          <tbody>
-            {r.results.map((res) => {
-              const m = r.metrics.find((x) => x.playerId === res.playerId)
-              const c = r.calibration.find((x) => x.playerId === res.playerId)
-              return (
-                <tr key={res.playerId} className={res.playerId === r.focusId ? 'jev' : ''}>
-                  <td>{name(res.playerId)}</td>
-                  <td className="n">{num(res.bb100.mean)}</td>
-                  <td className="n">{ci(res.bb100.low, res.bb100.high)}</td>
-                  <td className="n">{m?.costPer100HandsUsd === null || m === undefined ? '–' : usd(m.costPer100HandsUsd)}</td>
-                  <td className="n">{ms(m?.latencyP50Ms ?? null)}</td>
-                  <td className="n">{num(c?.winA.brier ?? null, 3)}</td>
-                </tr>
-              )
-            })}
-          </tbody>
-        </table>
-      </div>
-      <h3>Jev head to head</h3>
-      <ul className="contrasts">
-        {r.contrasts.map((c) => (
-          <li key={c.otherId}>
-            vs {name(c.otherId)}: <b>{num(c.diff.mean)}</b> bb/100 {ci(c.diff.low, c.diff.high)} ·{' '}
-            {c.significant ? <b className="yes">significant</b> : <span className="muted">not significant</span>} (Holm p {c.pHolm === null ? '–' : c.pHolm < 0.0001 ? '<0.0001' : c.pHolm.toFixed(4)})
-          </li>
-        ))}
-      </ul>
-      <p>
-        <a href={`${base}/report.html`}>Full report</a> · <a href={`${base}/decisions.csv`}>Every decision (CSV)</a> · <a href={`${base}/report.json`}>Numbers (JSON)</a>
-      </p>
-    </article>
-  )
-}
+const FINDINGS = [
+  {
+    h: 'Jev answers with a distribution',
+    p: 'Jev returns a probability for every option it was offered — fold, call, raise to a size — so the log records not just what it did but how close the second choice was. The other seats answer with one action, a win chance and a confidence.',
+  },
+  {
+    h: 'Chips stay in code',
+    p: 'No model writes a number. The engine computes pots, stacks and side pots; models only choose from priced options, so a figure cannot be invented.',
+  },
+  {
+    h: 'Spectators see what players cannot',
+    p: 'True chances are computed from all hole cards for the broadcast only. No seat ever receives them, which is what makes the stated-against-true comparison fair.',
+  },
+]
 
 export default async function Research() {
   await connection()
   const reports = listReports()
+  const latest = reports[0]
   const table = await loadModels()
   const metrics = table && table.hands > 0 ? researchMetrics(table) : []
+  const pages = latest ? reportPages(latest.report) : NO_REPORT_PAGES
+  const base = latest ? `/research/${encodeURIComponent(latest.dir)}` : null
+  const files = base
+    ? [
+        { href: `${base}/report.html`, label: 'Download report' },
+        { href: `${base}/report.json`, label: 'JSON' },
+        { href: `${base}/decisions.csv`, label: 'CSV' },
+      ]
+    : []
+
   return (
-    <div className="research">
+    <div className="research-page">
       <section className="intro">
         <span className="kicker">RESEARCH</span>
         <h1>I&apos;m Jobin Ayathil.</h1>
@@ -107,72 +68,107 @@ export default async function Research() {
           table, logs every decision with the probability the model claimed, and compares that against the true chance computed from all the cards. What comes
           out is not a leaderboard of cleverness but a record of which models know what they don&apos;t know.
         </p>
-        <p className="links">
+        <div className="links">
           <a href="https://github.com/0xjba">GitHub</a>
           <a href="https://www.linkedin.com/in/0xjba/">LinkedIn</a>
           <a href="mailto:jobinb6444@gmail.com">jobinb6444@gmail.com</a>
-        </p>
+        </div>
       </section>
 
       <section className="hands-say">
-        <span className="kicker">WHAT THE HANDS SAY</span>
-        <h2>{table && table.hands > 0 ? researchHeadline(table) : 'No games have finished yet.'}</h2>
-        {metrics.length ? (
-          <>
-            <p className="lede">
-              Every seat played the same hands under the same rules, and every decision was logged with the model&apos;s own stated win chance beside the true
-              one.
-            </p>
-            <div className="metrics">
-              {metrics.map((m) => (
-                <div key={m.what}>
-                  <b>{m.value}</b>
-                  <span>{m.what}</span>
-                </div>
-              ))}
-            </div>
-            <p className="caveat">
-              These figures come from the event log of {table!.games} finished live {table!.games === 1 ? 'game' : 'games'} ({table!.hands} hands,{' '}
-              {table!.seats.length} seats). They are demo scale, not a study result: the sample is small, blinds rise throughout, and the line-up can change
-              between games. The study below is the pre-registered version, with each deal replayed in every seat.
-            </p>
-          </>
-        ) : (
-          <p className="lede">Once the first live game finishes, this section fills in from its event log. The study below is the pre-registered version.</p>
-        )}
-        <div className="findings">
-          <div>
-            <h3>Jev answers with a distribution</h3>
+        <div className="inner">
+          <div className="lead">
+            <span className="kicker">WHAT THE HANDS SAY</span>
+            <h2>{table && table.hands > 0 ? researchHeadline(table) : 'No games have finished yet.'}</h2>
             <p>
-              Jev returns a probability for every option it was offered — fold, call, raise to a size — so the log records not just what it did but how close
-              the second choice was. The LLM seats answer with one action, a win chance and a confidence.
+              {metrics.length
+                ? "Every seat played the same hands under the same rules, and every decision was logged with the model's own stated win chance beside the true one."
+                : 'Once the first live game finishes, this section fills in from its event log. The study below is the pre-registered version, where every deal is replayed in each seat.'}
             </p>
           </div>
-          <div>
-            <h3>Chips stay in code</h3>
-            <p>No model writes a number. The engine computes pots, stacks and side pots; models only choose from priced options, so a figure cannot be invented.</p>
-          </div>
-          <div>
-            <h3>Spectators see what players cannot</h3>
-            <p>
-              True chances are computed from all hole cards for the broadcast only. No seat ever receives them, which is what makes the stated-against-true
-              comparison fair.
-            </p>
+
+          {metrics.length ? (
+            <>
+              <div className="metrics">
+                {metrics.map((m) => (
+                  <div key={m.what}>
+                    <span className="v">{m.value}</span>
+                    <span className="k">{m.what}</span>
+                  </div>
+                ))}
+              </div>
+              <p className="caveat">
+                Figures come from the event log of {table!.games} finished live {table!.games === 1 ? 'game' : 'games'} ({table!.hands} hands,{' '}
+                {table!.seats.length} seats) and are demo scale, not a study result: the sample is small, blinds rise throughout, and the line-up can change
+                between games. The report below is the pre-registered version, with the method, the equity computation and every limitation.
+              </p>
+            </>
+          ) : null}
+
+          <div className="findings">
+            {FINDINGS.map((f) => (
+              <div key={f.h}>
+                <h3>{f.h}</h3>
+                <p>{f.p}</p>
+              </div>
+            ))}
           </div>
         </div>
       </section>
 
-      <section className="report-section">
-        <span className="kicker">TECHNICAL REPORT</span>
-        <h2>Measuring stated confidence against true equity in AI-vs-AI Texas Hold&apos;em</h2>
-        {reports.length === 0 ? (
-          <p className="lede">
-            No study has been run yet. When one is, its report appears here with every number, the pre-registration hash, and the full decision log to download.
-          </p>
-        ) : (
-          reports.map((e) => <Study key={e.dir} r={e.report} dir={e.dir} />)
-        )}
+      <section className="report">
+        <div className="inner">
+          <div className="lead">
+            <span className="kicker">TECHNICAL REPORT</span>
+            <h2>Measuring stated confidence against true equity in AI-vs-AI Texas Hold&apos;em</h2>
+            <p>
+              {latest
+                ? `A typed-readout decision model against general-purpose models under the same betting rules. ${latest.report.study.hands} hands, ${latest.report.players.length} seats, ${latest.report.study.decisions.toLocaleString('en-US')} logged decisions, ${usd(latest.report.study.costUsd)} spent. ${pages.length} pages.`
+                : `A typed-readout decision model against general-purpose models under the same betting rules. The report is generated from the study's event log; ${pages.length} pages once the first study has run.`}
+            </p>
+          </div>
+
+          <ReportViewer pages={pages} label={latest ? `${latest.report.study.id}.report` : 'artificial-bluff-report'} files={files} />
+
+          <div className="sections">
+            {pages.map((p) => (
+              <div key={p.n}>
+                <span className="no">{String(p.n).padStart(2, '0')}</span>
+                <div>
+                  <div className="t">{p.title}</div>
+                  <div className="p">PAGE {p.n}</div>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {reports.length > 1 ? (
+            <p className="caveat">
+              Earlier studies:{' '}
+              {reports.slice(1).map((e, i) => (
+                <span key={e.dir}>
+                  {i > 0 ? ', ' : ''}
+                  <a href={`/research/${encodeURIComponent(e.dir)}/report.html`}>{e.report.study.id}</a>
+                </span>
+              ))}
+            </p>
+          ) : null}
+        </div>
       </section>
+
+      <footer className="research-footer">
+        <div className="inner">
+          <span className="logo">
+            ARTIFICIAL<span>BLUFF</span>
+          </span>
+          <span className="blurb">A research benchmark that happens to be watchable. Chips are play money; models spend real tokens.</span>
+          <span className="links">
+            <Link href="/models">Models</Link>
+            <Link href="/replays">Replays</Link>
+            <Link href="/play">Run a table</Link>
+          </span>
+        </div>
+      </footer>
     </div>
   )
 }

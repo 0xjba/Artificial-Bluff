@@ -66,6 +66,12 @@ export interface HandSummary {
   shown: string[]
   /** Players knocked out in this hand. */
   busted: string[]
+  /** Decisions taken in the hand. */
+  decisions: number
+  /** How long the hand took, in seconds. */
+  seconds: number
+  /** The widest gaps between a stated win chance and the true one, worst first (at most two). */
+  reads: Array<{ playerId: string; saidPts: number; truePts: number }>
   tags: HandTag[]
   /** A plain description of what happened, from the log alone. */
   headline: string
@@ -89,6 +95,8 @@ interface GameAnalysis {
   /** Chips awarded per hand, and to whom, from the log's pot_awarded events. */
   pots: Map<string, { total: number; won: Record<string, number> }>
   starts: Map<string, { seq: number; ts: number }>
+  /** When each hand's last event happened. */
+  ends: Map<string, number>
 }
 
 /** Analysed games, so a page view doesn't re-read and re-score the whole log. Oldest entries are dropped. */
@@ -125,8 +133,11 @@ function analyse(store: EventStore, gameId: string, cache: SummaryCache, { score
   if (events.length === 0) return null
   const hands = extractHands(events)
   const starts = new Map<string, { seq: number; ts: number }>()
+  const ends = new Map<string, number>()
   for (const e of events) {
-    if (e.type === 'hand_started' && e.handId !== null && !starts.has(e.handId)) starts.set(e.handId, { seq: e.seq, ts: e.ts })
+    if (!('handId' in e) || e.handId === null) continue
+    if (e.type === 'hand_started' && !starts.has(e.handId)) starts.set(e.handId, { seq: e.seq, ts: e.ts })
+    ends.set(e.handId, e.ts)
   }
   const analysis: GameAnalysis = {
     hands,
@@ -135,6 +146,7 @@ function analyse(store: EventStore, gameId: string, cache: SummaryCache, { score
     players: playerInfo(events),
     pots: potsOf(events),
     starts,
+    ends,
   }
   cache.set(gameId, analysis)
   while (cache.size > SUMMARY_CACHE_GAMES) cache.delete(cache.keys().next().value!)
@@ -215,19 +227,20 @@ export function modelsTable(store: EventStore, cache: SummaryCache = new Map()):
   }
 }
 
-/** The biggest gap between a stated win chance and the true one in a hand, in percentage points. */
-function worstRead(decisions: ScoredDecision[]): { playerId: string; saidPts: number; truePts: number; gapPts: number } | null {
-  let worst: { playerId: string; saidPts: number; truePts: number; gapPts: number } | null = null
+/** Read = what a seat said against what was true, worst first (one entry per seat). */
+function worstReads(decisions: ScoredDecision[]): Array<{ playerId: string; saidPts: number; truePts: number; gapPts: number }> {
+  const bySeat = new Map<string, { playerId: string; saidPts: number; truePts: number; gapPts: number }>()
   for (const d of decisions) {
     if (d.winProbability === null || d.fallback) continue
     const gapPts = Math.abs(d.winProbability - d.expectedShare) * 100
-    if (!worst || gapPts > worst.gapPts) worst = { playerId: d.playerId, saidPts: d.winProbability * 100, truePts: d.expectedShare * 100, gapPts }
+    const seat = bySeat.get(d.playerId)
+    if (!seat || gapPts > seat.gapPts) bySeat.set(d.playerId, { playerId: d.playerId, saidPts: d.winProbability * 100, truePts: d.expectedShare * 100, gapPts })
   }
-  return worst
+  return [...bySeat.values()].sort((a, b) => b.gapPts - a.gapPts)
 }
 
 /** What to call a hand, from what actually happened in it. */
-function headlineFor(h: HandSummary, hand: HandRecord, read: ReturnType<typeof worstRead>): string {
+function headlineFor(h: HandSummary, hand: HandRecord, read: { playerId: string; saidPts: number; truePts: number } | undefined): string {
   const winners = h.winners.map(name).join(' and ')
   const many = h.winners.length > 1
   if (h.busted.length) return `${winners} ${many ? 'knock' : 'knocks'} out ${h.busted.map(name).join(' and ')} in a ${chips(h.pot)} pot`
@@ -248,6 +261,7 @@ function headlineFor(h: HandSummary, hand: HandRecord, read: ReturnType<typeof w
 export function handIndex(store: EventStore, gameId: string, cache: SummaryCache = new Map(), { score = true } = {}): HandSummary[] {
   const analysis = analyse(store, gameId, cache, { score })
   if (!analysis) return []
+  const ends = analysis.ends
   const scoredByHand = new Map<string, ScoredDecision[]>()
   for (const d of analysis.scored) scoredByHand.set(d.handId, [...(scoredByHand.get(d.handId) ?? []), d])
   const kinds = new Map([...analysis.players].map(([id, p]) => [id, p.kind]))
@@ -257,7 +271,8 @@ export function handIndex(store: EventStore, gameId: string, cache: SummaryCache
 
   const summaries = analysis.hands.map((hand, i): HandSummary => {
     const decisions = scoredByHand.get(hand.handId) ?? []
-    const read = worstRead(decisions)
+    const reads = worstReads(decisions)
+    const read = reads[0]
     const pot = analysis.pots.get(hand.handId)
     // A seat is out when it ends the hand with nothing (the live tournament has no rebuys).
     const busted = hand.seats.filter((s) => s.startStack + (hand.net[s.playerId] ?? 0) <= 0).map((s) => s.playerId)
@@ -278,6 +293,9 @@ export function handIndex(store: EventStore, gameId: string, cache: SummaryCache
       pot: pot?.total ?? 0,
       won: pot?.won ?? {},
       bigBlind: hand.bigBlind,
+      decisions: hand.decisions.length,
+      seconds: Math.max(0, Math.round(((ends.get(hand.handId) ?? start?.ts ?? 0) - (start?.ts ?? 0)) / 1000)),
+      reads: reads.slice(0, 2).map(({ playerId, saidPts, truePts }) => ({ playerId, saidPts, truePts })),
       players: hand.seats.map((s) => s.playerId),
       winners: hand.mainPotWinners,
       shown: hand.showdown,
