@@ -1,6 +1,9 @@
 import { EventStore } from '@ab/core'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { mockVariant, parseCliArgs, preregCommand, runCommand, statusCommand } from '../src/commands'
+import { mkdtempSync, readFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { mockVariant, parseCliArgs, preregCommand, reportCommand, runCommand, statusCommand } from '../src/commands'
 import { parseStudyConfig } from '../src/config'
 
 const config = parseStudyConfig({
@@ -75,6 +78,22 @@ describe('study commands (mock mode: free, no network, no keys)', () => {
     await runCommand(config, true, done, again.deps)
     expect(again.lines[0]).toBe('study smoke-mock already finished (max_groups)')
   })
+
+  it('writes a report of a mock study for free', async () => {
+    vi.stubGlobal('fetch', () => Promise.reject(new Error('reports must not use the network')))
+    const store = new EventStore()
+    await runCommand(config, true, store, capture().deps)
+    const out = mkdtempSync(join(tmpdir(), 'ab-report-'))
+    const { lines, deps } = capture()
+    const files = reportCommand(config, true, store, out, deps, '2026-09-22T00:00:00.000Z')
+    expect(files.map((f) => f.slice(out.length + 1))).toEqual(['report.html', 'report.json', 'decisions.csv', 'decisions.json'])
+    expect(lines[0]).toMatch(/^study smoke-mock: 20 hands, \d+ decisions analysed in/)
+    const json = JSON.parse(readFileSync(join(out, 'report.json'), 'utf8'))
+    expect(json).toMatchObject({ kind: 'artificialBluff study report', focusId: 'jev', study: { id: 'smoke-mock', hands: 20 } })
+    const rows = JSON.parse(readFileSync(join(out, 'decisions.json'), 'utf8'))
+    expect(readFileSync(join(out, 'decisions.csv'), 'utf8').trimEnd().split('\n')).toHaveLength(rows.length + 1)
+    expect(readFileSync(join(out, 'report.html'), 'utf8')).toContain('study smoke-mock')
+  })
 })
 
 describe('study CLI arguments', () => {
@@ -89,5 +108,11 @@ describe('study CLI arguments', () => {
     expect(() => parseCliArgs(['status', 'x.json', '--live'])).toThrow(/unknown argument/)
     expect(() => parseCliArgs(['go', 'x.json'])).toThrow(/unknown command/)
     expect(() => parseCliArgs(['run'])).toThrow(/missing <config.json>/)
+    expect(parseCliArgs(['report', 'x.json', '--mock', '--out', 'r'])).toMatchObject({ command: 'report', mock: true, out: 'r' })
+    expect(parseCliArgs(['report', 'x.json']).out).toBeNull()
+    expect(() => parseCliArgs(['report', 'x.json', '--out'])).toThrow(/--out needs a directory/)
+    expect(() => parseCliArgs(['run', 'x.json', '--mock', '--out', 'r'])).toThrow(/unknown argument for run: --out/)
+    expect(() => parseCliArgs(['report', 'x.json', '--live'])).toThrow(/unknown argument for report: --live/)
   })
+
 })

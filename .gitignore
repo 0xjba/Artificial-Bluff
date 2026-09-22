@@ -12,3 +12,4 @@ venv/
 data/
 lineups/*.json
 !lineups/*.example.json
+reports/

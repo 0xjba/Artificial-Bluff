@@ -11,6 +11,8 @@ export interface StudyProgress {
   attempts: Map<string, number>
   /** handKey -> chips won/lost per player, for the valid (completed, never budget-capped) attempt. */
   valid: Map<string, Record<string, number>>
+  /** handKey -> hand id of that valid attempt (the hand the analysis uses). */
+  validHandIds: Map<string, string>
   handsPlayed: number
   lastEnd: StudyEndReason | null
   /** analysedGroups of the last study_ended: the groups its published results use. */
@@ -20,7 +22,7 @@ export interface StudyProgress {
 }
 
 export function emptyProgress(): StudyProgress {
-  return { attempts: new Map(), valid: new Map(), handsPlayed: 0, lastEnd: null, analysedGroups: null, lastCheckpoint: null }
+  return { attempts: new Map(), valid: new Map(), validHandIds: new Map(), handsPlayed: 0, lastEnd: null, analysedGroups: null, lastCheckpoint: null }
 }
 
 /**
@@ -41,7 +43,10 @@ export function readProgress(events: readonly GameEvent[]): StudyProgress {
     } else if (e.type === 'hand_ended' && e.handId) {
       p.handsPlayed++
       const h = byHandId.get(e.handId)
-      if (h && !h.capped && !p.valid.has(h.key)) p.valid.set(h.key, e.net)
+      if (h && !h.capped && !p.valid.has(h.key)) {
+        p.valid.set(h.key, e.net)
+        p.validHandIds.set(h.key, e.handId)
+      }
     } else if (e.type === 'study_checkpoint') {
       p.lastCheckpoint = { groups: e.groups, stop: e.stop }
     } else if (e.type === 'study_ended') {
