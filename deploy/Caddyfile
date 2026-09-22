@@ -1,0 +1,14 @@
+# HTTPS for the site (Let's Encrypt, automatic). DOMAIN comes from .env.
+{$DOMAIN} {
+	# No `encode`: compressing the spectator feed (Server-Sent Events) would hold events back.
+	reverse_proxy web:3000 {
+		# Stream the feed straight through.
+		flush_interval -1
+	}
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options nosniff
+		Referrer-Policy strict-origin-when-cross-origin
+		-Server
+	}
+}
