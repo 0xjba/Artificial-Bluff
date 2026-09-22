@@ -18,8 +18,10 @@ export function PlaySetup(props: {
   onChange: (next: SetupState) => void
   models: ModelOption[] | null
   modelsError: string | null
+  onRetryModels: () => void
   problems: string[]
   onSignIn: () => void
+  onForgetKeys: () => void
   onStart: () => void
 }) {
   const { value: v, onChange } = props
@@ -66,9 +68,9 @@ export function PlaySetup(props: {
                   list="play-models"
                   value={s.model}
                   placeholder="search models…"
-                  onChange={(e) => setSeat(i, { kind: 'llm', model: e.target.value.trim() })}
+                  onChange={(e) => setSeat(i, { kind: 'llm', model: e.target.value })}
                 />
-                <small>{byId.get(s.model) ? `≈ ${usd(byId.get(s.model)!.decisionUsd)} a decision` : 'pick from the list'}</small>
+                <small>{byId.get(s.model.trim()) ? `≈ ${usd(byId.get(s.model.trim())!.decisionUsd)} a decision` : 'pick from the list'}</small>
               </>
             ) : null}
           </div>
@@ -80,7 +82,14 @@ export function PlaySetup(props: {
             </option>
           ))}
         </datalist>
-        {props.modelsError ? <p className="warn">Couldn't load OpenRouter's model list: {props.modelsError}</p> : null}
+        {props.modelsError ? (
+          <p className="warn">
+            Couldn't load OpenRouter's model list ({props.modelsError}).{' '}
+            <button type="button" onClick={props.onRetryModels}>
+              Retry
+            </button>
+          </p>
+        ) : null}
         {props.models === null && !props.modelsError ? <p className="muted">Loading OpenRouter's models…</p> : null}
       </fieldset>
 
@@ -122,11 +131,17 @@ export function PlaySetup(props: {
           />
         </label>
         <p className="estimate">
-          Estimated cost ≈ <b>{usd(estimate)}</b> for a whole game (up to {DECISIONS_PER_SEAT} decisions a seat). It never goes past your cap.
+          Rough estimate: <b>{usd(estimate)}</b> for a whole game (up to {DECISIONS_PER_SEAT} decisions a seat). The game stops at your cap. It can go slightly over: the
+          last decision, and calls that time out are counted at their estimated price.
         </p>
         <label className="remember">
           <input type="checkbox" checked={v.remember} onChange={(e) => onChange({ ...v, remember: e.target.checked })} /> Remember my keys on this device
-        </label>
+        </label>{' '}
+        {v.openrouterKey || v.typesafeKey ? (
+          <button type="button" onClick={props.onForgetKeys}>
+            Forget my keys
+          </button>
+        ) : null}
       </fieldset>
 
       {props.problems.length ? (

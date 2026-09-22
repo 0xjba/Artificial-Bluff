@@ -30,17 +30,28 @@ function choose(label: string, value: string) {
   })
 }
 
-beforeEach(async () => {
-  vi.stubGlobal('fetch', async (url: string) => {
-    if (String(url) === 'https://openrouter.ai/api/v1/models') return { ok: true, json: async () => ({ data: catalog }) }
-    throw new Error(`unexpected call to ${url}`)
-  })
-  vi.stubGlobal('matchMedia', () => ({ matches: false, addEventListener: () => {}, removeEventListener: () => {} }))
+let catalogUp = true
+const exchanged: string[] = []
+async function mount(paceMs = 0) {
   host = document.createElement('div')
   document.body.append(host)
   root = createRoot(host)
-  act(() => root.render(<PlayScreen paceMs={0} />))
+  act(() => root.render(<PlayScreen paceMs={paceMs} />))
   await settle()
+}
+
+beforeEach(async () => {
+  catalogUp = true
+  exchanged.length = 0
+  vi.stubGlobal('fetch', async (url: string, init?: RequestInit) => {
+    if (String(url) === 'https://openrouter.ai/api/v1/models') return catalogUp ? { ok: true, json: async () => ({ data: catalog }) } : { ok: false, status: 503 }
+    if (String(url) === 'https://openrouter.ai/api/v1/auth/keys') {
+      exchanged.push(String(init?.body))
+      return { ok: true, json: async () => ({ key: 'sk-or-from-signin' }) }
+    }
+    throw new Error(`unexpected call to ${url}`)
+  })
+  vi.stubGlobal('matchMedia', () => ({ matches: false, addEventListener: () => {}, removeEventListener: () => {} }))
 })
 afterEach(() => {
   act(() => root.unmount())
@@ -50,7 +61,8 @@ afterEach(() => {
 })
 
 describe('/play', () => {
-  it('starts with Jev and four models, and says what is missing', () => {
+  it('starts with Jev and four models, and says what is missing', async () => {
+    await mount()
     expect(text()).toContain('JEV')
     expect((host.querySelector('[aria-label="seat 2 model"]') as HTMLInputElement).value).toBe('anthropic/claude-sonnet-5')
     expect(text()).toContain('connect OpenRouter (or paste a key) for the model seats')
@@ -64,18 +76,81 @@ describe('/play', () => {
   })
 
   it('runs a free all-bot table on the broadcast screen, keeping no keys', async () => {
+    await mount()
     for (let i = 1; i <= 5; i++) choose(`seat ${i} player`, 'bot')
     expect(text()).toContain('PEBBLE') // seat 1 without Jev
     expect(text()).not.toContain('Relayed:')
-    expect(text()).toContain('≈ $0 for a whole game')
+    expect(text()).toContain('Rough estimate: $0 for a whole game')
     await act(async () => button('Start the game')!.click())
     for (let i = 0; i < 50 && !button('New table'); i++) await settle()
     expect(host.querySelector('.broadcast')).not.toBeNull()
     expect(host.querySelectorAll('.log li').length).toBeGreaterThan(0)
     expect(button('New table')).toBeDefined()
-    expect(text()).toContain('spent $0 of $1')
+    expect(text()).toContain('spent ≈ $0 of $1')
     expect(localStorage.length).toBe(0)
     act(() => button('New table')!.click())
     expect(text()).toContain('Run your own table')
+  })
+
+  it('still runs tables without model seats when the model list fails, and can retry it', async () => {
+    catalogUp = false
+    await mount()
+    expect(text()).toContain("Couldn't load OpenRouter's model list")
+    expect(text()).toContain("OpenRouter's model list didn't load")
+    for (let i = 2; i <= 5; i++) choose(`seat ${i} player`, 'bot')
+    choose('TypeSafe key', 'ts-test')
+    expect(button('Start the game')!.disabled).toBe(false) // Jev and bots need no model list
+    catalogUp = true
+    await act(async () => button('Retry')!.click())
+    await settle()
+    expect(host.querySelectorAll('#play-models option')).toHaveLength(5)
+  })
+
+  it('saves or forgets keys as soon as they or the Remember choice change', async () => {
+    await mount()
+    choose('OpenRouter key', 'sk-or-test')
+    expect(sessionStorage.getItem('artificialBluff.keys')).toContain('sk-or-test')
+    expect(localStorage.length).toBe(0)
+    act(() => (host.querySelector('.remember input') as HTMLInputElement).click())
+    expect(localStorage.getItem('artificialBluff.keys')).toContain('sk-or-test')
+    expect(sessionStorage.getItem('artificialBluff.keys')).toBeNull()
+    act(() => (host.querySelector('.remember input') as HTMLInputElement).click())
+    expect(localStorage.length).toBe(0) // unticked: nothing left on the device
+    act(() => button('Forget my keys')!.click())
+    expect(sessionStorage.getItem('artificialBluff.keys')).toBeNull()
+    expect((host.querySelector('[aria-label="OpenRouter key"]') as HTMLInputElement).value).toBe('')
+  })
+
+  it('finishes a sign-in on return from OpenRouter, keeping the seats chosen before it', async () => {
+    sessionStorage.setItem('artificialBluff.pkce', 'the-verifier')
+    sessionStorage.setItem('artificialBluff.playDraft', JSON.stringify({ seats: [{ kind: 'jev' }, { kind: 'bot' }, { kind: 'bot' }, { kind: 'bot' }, { kind: 'llm', model: 'acme/other' }], budgetUsd: 2.5 }))
+    window.history.replaceState(null, '', '/play?code=abc')
+    await mount()
+    await settle()
+    expect(exchanged[0]).toContain('"code":"abc"')
+    expect(exchanged[0]).toContain('"code_verifier":"the-verifier"')
+    expect(window.location.search).toBe('') // the code is not left in the address bar
+    expect((host.querySelector('[aria-label="OpenRouter key"]') as HTMLInputElement).value).toBe('sk-or-from-signin')
+    expect((host.querySelector('[aria-label="seat 5 model"]') as HTMLInputElement).value).toBe('acme/other')
+    expect((host.querySelector('[aria-label="spending cap"]') as HTMLInputElement).value).toBe('2.5')
+  })
+
+  it('reports an expired sign-in instead of failing silently', async () => {
+    window.history.replaceState(null, '', '/play?code=abc')
+    await mount()
+    await settle()
+    expect(text()).toContain('sign-in expired')
+    expect(exchanged).toHaveLength(0)
+  })
+
+  it('stops after the hand in progress', async () => {
+    await mount(40)
+    for (let i = 1; i <= 5; i++) choose(`seat ${i} player`, 'bot')
+    await act(async () => button('Start the game')!.click())
+    await act(async () => button('Stop after this hand')!.click())
+    for (let i = 0; i < 400 && !button('New table'); i++) await act(async () => await new Promise((r) => setTimeout(r, 10)))
+    expect(button('New table')).toBeDefined()
+    expect(host.querySelectorAll('.log li.hand')).toHaveLength(1) // the hand in progress finished, no other began
+    expect(text()).toContain('(interrupted)')
   })
 })

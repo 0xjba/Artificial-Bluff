@@ -1,8 +1,8 @@
-import { applyEvent, emptyView, equityKey, MemoryStore, runTournamentGame, tableEquity, withEquity, type GameEvent } from '@ab/core/browser'
+import { applyEvent, emptyView, equityKey, MemoryStore, runTournamentGame, tableEquity, withEquity, type GameEvent, type GameStore } from '@ab/core/browser'
 import { liveTurboConfig } from '@ab/engine'
 import { adaptLineup, JevPlayer, LlmPlayer, TagBot, type CatalogModel, type Player, type PlayerSpec } from '@ab/players'
 import type { Channel, FeedMessage } from '@ab/server'
-import type { ModelOption, SeatChoice } from './models'
+import { jevDecisionUsd, MAX_DECISION_USD, type ModelOption, type SeatChoice } from './models'
 
 /** Seat ids (the on-screen characters). Seat 0 is JEV when Jev plays it, PEBBLE otherwise. */
 export const SEAT_IDS = ['jev', 'pill', 'block', 'drip', 'nimbus'] as const
@@ -32,6 +32,8 @@ export interface TableSetup {
 export interface TableDeps {
   /** OpenRouter's catalog entries by id (for each model's request settings). */
   catalog: Map<string, CatalogModel>
+  /** Supported models by id (their estimated price counts a timed-out decision against the cap). */
+  models: Map<string, ModelOption>
   /** Base URL of our TypeSafe relay, e.g. `${location.origin}/api/typesafe`. */
   relayBase: string
   /** This site, sent to OpenRouter as the app's referer. */
@@ -39,6 +41,7 @@ export interface TableDeps {
   fetch?: typeof fetch
   seed?: string
   paceMs?: number
+  decisionTimeoutMs?: number
   sleep?: (ms: number) => Promise<void>
 }
 
@@ -98,6 +101,19 @@ export class LocalTable {
   readonly #abort = new AbortController()
   #view = emptyView()
   #equityKey: string | null = null
+  /**
+   * Estimated cost of paid decisions that timed out: the provider may still bill them but reports
+   * nothing, so the cap counts them at the model's estimated price (else a slow model could overspend
+   * without limit).
+   */
+  #unrecordedUsd = 0
+  /** The store the game runs on: the memory store, with unrecorded cost added to what it has spent. */
+  readonly #gameStore: GameStore = {
+    createGame: (id, kind, config) => this.#store.createGame(id, kind, config),
+    sink: (id) => this.#store.sink(id),
+    setStatus: (id, status) => this.#store.setStatus(id, status),
+    gameCost: (id) => this.#store.gameCost(id) + this.#unrecordedUsd,
+  }
 
   constructor(
     readonly setup: TableSetup,
@@ -112,8 +128,8 @@ export class LocalTable {
       gameId: this.gameId,
       players: buildPlayers(this.setup, this.deps),
       tournament: liveTurboConfig(this.deps.seed ?? randomSeed()),
-      store: this.#store,
-      decisionTimeoutMs: DECISION_TIMEOUT_MS,
+      store: this.#gameStore,
+      decisionTimeoutMs: this.deps.decisionTimeoutMs ?? DECISION_TIMEOUT_MS,
       paceMs: this.deps.paceMs ?? TABLE_PACE_MS,
       budgetUsd: this.setup.budgetUsd,
       signal: this.#abort.signal,
@@ -129,13 +145,23 @@ export class LocalTable {
     this.#abort.abort()
   }
 
-  /** Spent so far by all seats (USD). */
+  /** Spent so far by all seats (USD), counting timed-out paid decisions at their estimated price. */
   spentUsd(): number {
-    return this.#store.gameCost(this.gameId)
+    return this.#store.gameCost(this.gameId) + this.#unrecordedUsd
+  }
+
+  /** Estimated price of one decision by a seat (the dearest allowed model if unknown; 0 for bots). */
+  #decisionUsd(playerId: string): number {
+    const index = this.setup.seats.findIndex((s, i) => seatId(s, i) === playerId)
+    const seat = this.setup.seats[index]
+    if (seat?.kind === 'jev') return jevDecisionUsd()
+    if (seat?.kind === 'llm') return this.deps.models.get(seat.model)?.decisionUsd ?? MAX_DECISION_USD
+    return 0
   }
 
   // Same as the live server's hub: equity is recomputed when the board or the players still in change.
   #publish(event: GameEvent): void {
+    if (event.type === 'decision' && event.fallbackKind === 'timeout') this.#unrecordedUsd += this.#decisionUsd(event.playerId)
     this.#view = applyEvent(this.#view, event)
     this.onMessage({ type: 'event', channelId: this.channel.id, event })
     const key = equityKey(this.#view)

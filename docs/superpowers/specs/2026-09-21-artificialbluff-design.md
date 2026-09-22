@@ -254,10 +254,12 @@ TEN branding and parody personas.
 - **Jev seats:** TypeSafe's API refuses browser (cross-origin) calls, so Jev calls go through a stateless relay,
   `POST /api/typesafe/v1/systemone` on the web app. It forwards the visitor's key per request and never stores or logs
   it. Limits:
-  - only `v1/systemone` paths;
-  - same-origin callers only;
-  - bodies of 64 KB at most;
-  - 120 calls per minute per address.
+  - only the `v1/systemone` path;
+  - same-origin callers only, and redirects are never followed;
+  - streamed bodies are cut off at 64 KB (Caddy caps them too);
+  - 120 calls per minute per client (IPv6 counted per /64), with a total cap of 3,000 calls and 20,000 clients per
+    minute;
+  - the upstream call is dropped when the page gives up.
 
   The page labels the relay next to the TypeSafe key field. Open item: TypeSafe to allow browser calls, then remove
   the relay.
@@ -267,8 +269,12 @@ TEN branding and parody personas.
   - a fixed price of at most $0.02 per decision (estimated at 800 prompt and 80 reply tokens).
 
   Ten well-known models are listed first. Request settings are adapted per model as in `adaptLineup`.
-- **Cost:** the estimate assumes up to 120 decisions per paid seat. The spending cap defaults to $1 (range $0.10 to
-  $20) and ends the game once reached. "Stop after this hand" ends it early.
+- **Cost:** the rough estimate assumes up to 120 decisions per paid seat. The spending cap defaults to $1 (range $0.10
+  to $20) and ends the game once reached. It can go slightly over: the last decision runs before the cap is checked.
+  Timed-out paid decisions, which providers may still bill without reporting a cost, count at their estimated price,
+  so a slow model can't overspend without limit. "Stop after this hand" ends the game early.
+- **Content-Security-Policy:** Caddy sends `connect-src 'self' https://openrouter.ai`, so an injected script
+  couldn't send stored keys anywhere else.
 
 ## 8. Brand
 

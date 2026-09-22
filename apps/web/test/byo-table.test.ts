@@ -27,7 +27,7 @@ const catalog = new Map<string, CatalogModel>([['acme/m', { id: 'acme/m', suppor
 const models = new Map<string, ModelOption>([['acme/m', { id: 'acme/m', name: 'Acme M', decisionUsd: 0.001, featured: false }]])
 const seats: SeatChoice[] = [{ kind: 'jev' }, { kind: 'llm', model: 'acme/m' }, { kind: 'bot' }, { kind: 'bot' }, { kind: 'bot' }]
 const setup = (over: Partial<TableSetup> = {}): TableSetup => ({ seats, openrouterKey: 'or-key', typesafeKey: 'ts-key', budgetUsd: 5, ...over })
-const deps = (fetch: typeof globalThis.fetch) => ({ catalog, relayBase: 'https://site.test/api/typesafe', referer: 'https://site.test', fetch, seed: 'fixed', paceMs: 0 })
+const deps = (fetch: typeof globalThis.fetch) => ({ catalog, models, relayBase: 'https://site.test/api/typesafe', referer: 'https://site.test', fetch, seed: 'fixed', paceMs: 0 })
 
 describe('a table in the browser', () => {
   it('says what is missing before it can start', () => {
@@ -77,6 +77,21 @@ describe('a table in the browser', () => {
     const end = [...messages].reverse().find((m) => m.type === 'event' && m.event.type === 'game_ended')
     expect(end).toMatchObject({ event: { reason: 'budget_cap' } })
     expect(table.spentUsd()).toBeLessThan(0.1 + 0.05 * 2)
+  })
+
+  it('counts timed-out paid decisions at their estimated price, so a slow model still hits the cap', async () => {
+    // Every call hangs until the runner gives up: the provider may still bill it, but nothing is reported.
+    const hanging = (async (_: unknown, init?: RequestInit) =>
+      new Promise((_resolve, reject) => init?.signal?.addEventListener('abort', () => reject(new Error('aborted'))))) as typeof globalThis.fetch
+    const pricey = new Map<string, ModelOption>([['acme/m', { id: 'acme/m', name: 'Acme M', decisionUsd: 0.03, featured: false }]])
+    const messages: FeedMessage[] = []
+    const table = new LocalTable(setup({ budgetUsd: 0.1, seats: [{ kind: 'bot' }, { kind: 'llm', model: 'acme/m' }, { kind: 'bot' }, { kind: 'bot' }, { kind: 'bot' }] }), { ...deps(hanging), models: pricey, decisionTimeoutMs: 20 }, (m) => messages.push(m))
+    await table.start()
+    const end = [...messages].reverse().find((m) => m.type === 'event' && m.event.type === 'game_ended')
+    expect(end).toMatchObject({ event: { reason: 'budget_cap' } })
+    const timeouts = messages.filter((m) => m.type === 'event' && m.event.type === 'decision' && m.event.fallbackKind === 'timeout').length
+    expect(table.spentUsd()).toBeCloseTo(timeouts * 0.03, 9)
+    expect(timeouts).toBeGreaterThanOrEqual(4) // $0.10 at $0.03 an unrecorded decision
   })
 
   it('stops after the hand in progress', async () => {
