@@ -93,12 +93,13 @@ Last updated: 2026-09-22
 
 ### Plan 4b task progress
 
-- [ ] Task 1: Vendor bloub engine (controller; mascot 71)
-- [ ] Task 2: White rings + shape kept through animations (mascot 73)
-- [ ] Task 3: Cast + cues (77)
-- [ ] Task 4: Driver (82)
-- [ ] Task 5: React component (85)
-- [ ] Task 6: Preview sheet (docs/brand/mascots.html; total 391)
+- [x] Task 1: Vendor bloub engine (d33be1a; controller; pristine = upstream b4bb3c1)
+- [x] Task 2: White rings + shape kept through animations (ea3b110; spec ✅; upstream orbit-margin comment dropped as now wrong)
+- [x] Task 3: Cast + cues (7d33d51; spec ✅)
+- [x] Task 4: Driver (0fc326f; spec ✅)
+- [x] Task 5: React component (358a4c2; spec ✅)
+- [x] Task 6: Preview sheet (0f558c6; spec ✅; 391 tests)
+- [ ] Final branch review (opus)
 
 ## Key decisions (summary; spec is authoritative)
 
@@ -150,6 +151,8 @@ Last updated: 2026-09-22
 - Scratch bloub preview (custom colours, Mascots.vue) lived in the session scratchpad; replaced by Plan 4b's `pnpm --filter @ab/mascot preview` → docs/brand/mascots.html.
 
 ## Execution log
+
+- 2026-09-22: apps/server test flake identified (director test > 5 s default under full-suite load) and fixed with a 30 s testTimeout (a62efc4).
 
 - 2026-09-22: Plan 4 split again: 4b mascots (package), 4c web UI. Plan 4b written from a verified scratch reference (391 tests). Decisions: vendor only bloub's clock-free engine (MIT, b4bb3c1) with its tests; shape rule = orbit spins the player's shape, circle-drawn states take the shape at that radius, glyphs unchanged; white rings via saturation 0; React `<Mascot>` with a clock-free `MascotDriver`; explicit `id` prop for separately rendered mascots (useId collides across render calls).
 
