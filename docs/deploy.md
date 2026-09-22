@@ -99,6 +99,13 @@ rsync -a reports/<study-id>/ you@vps:artificialbluff/reports/<study-id>/
 
 The research page reads the folder on each request, so no restart is needed.
 
+## Run your own table (/play)
+
+Visitors can run tables with their own keys at `/play`. The game runs in their browser, so it costs the server nothing.
+Jev seats are the one exception: TypeSafe doesn't accept browser calls yet, so the `web` container relays Jev calls to
+`https://api.typesafe.ai` with the visitor's key. The key is never stored or logged, and calls are limited to 120 per
+minute per address. No settings are needed, as long as outbound HTTPS from the VPS is allowed.
+
 ## Updating
 
 ```bash
