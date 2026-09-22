@@ -1,6 +1,7 @@
 /// <reference path="./phe.d.ts" />
 import { cardCode, evaluateCardCodes } from 'phe'
 import { fullDeck, isCard, type Card } from './cards'
+import { mulberry32 } from './rng'
 
 /**
  * Each player's expected share of the main pot if nobody folds from here: exact enumeration of every
@@ -12,6 +13,24 @@ import { fullDeck, isCard, type Card } from './cards'
  */
 export function mainPotShares(holes: readonly (readonly Card[])[], board: readonly Card[]): number[] {
   return mainPotSharesBySubset(holes, board, [holes.map((_, i) => i)])[0]!
+}
+
+/** Checks a deal and its subsets (shared by the exact and sampled versions); returns every known card. */
+function validateDeal(holes: readonly (readonly Card[])[], board: readonly Card[], subsets: readonly (readonly number[])[]): Card[] {
+  if (holes.length < 2) throw new Error('mainPotShares needs at least two players')
+  if (![0, 3, 4, 5].includes(board.length)) throw new Error(`mainPotShares: a board has 0, 3, 4 or 5 cards, got ${board.length}`)
+  for (const h of holes) if (h.length !== 2) throw new Error('mainPotShares: every player needs two hole cards')
+  const known = [...holes.flat(), ...board]
+  const bad = known.find((c) => !isCard(c))
+  if (bad !== undefined) throw new Error(`mainPotShares got a malformed card: ${bad}`)
+  if (new Set(known).size !== known.length) throw new Error(`mainPotShares got duplicate cards: ${known.join(' ')}`)
+  for (const sub of subsets) {
+    if (sub.length < 2) throw new Error('mainPotShares: every subset needs at least two players')
+    if (new Set(sub).size !== sub.length || sub.some((i) => !Number.isInteger(i) || i < 0 || i >= holes.length)) {
+      throw new Error(`mainPotShares: bad subset ${sub.join(',')}`)
+    }
+  }
+  return known
 }
 
 /**
@@ -27,19 +46,7 @@ export function mainPotSharesBySubset(
   board: readonly Card[],
   subsets: readonly (readonly number[])[],
 ): number[][] {
-  if (holes.length < 2) throw new Error('mainPotShares needs at least two players')
-  if (![0, 3, 4, 5].includes(board.length)) throw new Error(`mainPotShares: a board has 0, 3, 4 or 5 cards, got ${board.length}`)
-  for (const h of holes) if (h.length !== 2) throw new Error('mainPotShares: every player needs two hole cards')
-  const known = [...holes.flat(), ...board]
-  const bad = known.find((c) => !isCard(c))
-  if (bad !== undefined) throw new Error(`mainPotShares got a malformed card: ${bad}`)
-  if (new Set(known).size !== known.length) throw new Error(`mainPotShares got duplicate cards: ${known.join(' ')}`)
-  for (const sub of subsets) {
-    if (sub.length < 2) throw new Error('mainPotShares: every subset needs at least two players')
-    if (new Set(sub).size !== sub.length || sub.some((i) => !Number.isInteger(i) || i < 0 || i >= holes.length)) {
-      throw new Error(`mainPotShares: bad subset ${sub.join(',')}`)
-    }
-  }
+  const known = validateDeal(holes, board, subsets)
 
   const code = (c: Card) => cardCode(c[0]!, c[1]!)
   const holeCodes = holes.map((h) => h.map(code))
@@ -86,4 +93,63 @@ export function mainPotSharesBySubset(
   }
   pick(0, 5 - missing)
   return shares.map((row) => row.map((s) => s / boards))
+}
+
+/** How many boards can still come, given the number of known cards (all hole cards plus the board). */
+export function remainingBoards(knownCards: number, boardLength: number): number {
+  if (![0, 3, 4, 5].includes(boardLength) || !Number.isInteger(knownCards) || knownCards < boardLength + 4 || knownCards > 52) {
+    throw new Error(`remainingBoards: bad input (${knownCards} known cards, board of ${boardLength})`)
+  }
+  const rest = 52 - knownCards
+  const k = 5 - boardLength
+  let n = 1
+  for (let i = 0; i < k; i++) n = (n * (rest - i)) / (i + 1)
+  return Math.round(n)
+}
+
+/**
+ * An estimate of mainPotSharesBySubset for one subset, from `samples` random boards drawn with a
+ * seeded generator (reproducible). Every dealt hole card is dead. For on-screen display, where exact
+ * preflop enumeration is too slow to do after every action; research numbers use the exact version.
+ * With 20,000 samples the standard error is under 0.4 percentage points.
+ */
+export function sampleMainPotShares(holes: readonly (readonly Card[])[], board: readonly Card[], subset: readonly number[], samples: number, seed: number): number[] {
+  if (!Number.isInteger(samples) || samples < 1) throw new Error('sampleMainPotShares: samples must be a positive integer')
+  const known = validateDeal(holes, board, [subset])
+
+  const code = (c: Card) => cardCode(c[0]!, c[1]!)
+  const used = new Set(known)
+  const rest = fullDeck().filter((c) => !used.has(c)).map(code)
+  const holeCodes = subset.map((i) => holes[i]!.map(code))
+  const missing = 5 - board.length
+  const random = mulberry32(seed)
+  const shares = new Array<number>(subset.length).fill(0)
+  const values = new Array<number>(subset.length).fill(0)
+  const cards = new Array<number>(7).fill(0)
+  board.forEach((c, i) => (cards[i] = code(c)))
+  const pool = [...rest]
+  for (let s = 0; s < samples; s++) {
+    // Partial Fisher-Yates: the first `missing` cards of the pool become the rest of the board.
+    for (let i = 0; i < missing; i++) {
+      const j = i + Math.floor(random() * (pool.length - i))
+      const t = pool[i]!
+      pool[i] = pool[j]!
+      pool[j] = t
+      cards[board.length + i] = pool[i]!
+    }
+    let best = Infinity
+    let tied = 0
+    for (let p = 0; p < holeCodes.length; p++) {
+      cards[5] = holeCodes[p]![0]!
+      cards[6] = holeCodes[p]![1]!
+      const v = evaluateCardCodes(cards)
+      values[p] = v
+      if (v < best) {
+        best = v
+        tied = 1
+      } else if (v === best) tied++
+    }
+    for (let p = 0; p < holeCodes.length; p++) if (values[p] === best) shares[p]! += 1 / tied
+  }
+  return shares.map((x) => x / samples)
 }
