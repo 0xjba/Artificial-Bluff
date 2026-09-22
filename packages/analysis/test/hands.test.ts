@@ -67,6 +67,36 @@ describe('extractHands', () => {
     ])
   })
 
+  it('takes the main pot as the first pot awarded, with a short all-in stack and a side pot', async () => {
+    // a (BTN, 10,000) shoves; b (SB, 1,000) calls all-in with aces; c (BB, 10,000) calls with kings.
+    // b wins the 3,000 main pot; c wins the 18,000 side pot from a's queens.
+    const shover = scripted('a', () => 'all_in')
+    const events = await playFixedHand([shover, caller('b'), caller('c')], [['Qh', 'Qd'], ['Ah', 'Ad'], ['Kh', 'Kd']], board, 'h1', memorySink(), [10_000, 1_000, 10_000])
+    const [hand] = extractHands(events)
+    expect(hand!.mainPotWinners).toEqual(['b'])
+    expect(hand!.net).toEqual({ a: -10_000, b: 2_000, c: 8_000 })
+    const byPlayer = new Map(hand!.decisions.map((d) => [d.playerId, d]))
+    expect(byPlayer.get('b')!.mainPotShare).toBe(1)
+    expect(byPlayer.get('c')!.mainPotShare).toBe(0) // won only the side pot
+    // b can only win chips up to its own 1,000: 1,000 from a, 50 of its own, 100 from c.
+    expect(byPlayer.get('b')).toMatchObject({ toCall: 950, pot: 10_150, winnablePot: 1_150 })
+    // All-in run-out: every decision was preflop, everyone saw the flop and the showdown.
+    expect(hand!.decisions.every((d) => d.street === 'preflop' && d.board.length === 0)).toBe(true)
+    expect(hand!.sawFlop).toEqual(['a', 'b', 'c'])
+    expect(hand!.showdown).toEqual(['a', 'b', 'c'])
+    expect(hand!.board).toEqual(board)
+  })
+
+  it('keeps hands of different games apart even when their hand ids match', async () => {
+    const one = await playFixedHand([caller('a'), caller('b')], [['Ah', 'Ad'], ['Kh', 'Kd']], board, 'hand-1')
+    const two = (await playFixedHand([caller('a'), caller('b')], [['Kh', 'Kd'], ['Ah', 'Ad']], board, 'hand-1')).map((e) => ({ ...e, gameId: 'other' }) as GameEvent)
+    const hands = extractHands([...one, ...two])
+    expect(hands.map((h) => [h.handId, h.mainPotWinners])).toEqual([
+      ['hand-1', ['a']],
+      ['hand-1', ['b']],
+    ])
+  })
+
   it('reads player kinds and models from game_started', () => {
     const info = playerInfo([
       { type: 'game_started', kind: 'study', configHash: 'h', players: [{ id: 'jev', kind: 'jev', model: 'jev-1.13.0' }], gameId: 'g', seq: 1, ts: 0 },
