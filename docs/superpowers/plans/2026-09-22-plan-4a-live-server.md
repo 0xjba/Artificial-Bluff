@@ -24,7 +24,7 @@
 - **Config is strict:** numbers must be plain decimals (whole numbers where it matters), `MOCK` must be 0 or 1 (never silently paid), `ALLOWED_ORIGIN` must be a bare origin.
 - **Programme:** a live game always wins: starting one interrupts the replay at once; its final result stays up for `COOLDOWN_MS`, then replays resume (past finished live games, newest first, alternating with study highlight reels). Highlights score chips won (bb), all-ins, and Jev and an LLM whose last stated chances of winning the same hand add up to more than 100%.
 - **Admin:** off unless `ADMIN_TOKEN` (16+ characters) is set; constant-time comparison; stop takes effect after the hand in progress. CORS only for `ALLOWED_ORIGIN` (the web app in development).
-- **Robustness:** games left `running` by a crash are marked `interrupted` at start-up; SIGINT/SIGTERM stop the live game after its hand, close connections and the store (a second signal quits at once); a spectator connection that breaks is dropped without disturbing the game; a real line-up is checked at start-up (model catalog, keys) so problems show before anyone presses start.
+- **Robustness:** only one server per database (`<db>.server.lock` with its pid; a stale lock is taken over), so a second server can never mark the first one's live game interrupted and publish its seed mid-game; live games (only live: a study may be running in another process) left `running` by a crash are marked `interrupted` at start-up; SIGINT/SIGTERM stop the live game after its hand, close connections, the store and the lock (Ctrl-C arrives twice, from the terminal and via tsx, so a repeat within 1 s is ignored; a later second signal quits at once); a malformed request target gets 400 (never an uncaught throw); a spectator that falls more than 1 MB behind is disconnected; the director logs and survives any error; finished games' events are served in pages of 5,000; a real line-up is checked at start-up (model catalog with a 15 s timeout, keys) so problems show before anyone presses start. (Final-review findings.)
 - **Runtime:** `tsx` (the packages export TypeScript source; no build step), as for the CLIs. `pnpm server` is a pnpm built-in, hence `pnpm live`.
 
 ## File map
@@ -355,8 +355,8 @@ git -c user.email=jobinb6444@gmail.com -c user.name=0xjba commit -m "feat(engine
 
 **Files:**
 - Create: `packages/core/src/view.ts`
-- Modify: `packages/core/src/index.ts`
-- Test: `packages/core/test/view.test.ts`
+- Modify: `packages/core/src/index.ts`, `packages/core/src/store.ts`
+- Test: `packages/core/test/view.test.ts`, `packages/core/test/store.test.ts`
 
 - [ ] **Step 1: Write the failing test**
 
@@ -760,6 +760,62 @@ Append to `packages/core/src/index.ts`:
 export * from './view'
 ```
 
+In `packages/core/src/store.ts`, replace `interruptRunningGames` (the live server must never interrupt a study another process is running) with:
+```ts
+  /**
+   * Marks games left 'running' by a crash as 'interrupted' and returns their ids. Pass `kind` to touch
+   * only that kind: the live server must never interrupt a study another process is running.
+   */
+  interruptRunningGames(now = Date.now(), kind?: GameKind): string[] {
+    const rows = (kind
+      ? this.db.prepare("UPDATE games SET status = 'interrupted', ended_at = ? WHERE status = 'running' AND kind = ? RETURNING id").all(now, kind)
+      : this.db.prepare("UPDATE games SET status = 'interrupted', ended_at = ? WHERE status = 'running' RETURNING id").all(now)) as Array<{ id: string }>
+    return rows.map((r) => r.id).sort()
+  }
+```
+and replace `events` (paged reads for the API) with:
+```ts
+  /** A game's events in order, after `afterSeq`, at most `limit` of them (all by default). */
+  events(gameId: string, afterSeq = 0, limit = -1): GameEvent[] {
+    const rows = this.db
+      .prepare('SELECT seq, ts, body_json FROM events WHERE game_id = ? AND seq > ? ORDER BY seq LIMIT ?')
+      .all(gameId, afterSeq, limit) as Array<{ seq: number; ts: number; body_json: string }>
+    return rows.map((r) => ({ ...(JSON.parse(r.body_json) as EventBody), gameId, seq: r.seq, ts: r.ts }) as GameEvent)
+  }
+```
+In `packages/core/test/store.test.ts`, replace the test `it('marks games left running as interrupted', ...)` with:
+```ts
+  it('marks games left running as interrupted', () => {
+    const store = new EventStore()
+    store.createGame('a', 'live', {})
+    store.createGame('b', 'live', {})
+    store.setStatus('b', 'ended')
+    store.createGame('s', 'study', {})
+    // The live server interrupts only live games: a study may be running in another process.
+    expect(store.interruptRunningGames(Date.now(), 'live')).toEqual(['a'])
+    expect(store.game('a')!.status).toBe('interrupted')
+    expect(store.game('s')!.status).toBe('running')
+    expect(store.interruptRunningGames()).toEqual(['s'])
+    expect(store.games('live').map((g) => g.id)).toEqual(['a', 'b'])
+  })
+
+  it('lets only one run claim a game unless it takes over', () => {
+    const store = new EventStore()
+    store.createGame('s', 'study', {})
+    expect(() => store.claimGame('s')).toThrow(/already running/)
+    store.setStatus('s', 'interrupted')
+    store.claimGame('s')
+    expect(store.game('s')).toMatchObject({ status: 'running', endedAt: null })
+    expect(() => store.claimGame('s')).toThrow(/already running/)
+    store.claimGame('s', true)
+    expect(() => store.claimGame('nope')).toThrow(/no game/)
+  })
+```
+and after the line `expect(store.events('g1', 1)).toHaveLength(1)` add:
+```ts
+    expect(store.events('g1', 0, 1).map((e) => e.seq)).toEqual([1])
+```
+
 - [ ] **Step 4: Run tests and typecheck**
 
 Run: `pnpm --filter @ab/core exec vitest run && pnpm --filter @ab/core typecheck`
@@ -853,6 +909,7 @@ describe('parseServerConfig', () => {
     expect(() => parseServerConfig({ MAX_CLIENTS: '1e3' })).toThrow(/MAX_CLIENTS/)
     expect(() => parseServerConfig({ ALLOWED_ORIGIN: 'http://localhost:3000/' })).toThrow(/origin/)
     expect(() => parseServerConfig({ ALLOWED_ORIGIN: '*' })).toThrow(/origin/)
+    expect(() => parseServerConfig({ REPLAY_PACE_MS: '0' })).toThrow(/REPLAY_PACE_MS/) // would replay in a tight loop
   })
 })
 ```
@@ -965,7 +1022,7 @@ export function parseServerConfig(env: Env, argv: readonly string[] = []): Serve
     liveBudgetUsd: number(env, 'LIVE_BUDGET_USD', 1, 0.01, 100),
     paceMs: number(env, 'PACE_MS', 2500, 0, 60_000, true),
     decisionTimeoutMs: number(env, 'DECISION_TIMEOUT_MS', 20_000, 1000, 300_000, true),
-    replayPaceMs: number(env, 'REPLAY_PACE_MS', 1500, 0, 60_000, true),
+    replayPaceMs: number(env, 'REPLAY_PACE_MS', 1500, 10, 60_000, true), // 0 would replay in a tight loop
     cooldownMs: number(env, 'COOLDOWN_MS', 30_000, 0, 600_000, true),
     allowedOrigin: origin(env, 'ALLOWED_ORIGIN'),
     maxClients: number(env, 'MAX_CLIENTS', 500, 1, 100_000, true),
@@ -1444,9 +1501,22 @@ describe('highlights', () => {
     store.createGame('st', 'study', {})
     for (const { gameId: _g, seq: _s, ts: _t, ...body } of study) store.append('st', body as never)
     store.setStatus('st', 'ended')
-    const queue = replayQueue(store)
+    store.createGame('resumable', 'study', {})
+    store.setStatus('resumable', 'interrupted') // a stopped study can still resume: not replayed
+    const cache = new Map()
+    const queue = replayQueue(store, {}, cache)
     expect(queue.map((q) => q.title)).toEqual(['REPLAY · live game new', 'REPLAY · study st highlights', 'REPLAY · live game old'])
     expect(queue[1]!.events.every((e) => e.gameId === 'st')).toBe(true)
+    // A stopped live game is over for good, so it is replayed too; built games come from the cache.
+    await playLiveGame(store, 'stopped', 2)
+    store.setStatus('stopped', 'interrupted')
+    store.db.prepare("UPDATE games SET created_at = 0 WHERE id = 'stopped'").run()
+    let reads = 0
+    const events = store.events.bind(store)
+    store.events = (...args: Parameters<typeof store.events>) => (reads++, events(...args))
+    const again = replayQueue(store, {}, cache)
+    expect(again.map((q) => q.gameId)).toEqual(['new', 'st', 'old', 'stopped'])
+    expect(reads).toBe(1) // only the new game's log was read
   })
 })
 
@@ -1516,7 +1586,7 @@ export type Sleep = typeof sleep
 import { extractHands, playerInfo, type HandRecord } from '@ab/analysis'
 import type { EventStore, GameEvent, PlayerInfo } from '@ab/core'
 import type { Hub } from './hub'
-import { publicEvent } from './public'
+import { isOver, publicEvent } from './public'
 import { sleep as realSleep, type Sleep } from './sleep'
 
 /** One programme for the idle screen: a whole past live game, or a reel of study highlights. */
@@ -1569,19 +1639,32 @@ export function highlightReel(events: readonly GameEvent[], limit: number, title
   return { title, gameId: started.gameId, events: [started, ...[...byHand.values()].flat()] }
 }
 
+/** Replays already built, by game id (games that are over never change). */
+export type ReplayCache = Map<string, ReplayItem | null>
+
 /**
- * What to show when no live game is on: the latest past live games (whole) alternating with highlight
- * reels of finished studies. Only finished games are replayed (their seeds may be public by then).
+ * What to show when no live game is on: the latest past live games (whole; stopped or crashed ones
+ * too) alternating with highlight reels of finished studies. Only games that are over for good are
+ * replayed (see isOver). Pass a cache to avoid re-reading their logs every round.
  */
-export function replayQueue(store: EventStore, opts: { liveGames?: number; studies?: number; handsPerReel?: number } = {}): ReplayItem[] {
+export function replayQueue(store: EventStore, opts: { liveGames?: number; studies?: number; handsPerReel?: number } = {}, cache: ReplayCache = new Map()): ReplayItem[] {
   const newestFirst = <T extends { createdAt: number }>(rows: T[]) => [...rows].sort((a, b) => b.createdAt - a.createdAt)
-  const live = newestFirst(store.games('live').filter((g) => g.status === 'ended'))
+  const cached = (id: string, build: () => ReplayItem | null) => {
+    if (!cache.has(id)) cache.set(id, build())
+    return cache.get(id)!
+  }
+  const live = newestFirst(store.games('live').filter(isOver))
     .slice(0, opts.liveGames ?? 5)
-    .map((g): ReplayItem => ({ title: `REPLAY · live game ${g.id}`, gameId: g.id, events: store.events(g.id) }))
-    .filter((item) => item.events.some((e) => e.type === 'hand_ended'))
-  const studies = newestFirst(store.games('study').filter((g) => g.status === 'ended'))
+    .map((g) =>
+      cached(g.id, () => {
+        const events = store.events(g.id)
+        return events.some((e) => e.type === 'hand_ended') ? { title: `REPLAY · live game ${g.id}`, gameId: g.id, events } : null
+      }),
+    )
+    .filter((item): item is ReplayItem => item !== null)
+  const studies = newestFirst(store.games('study').filter(isOver))
     .slice(0, opts.studies ?? 3)
-    .map((g) => highlightReel(store.events(g.id), opts.handsPerReel ?? 8, `REPLAY · study ${g.id} highlights`))
+    .map((g) => cached(g.id, () => highlightReel(store.events(g.id), opts.handsPerReel ?? 8, `REPLAY · study ${g.id} highlights`)))
     .filter((item): item is ReplayItem => item !== null)
   const queue: ReplayItem[] = []
   for (let i = 0; i < Math.max(live.length, studies.length); i++) {
@@ -1720,6 +1803,20 @@ describe('LiveController', () => {
     expect(store.game(gameId)!.status).toBe('interrupted')
   })
 
+  it('waits (without spinning) while slow players are being prepared', async () => {
+    const slow = () => new Promise<ReturnType<typeof mockPlayers>>((resolve) => setTimeout(() => resolve(mockPlayers()), 30))
+    const { live } = controller({ makePlayers: slow })
+    const started = live.start()
+    const idle = live.idle()
+    let ticked = false
+    await new Promise((r) => setTimeout(r, 10)).then(() => (ticked = true)) // would never fire if idle() spun
+    expect(ticked).toBe(true)
+    await started
+    live.stop()
+    await idle
+    expect(live.gameId).toBeNull()
+  })
+
   it('frees the table if the players cannot be made', async () => {
     let fail = true
     const { live } = controller({
@@ -1800,6 +1897,26 @@ describe('Director', () => {
     expect(wrong).toEqual([])
   })
 
+  it('survives a failing replay: logs it, shows the idle screen and tries again', async () => {
+    const store = new EventStore()
+    const hub = new Hub()
+    const live = new LiveController({ store, hub, makePlayers: mockPlayers, budgetUsd: 10, paceMs: 1, decisionTimeoutMs: 1000 })
+    const logs: string[] = []
+    let calls = 0
+    const director = new Director({
+      hub, live, replayPaceMs: 5, cooldownMs: 0, emptyWaitMs: 10, log: (l) => logs.push(l),
+      queue: () => {
+        if (++calls === 1) throw new Error('corrupt log')
+        return []
+      },
+    })
+    director.start()
+    await until(() => calls >= 3)
+    await director.stop()
+    expect(logs).toEqual(['director: corrupt log'])
+    expect(hub.current().channel.mode).toBe('idle')
+  })
+
   it('shows the idle screen when there is nothing to replay', async () => {
     const { hub, director } = await setup(() => [])
     director.start()
@@ -1874,19 +1991,22 @@ export class LiveController {
     const now = this.deps.now ?? Date.now
     const gameId = `live-${new Date(now()).toISOString().replace(/[:.]/g, '-')}`
     const abort = new AbortController()
-    // Claim the table before any await, so two quick starts can't both run.
-    const slot = { gameId, abort, done: Promise.resolve() }
+    // Claim the table before any await, so two quick starts can't both run. `done` settles when the
+    // table is free again (never resolved early, so idle() waits instead of spinning).
+    let finished!: () => void
+    const slot = { gameId, abort, done: new Promise<void>((resolve) => (finished = resolve)) }
     this.current = slot
     let players: Player[]
     try {
       players = await this.deps.makePlayers()
     } catch (e) {
       this.current = null
+      finished()
       throw e
     }
     this.deps.hub.begin({ mode: 'live', title: 'LIVE', gameId })
     this.emit('live', gameId)
-    slot.done = runTournamentGame({
+    void runTournamentGame({
       gameId,
       players,
       tournament: liveTurboConfig(randomBytes(16).toString('hex')),
@@ -1904,6 +2024,7 @@ export class LiveController {
       .catch((e) => this.deps.log?.(`live game ${gameId} failed: ${e instanceof Error ? e.message : String(e)}`))
       .finally(() => {
         this.current = null
+        finished()
         this.emit('idle', gameId)
       })
     return { gameId }
@@ -1942,9 +2063,10 @@ export interface DirectorDeps {
   replayPaceMs: number
   /** How long a finished live game's result stays up before replays resume. */
   cooldownMs: number
-  /** How long to wait before looking again when there is nothing to replay. */
+  /** How long to wait before looking again when there is nothing to replay (or after an error). */
   emptyWaitMs?: number
   sleep?: Sleep
+  log?: (line: string) => void
 }
 
 /**
@@ -1976,23 +2098,35 @@ export class Director {
   private async loop(): Promise<void> {
     const wait = this.deps.sleep ?? realSleep
     while (!this.stopped.signal.aborted) {
-      if (this.deps.live.gameId) {
-        await this.deps.live.idle()
-        if (this.stopped.signal.aborted) break
-        await wait(this.deps.cooldownMs, this.stopped.signal)
-        continue
-      }
-      this.interrupt = new AbortController()
-      const items = this.deps.queue()
-      if (items.length === 0) {
+      try {
+        await this.round(wait)
+      } catch (e) {
+        // A bad replay (or a bug) must never take the server down: log it, show the idle screen, retry later.
+        this.deps.log?.(`director: ${e instanceof Error ? e.message : String(e)}`)
         if (!this.deps.live.gameId) this.deps.hub.idle()
-        await wait(this.deps.emptyWaitMs ?? 60_000, this.interrupt.signal)
-        continue
+        await wait(this.deps.emptyWaitMs ?? 60_000, this.stopped.signal)
       }
-      for (const item of items) {
-        if (this.interrupt.signal.aborted || this.stopped.signal.aborted || this.deps.live.gameId) break
-        await playReplay(this.deps.hub, item, { paceMs: this.deps.replayPaceMs, signal: this.interrupt.signal, sleep: wait })
-      }
+    }
+  }
+
+  /** One step: follow the live game (then the cooldown), or play the replays once, or wait for some. */
+  private async round(wait: Sleep): Promise<void> {
+    if (this.deps.live.gameId) {
+      await this.deps.live.idle()
+      if (this.stopped.signal.aborted) return
+      await wait(this.deps.cooldownMs, this.stopped.signal)
+      return
+    }
+    this.interrupt = new AbortController()
+    const items = this.deps.queue()
+    if (items.length === 0) {
+      if (!this.deps.live.gameId) this.deps.hub.idle()
+      await wait(this.deps.emptyWaitMs ?? 60_000, this.interrupt.signal)
+      return
+    }
+    for (const item of items) {
+      if (this.interrupt.signal.aborted || this.stopped.signal.aborted || this.deps.live.gameId) break
+      await playReplay(this.deps.hub, item, { paceMs: this.deps.replayPaceMs, signal: this.interrupt.signal, sleep: wait })
     }
   }
 }
@@ -2013,7 +2147,7 @@ export * from './director'
 - [ ] **Step 4: Run tests and typecheck**
 
 Run: `pnpm --filter @ab/server exec vitest run && pnpm --filter @ab/server typecheck`
-Expected: PASS (25 tests; the live-game tests play whole mock tournaments and take ~15 s); typecheck clean.
+Expected: PASS (27 tests; the live-game tests play whole mock tournaments and take ~15 s); typecheck clean.
 
 - [ ] **Step 5: Commit**
 
@@ -2123,7 +2257,7 @@ export interface LivePlayers {
  */
 export async function prepareLivePlayers(
   opts: { lineupPath: string; mock: boolean; env: PlayerEnv },
-  catalog: () => Promise<Map<string, CatalogModel>> = () => fetchModelCatalog(),
+  catalog: () => Promise<Map<string, CatalogModel>> = () => fetchModelCatalog((url) => fetch(url, { signal: AbortSignal.timeout(15_000) })),
 ): Promise<LivePlayers> {
   if (opts.mock) {
     const path = existsSync(opts.lineupPath) ? opts.lineupPath : EXAMPLE_LINEUP
@@ -2156,7 +2290,7 @@ export * from './players'
 - [ ] **Step 4: Run tests and typecheck**
 
 Run: `pnpm --filter @ab/server exec vitest run && pnpm --filter @ab/server typecheck`
-Expected: PASS (28 tests); typecheck clean.
+Expected: PASS (30 tests); typecheck clean.
 
 - [ ] **Step 5: Commit**
 
@@ -2170,18 +2304,24 @@ git -c user.email=jobinb6444@gmail.com -c user.name=0xjba commit -m "feat(server
 ### Task 8: HTTP API, app wiring and `pnpm live`
 
 **Files:**
-- Create: `apps/server/src/http.ts`, `apps/server/src/app.ts`, `apps/server/src/main.ts`
+- Create: `apps/server/src/http.ts`, `apps/server/src/lock.ts`, `apps/server/src/app.ts`, `apps/server/src/main.ts`
 - Modify: `apps/server/src/index.ts`, root `package.json` (script), `.env.example`
-- Test: `apps/server/test/http.test.ts`
+- Test: `apps/server/test/http.test.ts`, `apps/server/test/lock.test.ts`
 
 - [ ] **Step 1: Write the failing test**
 
 `apps/server/test/http.test.ts`:
 ```ts
+import { EventStore } from '@ab/core'
+import { mkdtempSync, writeFileSync } from 'node:fs'
+import { connect } from 'node:net'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { startApp, type App } from '../src/app'
 import { parseServerConfig, type ServerConfig } from '../src/config'
 import type { FeedMessage } from '../src/hub'
+import { sseWriter } from '../src/http'
 import { mockPlayers } from './fixtures'
 
 const TOKEN = 'test-admin-token-0123456789'
@@ -2252,6 +2392,59 @@ describe('HTTP API', () => {
     expect(missing.headers.get('x-content-type-options')).toBe('nosniff')
   })
 
+  it('answers a request target Node accepts but URL rejects with 400, and keeps running', async () => {
+    const a = await app()
+    const { port } = new URL(a.url)
+    const reply = await new Promise<string>((resolve, reject) => {
+      const socket = connect(Number(port), '127.0.0.1', () => socket.write('GET //[ HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n'))
+      let data = ''
+      socket.on('data', (d) => (data += d))
+      socket.on('end', () => resolve(data))
+      socket.on('error', reject)
+    })
+    expect(reply).toMatch(/^HTTP\/1\.1 400/)
+    expect((await fetch(`${a.url}/api/health`)).status).toBe(200)
+  })
+
+  it('disconnects a spectator who falls too far behind', () => {
+    let destroyed = false
+    const written: string[] = []
+    const res = { writableEnded: false, destroyed: false, writableLength: 0, write: (c: string) => written.push(c) > 0, destroy: () => void (destroyed = true) }
+    const send = sseWriter(res as never, 1000)
+    send({ type: 'equity', channelId: 'c', handId: null, equity: null, estimated: false })
+    expect(written).toHaveLength(1)
+    res.writableLength = 5000 // the client stopped reading
+    expect(() => send({ type: 'equity', channelId: 'c', handId: null, equity: null, estimated: false })).toThrow(/too far behind/)
+    expect(destroyed).toBe(true)
+  })
+
+  it('serves a finished game in pages', async () => {
+    const a = await app()
+    const { gameId } = await (await admin(a, '/api/admin/games')).json()
+    a.live.stop()
+    await a.live.idle()
+    const all = a.store.events(gameId)
+    const page = await (await fetch(`${a.url}/api/games/${gameId}/events?after=${all.length - 3}`)).json()
+    expect(page.events.map((e: { seq: number }) => e.seq)).toEqual(all.slice(-3).map((e) => e.seq))
+    expect(page.next).toBeNull()
+    expect((await fetch(`${a.url}/api/games/${gameId}/events?after=-1`)).status).toBe(400)
+  })
+
+  it('refuses a second server on the same database, and leaves running studies alone', async () => {
+    const dbPath = join(mkdtempSync(join(tmpdir(), 'ab-app-')), 'live.db')
+    const seed = new EventStore(dbPath)
+    seed.createGame('crashed-live', 'live', {})
+    seed.createGame('study-in-progress', 'study', {})
+    seed.close()
+    const first = await app({ dbPath })
+    expect(first.store.game('crashed-live')!.status).toBe('interrupted')
+    expect(first.store.game('study-in-progress')!.status).toBe('running') // another process may be running it
+    // A second server process (simulated: another running process holds the lock) is refused.
+    writeFileSync(`${dbPath}.server.lock`, String(process.ppid))
+    await expect(app({ dbPath })).rejects.toThrow(/another live server/)
+    writeFileSync(`${dbPath}.server.lock`, String(process.pid))
+  })
+
   it('guards the admin API: off without a token, 401 with a wrong one', async () => {
     const off = await app({ adminToken: null })
     expect((await admin(off, '/api/admin/games')).status).toBe(403)
@@ -2319,10 +2512,44 @@ describe('HTTP API', () => {
 })
 ```
 
-- [ ] **Step 2: Run it to verify it fails**
+`apps/server/test/lock.test.ts`:
+```ts
+import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { describe, expect, it } from 'vitest'
+import { acquireServerLock } from '../src/lock'
 
-Run: `pnpm --filter @ab/server exec vitest run test/http.test.ts`
-Expected: FAIL (cannot resolve `../src/app`).
+const db = () => join(mkdtempSync(join(tmpdir(), 'ab-lock-')), 'live.db')
+
+describe('server lock', () => {
+  it('lets one server use a database, refuses a second while the first runs, and releases on close', () => {
+    const path = db()
+    const release = acquireServerLock(path)
+    expect(readFileSync(`${path}.server.lock`, 'utf8')).toBe(String(process.pid))
+    // Another running process (our parent) holding it: refused.
+    writeFileSync(`${path}.server.lock`, String(process.ppid))
+    expect(() => acquireServerLock(path)).toThrow(/another live server \(pid \d+\)/)
+    writeFileSync(`${path}.server.lock`, String(process.pid))
+    release()
+    expect(existsSync(`${path}.server.lock`)).toBe(false)
+  })
+
+  it('takes over a lock left by a process that is gone, and ignores in-memory databases', () => {
+    const path = db()
+    writeFileSync(`${path}.server.lock`, '999999')
+    const release = acquireServerLock(path)
+    expect(readFileSync(`${path}.server.lock`, 'utf8')).toBe(String(process.pid))
+    release()
+    expect(acquireServerLock(':memory:')).toBeTypeOf('function')
+  })
+})
+```
+
+- [ ] **Step 2: Run them to verify they fail**
+
+Run: `pnpm --filter @ab/server exec vitest run test/http.test.ts test/lock.test.ts`
+Expected: FAIL (cannot resolve `../src/app`, `../src/lock`).
 
 - [ ] **Step 3: Implement**
 
@@ -2338,6 +2565,8 @@ import { isOver, publicGame } from './public'
 
 export interface HttpDeps {
   config: Pick<ServerConfig, 'adminToken' | 'allowedOrigin' | 'maxClients' | 'mock'>
+  /** Unsent bytes a spectator may fall behind by before being disconnected (a paused tab, a stalled network). */
+  maxBufferedBytes?: number
   hub: Hub
   store: EventStore
   live: LiveController
@@ -2353,6 +2582,24 @@ export function tokenMatches(given: string, expected: string): boolean {
   return timingSafeEqual(a, b)
 }
 
+/** Most events per page of /api/games/:id/events. */
+export const EVENTS_PAGE_LIMIT = 5000
+
+/**
+ * A hub subscriber writing to one SSE response. A client that stops reading is disconnected once more
+ * than `maxBuffered` bytes are waiting, so one slow spectator can't make the server buffer without limit.
+ */
+export function sseWriter(res: Pick<ServerResponse, 'write' | 'destroy' | 'writableEnded' | 'destroyed' | 'writableLength'>, maxBuffered: number): (m: FeedMessage) => void {
+  return (m) => {
+    if (res.writableEnded || res.destroyed) throw new Error('closed')
+    if (res.writableLength > maxBuffered) {
+      res.destroy()
+      throw new Error('spectator too far behind')
+    }
+    res.write(`data: ${JSON.stringify(m)}\n\n`)
+  }
+}
+
 function send(res: ServerResponse, status: number, body: unknown): void {
   res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' })
   res.end(JSON.stringify(body))
@@ -2365,12 +2612,14 @@ function send(res: ServerResponse, status: number, body: unknown): void {
  * - GET  /api/feed              Server-Sent Events: a snapshot, then events and equity updates
  * - GET  /api/games             finished and running games (configs withheld while running)
  * - GET  /api/games/:id         one game
- * - GET  /api/games/:id/events  every event of a game that is over for good (see isOver)
+ * - GET  /api/games/:id/events  events of a game that is over for good (see isOver), in pages:
+ *                                ?after=<seq> (default 0), up to 5,000 per page; `next` is the next ?after
  * - POST /api/admin/games       start a live game (Authorization: Bearer ADMIN_TOKEN)
  * - POST /api/admin/games/stop  stop the live game after the current hand
  */
 export function createHttpServer(deps: HttpDeps): Server {
   const heartbeatMs = deps.heartbeatMs ?? 15_000
+  const maxBuffered = deps.maxBufferedBytes ?? 1_000_000
 
   const cors = (req: IncomingMessage, res: ServerResponse) => {
     const origin = req.headers.origin
@@ -2403,11 +2652,11 @@ export function createHttpServer(deps: HttpDeps): Server {
       'X-Accel-Buffering': 'no',
     })
     res.write('retry: 3000\n\n')
-    const unsubscribe = deps.hub.subscribe((m: FeedMessage) => {
-      if (res.writableEnded || res.destroyed) throw new Error('closed')
-      res.write(`data: ${JSON.stringify(m)}\n\n`)
-    })
-    const heartbeat = setInterval(() => res.write(': ping\n\n'), heartbeatMs)
+    const unsubscribe = deps.hub.subscribe(sseWriter(res, maxBuffered))
+    const heartbeat = setInterval(() => {
+      if (res.writableLength > maxBuffered) res.destroy()
+      else res.write(': ping\n\n')
+    }, heartbeatMs)
     const close = () => {
       clearInterval(heartbeat)
       unsubscribe()
@@ -2419,9 +2668,15 @@ export function createHttpServer(deps: HttpDeps): Server {
   return createServer((req, res) => {
     res.setHeader('X-Content-Type-Options', 'nosniff')
     cors(req, res)
-    const url = new URL(req.url ?? '/', 'http://localhost')
-    const path = url.pathname.replace(/\/+$/, '') || '/'
     const method = req.method ?? 'GET'
+    let url: URL
+    try {
+      // Node accepts request targets that URL rejects (e.g. "//["): answer 400, never throw.
+      url = new URL(req.url ?? '/', 'http://localhost')
+    } catch {
+      return send(res, 400, { error: 'bad request' })
+    }
+    const path = url.pathname.replace(/\/+$/, '') || '/'
     try {
       if (method === 'OPTIONS') {
         if (deps.config.allowedOrigin && req.headers.origin === deps.config.allowedOrigin) {
@@ -2454,7 +2709,11 @@ export function createHttpServer(deps: HttpDeps): Server {
         if (!row) return send(res, 404, { error: 'no such game' })
         if (!game[2]) return send(res, 200, publicGame(row))
         if (!isOver(row)) return send(res, 409, { error: 'the game is not over yet (running, or a study that can still resume)' })
-        return send(res, 200, { game: publicGame(row), events: deps.store.events(row.id) })
+        const after = Number(url.searchParams.get('after') ?? 0)
+        if (!Number.isInteger(after) || after < 0) return send(res, 400, { error: 'after must be a whole number' })
+        const events = deps.store.events(row.id, after, EVENTS_PAGE_LIMIT)
+        const next = events.length === EVENTS_PAGE_LIMIT ? events.at(-1)!.seq : null
+        return send(res, 200, { game: publicGame(row), events, next })
       }
       if (method === 'POST' && path === '/api/admin/games') {
         if (!admin(req, res)) return
@@ -2483,6 +2742,47 @@ export function createHttpServer(deps: HttpDeps): Server {
 }
 ```
 
+`apps/server/src/lock.ts`:
+```ts
+import { readFileSync, rmSync, writeFileSync } from 'node:fs'
+
+/** Whether a process with this pid is running (on this machine). */
+function alive(pid: number): boolean {
+  try {
+    process.kill(pid, 0)
+    return true
+  } catch (e) {
+    return (e as NodeJS.ErrnoException).code === 'EPERM'
+  }
+}
+
+/**
+ * Makes sure only one live server uses a database: a second one would mark the first one's running
+ * game interrupted (and so publish its seed while it still plays). Writes `<db>.server.lock` with this
+ * process id; a lock left by a process that is gone is taken over. Returns the release function.
+ */
+export function acquireServerLock(dbPath: string, pid = process.pid): () => void {
+  if (dbPath === ':memory:') return () => undefined
+  const path = `${dbPath}.server.lock`
+  try {
+    const holder = Number(readFileSync(path, 'utf8').trim())
+    if (Number.isInteger(holder) && holder > 0 && holder !== pid && alive(holder)) {
+      throw new Error(`another live server (pid ${holder}) is using ${dbPath}; stop it first`)
+    }
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code !== 'ENOENT') throw e
+  }
+  writeFileSync(path, String(pid))
+  return () => {
+    try {
+      if (readFileSync(path, 'utf8').trim() === String(pid)) rmSync(path)
+    } catch {
+      // already gone
+    }
+  }
+}
+```
+
 `apps/server/src/app.ts`:
 ```ts
 import { EventStore } from '@ab/core'
@@ -2496,7 +2796,8 @@ import { createHttpServer } from './http'
 import { Hub } from './hub'
 import { LiveController } from './live'
 import type { LivePlayers } from './players'
-import { replayQueue } from './replay'
+import { acquireServerLock } from './lock'
+import { replayQueue, type ReplayCache } from './replay'
 
 export interface App {
   server: Server
@@ -2513,9 +2814,11 @@ export interface App {
 /** Wires the store, hub, live table, director and HTTP API together and starts listening. */
 export async function startApp(config: ServerConfig, players: LivePlayers, log: (line: string) => void = console.log): Promise<App> {
   if (config.dbPath !== ':memory:') mkdirSync(dirname(config.dbPath), { recursive: true })
+  const release = acquireServerLock(config.dbPath)
   const store = new EventStore(config.dbPath)
-  const interrupted = store.interruptRunningGames()
-  if (interrupted.length) log(`marked ${interrupted.length} game(s) left running by a crash as interrupted: ${interrupted.join(', ')}`)
+  // Only live games: a study in the same database may be running in another process.
+  const interrupted = store.interruptRunningGames(Date.now(), 'live')
+  if (interrupted.length) log(`marked ${interrupted.length} live game(s) left running by a crash as interrupted: ${interrupted.join(', ')}`)
 
   const hub = new Hub()
   const live = new LiveController({
@@ -2528,7 +2831,8 @@ export async function startApp(config: ServerConfig, players: LivePlayers, log: 
     meta: { lineup: players.specs, mock: config.mock },
     log,
   })
-  const director = new Director({ hub, live, queue: () => replayQueue(store), replayPaceMs: config.replayPaceMs, cooldownMs: config.cooldownMs })
+  const replays: ReplayCache = new Map()
+  const director = new Director({ hub, live, queue: () => replayQueue(store, {}, replays), replayPaceMs: config.replayPaceMs, cooldownMs: config.cooldownMs, log })
   const server = createHttpServer({ config, hub, store, live, log })
   await new Promise<void>((resolve) => server.listen(config.port, config.host, resolve))
   director.start()
@@ -2546,6 +2850,7 @@ export async function startApp(config: ServerConfig, players: LivePlayers, log: 
       })
       await live.idle()
       store.close()
+      release()
     })())
   return { server, hub, live, director, store, url, close }
 }
@@ -2577,12 +2882,16 @@ console.log(`artificialBluff server on ${app.url} (${config.mock ? 'MOCK: free' 
 console.log(`players: ${players.specs.map((s) => `${s.id}=${'model' in s ? s.model : s.kind}`).join(', ')}`)
 console.log(config.adminToken ? 'admin API on: POST /api/admin/games with Authorization: Bearer $ADMIN_TOKEN' : 'admin API off (set ADMIN_TOKEN to start games)')
 
-let signals = 0
+let firstSignalAt = 0
 const shutdown = (signal: string) => {
-  if (++signals > 1) {
+  // Ctrl-C reaches this process twice (from the terminal and forwarded by tsx): a repeat within a
+  // second is the same keypress, not a request to quit at once.
+  if (firstSignalAt) {
+    if (Date.now() - firstSignalAt < 1000) return
     console.log('quitting now')
     process.exit(130)
   }
+  firstSignalAt = Date.now()
   console.log(`${signal}: stopping after the hand in progress… (again to quit now)`)
   app.close().then(
     () => process.exit(0),
@@ -2609,6 +2918,7 @@ export * from './director'
 export * from './http'
 export * from './players'
 export * from './app'
+export * from './lock'
 ```
 
 In the root `package.json` `scripts`, after the `study` script, add:
@@ -2624,6 +2934,7 @@ TYPESAFE_API_KEY=
 
 # Live server (pnpm live). Admin API is off unless ADMIN_TOKEN is set (16+ random characters).
 ADMIN_TOKEN=
+# MOCK=0   (1 = free mock players; same as pnpm live --mock)
 # PORT=8787
 # HOST=127.0.0.1
 # DB_PATH=data/live.db
@@ -2640,7 +2951,7 @@ ADMIN_TOKEN=
 - [ ] **Step 4: Run everything, then the free server**
 
 Run: `pnpm test && pnpm typecheck`
-Expected: PASS (engine 112, players 44, core 39, analysis 20, server 34, study 49); typecheck clean.
+Expected: PASS (engine 112, players 44, core 39, analysis 20, server 42, study 49); typecheck clean.
 
 Then (free; mock players):
 ```bash
