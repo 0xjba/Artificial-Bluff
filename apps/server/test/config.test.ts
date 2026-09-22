@@ -27,5 +27,13 @@ describe('parseServerConfig', () => {
     expect(() => parseServerConfig({ LIVE_BUDGET_USD: '500' })).toThrow(/from 0.01 to 100/)
     expect(() => parseServerConfig({ ADMIN_TOKEN: 'short' })).toThrow(/at least 16 characters/)
     expect(() => parseServerConfig({}, ['--mok'])).toThrow(/unknown argument/)
+    // The free/paid switch accepts only 0 or 1: "true" must not quietly mean paid mode.
+    expect(() => parseServerConfig({ MOCK: 'true' })).toThrow(/MOCK must be 0 or 1/)
+    expect(parseServerConfig({ MOCK: '0' }).mock).toBe(false)
+    expect(() => parseServerConfig({ PORT: '8787.5' })).toThrow(/whole number/)
+    expect(() => parseServerConfig({ PORT: '0x10' })).toThrow(/PORT/)
+    expect(() => parseServerConfig({ MAX_CLIENTS: '1e3' })).toThrow(/MAX_CLIENTS/)
+    expect(() => parseServerConfig({ ALLOWED_ORIGIN: 'http://localhost:3000/' })).toThrow(/origin/)
+    expect(() => parseServerConfig({ ALLOWED_ORIGIN: '*' })).toThrow(/origin/)
   })
 })

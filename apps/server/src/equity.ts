@@ -14,9 +14,8 @@ export interface TableEquity {
 
 /**
  * Each live player's true chance of winning the main pot from here, given every dealt hole card and
- * the board (the same quantity as the study's outcome C). Exact when that is cheap (from the flop, or
- * preflop after folds); otherwise a reproducible 20,000-board estimate, so the event loop is never
- * blocked for long. Null when there is no hand in progress or fewer than two players are still in.
+ * the board (the same quantity as the study's outcome C). Exact when that is cheap (from the flop on);
+ * otherwise (preflop) a reproducible 20,000-board estimate, so the event loop is never blocked for long. Null when there is no hand in progress or fewer than two players are still in.
  */
 export function tableEquity(view: TableView): TableEquity | null {
   const hand = view.hand

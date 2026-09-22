@@ -44,16 +44,20 @@ export class Hub {
     return this.begin({ mode: 'idle', title, gameId: null })
   }
 
-  /** Adds an event to the current programme; recomputes true equity when the board or live players change. */
+  /**
+   * Adds an event to the current programme; recomputes true equity when the board or live players
+   * change. Clients apply the same event with applyEvent and each equity message with withEquity, so
+   * their view always equals the hub's (the reducer itself clears equity when a hand ends).
+   */
   publish(event: GameEvent): void {
     this.view = applyEvent(this.view, event)
     this.broadcast({ type: 'event', channelId: this.channel.id, event })
     const key = equityKey(this.view)
     if (key !== this.lastEquityKey) {
       this.lastEquityKey = key
-      const result = key === null ? null : tableEquity(this.view)
-      this.view = withEquity(this.view, result?.equity ?? null, result?.estimated ?? false)
       if (key !== null) {
+        const result = tableEquity(this.view)
+        this.view = withEquity(this.view, result?.equity ?? null, result?.estimated ?? false)
         this.broadcast({ type: 'equity', channelId: this.channel.id, handId: this.view.hand?.handId ?? null, equity: this.view.equity, estimated: this.view.equityEstimated })
       }
     }
@@ -79,7 +83,8 @@ export class Hub {
   }
 
   private broadcast(message: FeedMessage): void {
-    for (const fn of this.subscribers) this.safeSend(fn, message)
+    // A copy: someone subscribing mid-broadcast gets a snapshot that already includes this message.
+    for (const fn of [...this.subscribers]) this.safeSend(fn, message)
   }
 
   /** A subscriber that throws (a broken connection) is dropped; it never stops the game. */

@@ -1,5 +1,5 @@
 import type { HandRecord } from '@ab/analysis'
-import { EventStore, type GameEvent, type PlayerInfo } from '@ab/core'
+import { buildView, EventStore, type GameEvent, type PlayerInfo } from '@ab/core'
 import { describe, expect, it } from 'vitest'
 import { Hub, type FeedMessage } from '../src/hub'
 import { highlightReel, highlightScore, playReplay, replayDelay, replayQueue } from '../src/replay'
@@ -38,6 +38,26 @@ describe('highlights', () => {
     expect(starts).toHaveLength(3)
     expect([...starts].sort((a, b) => Number(a.split('-')[1]) - Number(b.split('-')[1]))).toEqual(starts)
     expect(highlightReel([], 3, 'x')).toBeNull()
+  })
+
+  it('keeps each hand of a reel together even when the log interleaves hands (parallel study tables)', async () => {
+    const a = await playLiveGame(new EventStore(), 'g', 4)
+    const started = a[0]!
+    const hands = new Map<string, GameEvent[]>()
+    for (const e of a.slice(1)) {
+      if (!('handId' in e) || e.handId === null) continue
+      hands.set(e.handId, [...(hands.get(e.handId) ?? []), e])
+    }
+    // Interleave the hands' events round-robin, as parallel tables would log them.
+    const lists = [...hands.values()]
+    const mixed: GameEvent[] = [started]
+    for (let i = 0; i < Math.max(...lists.map((l) => l.length)); i++) for (const l of lists) if (l[i]) mixed.push(l[i]!)
+    const reel = highlightReel(mixed, 3, 'reel')!
+    const order = reel.events.slice(1).map((e) => (e as { handId: string }).handId)
+    const runs = order.filter((id, i) => i === 0 || id !== order[i - 1])
+    expect(runs).toHaveLength(3) // three hands, each in one unbroken run
+    expect(new Set(runs).size).toBe(3)
+    expect(buildView(reel.events).handsPlayed).toBe(3) // and the reducer can follow it
   })
 
   it('alternates finished live games (newest first) with study reels, and skips unfinished games', async () => {

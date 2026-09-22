@@ -29,7 +29,10 @@ export function highlightScore(hand: HandRecord, players: Map<string, PlayerInfo
   return wonBb + allIn + 100 * clash
 }
 
-/** The `limit` most watchable hands of a game, in play order, as one replay (game_started + those hands). */
+/**
+ * The `limit` most watchable hands of a game as one replay: game_started, then each hand's events in
+ * full, hand after hand, in the order the hands started.
+ */
 export function highlightReel(events: readonly GameEvent[], limit: number, title: string): ReplayItem | null {
   const started = events.find((e) => e.type === 'game_started')
   if (!started) return null
@@ -40,8 +43,15 @@ export function highlightReel(events: readonly GameEvent[], limit: number, title
     .slice(0, limit)
   if (best.length === 0) return null
   const keep = new Set(best.map((b) => b.id))
-  const handEvents = events.filter((e) => 'handId' in e && e.handId !== null && keep.has(e.handId))
-  return { title, gameId: started.gameId, events: [started, ...handEvents] }
+  // One hand after another: a study with parallel tables logs several hands' events interleaved.
+  const byHand = new Map<string, GameEvent[]>()
+  for (const e of events) {
+    if (!('handId' in e) || e.handId === null || !keep.has(e.handId)) continue
+    const list = byHand.get(e.handId)
+    if (list) list.push(e)
+    else byHand.set(e.handId, [e])
+  }
+  return { title, gameId: started.gameId, events: [started, ...[...byHand.values()].flat()] }
 }
 
 /**
@@ -88,7 +98,7 @@ export async function playReplay(hub: Hub, item: ReplayItem, opts: { paceMs: num
   hub.begin({ mode: 'replay', title: item.title, gameId: item.gameId })
   for (const e of item.events) {
     if (opts.signal?.aborted) return false
-    hub.publish(publicEvent(e, false))
+    hub.publish(publicEvent(e, true)) // only finished games are replayed
     const ms = replayDelay(e, opts.paceMs)
     if (ms > 0) await wait(ms, opts.signal)
   }
