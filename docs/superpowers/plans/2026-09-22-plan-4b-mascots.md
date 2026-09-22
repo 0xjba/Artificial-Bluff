@@ -18,8 +18,10 @@
 
 - **Vendored code:** `packages/mascot/src/engine/` is bloub (MIT, Jérémy Perret), comments in French. Change it only where a task says so, and mark each change `artificialBluff:`. Everything else stays byte-for-byte upstream (see `src/engine/README.md`). Task 1 (the verbatim copy) is done by the controller, not an implementer.
 - **Shape rule:** resting states already swap in the chosen shape (`baseBody`). New: `orbit` (the win) spins the player's shape instead of a triangle; any state that draws the body as a circle of radius r (thinking dots, burst, comet, sleep dot) draws the player's shape at radius r; glyph states (the "!" of `alert`/`exclaim`) and shape states (`egg`, `hexagon`, `play`) are unchanged. No cast member is a circle (that reads as the x.ai bot the engine was measured from).
-- **Colours:** bodies `#F5F3EE` on the felt `#0B2A24`; rings are neutral white (grey-scale gradient stops only).
+- **Colours:** bodies `#F5F3EE` on the felt `#0B2A24`; rings are neutral light grey-white (grey-scale gradient stops only, lightness 0.8 so they show across the white bodies).
 - **Ids:** SVG mask/gradient ids come from `useId`; mascots rendered in separate React trees onto one page (the preview) must pass `id`.
+- **Component contract:** a still mascot (`frozenAt`, or reduced motion, which shows the cue's resting pose) is recomputed purely from its props, so it redraws on every cue or shape change; an animated one replays when `cueKey` (default: the cue's content, `cueSignature`) changes. `cueFor` returns stable objects. The driver restarts a one-shot beat (comet, burst, orbit…) that is already showing, and starts at the time it is given. Frames also include the engine's always-on life (breathing, drift) on absolute time, so tests compare body size, not exact paths. (Final-review findings.)
+- **For Plan 4c:** the package ships TypeScript source, so Next.js needs `transpilePackages: ['@ab/mascot']`; `/about` must include the full bloub MIT notice (bundlers strip comments).
 - **Tests:** the upstream engine tests keep running (one of them checks 680 shape/state combinations and takes ~3 s).
 
 ## File map
@@ -68,7 +70,10 @@ artificialBluff changes (each marked `artificialBluff:` in the code):
   player's shape instead of a triangle; states that draw the body as a circle draw the player's shape
   at that size; glyph states (the "!" bars) and shape states (egg, hexagon, play) are unchanged.
 - `engine.test.ts`, `skins.test.ts`: the two upstream tests that pinned "a chosen shape never reaches
-  the animated states" are narrowed to glyph and shape states, and new tests pin the new rule.
+  the animated states" are narrowed to glyph and shape states, and new tests pin the new rule. In
+  circle-drawn states an eye can be clipped at the edge of some shapes (e.g. the capsule in `burst`),
+  as upstream `orbit` already does with a circle; the mask handles it, and it is accepted.
+- Rings use lightness 0.8 (a light grey-white) so they stay visible across the white bodies.
 
 Keep the rest byte-for-byte upstream so future fixes can be merged.
 ```
@@ -171,11 +176,12 @@ In `packages/mascot/src/engine/skins.test.ts`, after the line `const SILHOUETTE_
 // artificialBluff: measured states drawn as a circle, which take the chosen shape.
 const CIRCLE_DRAWN = new Set<StateId>(['thinking', 'sleep', 'orbit', 'burst', 'comet']) // orbit: KEEPS_SHAPE
 ```
-and replace the test `it("la forme choisie ne touche pas aux etats a silhouette mesuree", ...)` (including its doc comment's following `it` block only) with:
+and replace the test `it("la forme choisie ne touche pas aux etats a silhouette mesuree", ...)` and the doc comment above it (which says `orbit` never takes the shape, no longer true) with:
 ```ts
   // artificialBluff: narrowed to the states whose silhouette is a glyph or another shape. States that
-  // draw the body as a circle now take the chosen shape (see engine.test.ts); the test above still
-  // proves no eye leaves any silhouette.
+  // draw the body as a circle now take the chosen shape (see engine.test.ts). The test above covers the
+  // resting states only: in circle-drawn states an eye may be clipped by the silhouette's edge (e.g. the
+  // capsule in `burst` and `comet`), as upstream's own `orbit` already does. Accepted: the mask clips it.
   it("la forme choisie ne touche pas aux etats a silhouette mesuree", () => {
     for (const state of SILHOUETTE_MESUREE.filter((id) => !CIRCLE_DRAWN.has(id))) {
       const nu = new BotEngine(R, state, null, null).sample(1)
@@ -199,11 +205,12 @@ In `packages/mascot/src/engine/decor.ts`, replace the line `function wheel(hue: 
 ```ts
 /**
  * artificialBluff: rings are neutral white, not the hue wheel of the original (the brand keeps every
- * mascot white, and a rainbow read as the x.ai bot). Saturation 0 and lightness 0.9 make every stop the
- * same soft white; the gradient machinery is kept so the geometry stays exactly as upstream.
+ * mascot white, and a rainbow read as the x.ai bot). Saturation 0 makes every stop grey-white; lightness
+ * 0.8 keeps them visible where they cross the white body. The gradient machinery is kept so the geometry
+ * stays exactly as upstream.
  */
 export const RING_SATURATION = 0
-export const RING_LIGHTNESS = 0.9
+export const RING_LIGHTNESS = 0.8
 
 function wheel(hue: number, s = RING_SATURATION, l = RING_LIGHTNESS): string {
 ```
@@ -269,7 +276,7 @@ git -c user.email=jobinb6444@gmail.com -c user.name=0xjba commit -m "feat(mascot
 ```ts
 import { describe, expect, it } from 'vitest'
 import { CAST, characterFor } from '../src/cast'
-import { CUES, cueFor, cueLength, JEV_DECIDES, type Moment } from '../src/cues'
+import { CUES, cueFor, cueLength, cueSignature, JEV_DECIDES, type Moment } from '../src/cues'
 import { EXPRESSION_BY_ID } from '../src/engine/expressions'
 import { SHAPE_BY_ID } from '../src/engine/skins'
 import { STATE_BY_ID } from '../src/engine/states'
@@ -314,6 +321,9 @@ describe('cues', () => {
     expect(cueFor('raise', true).beats).toEqual([JEV_DECIDES])
     expect(cueFor('all_in', true).beats.map((b) => b.state)).toEqual(['comet', 'exclaim', 'burst'])
     expect(cueLength(cueFor('all_in', true))).toBeCloseTo(2.4 + 1.2 + 2.6, 9)
+    // Stable objects, so a component keyed on the cue doesn't replay on every render.
+    expect(cueFor('raise', true)).toBe(cueFor('raise', true))
+    expect(cueSignature(cueFor('raise', true))).not.toBe(cueSignature(cueFor('raise')))
   })
 })
 ```
@@ -375,7 +385,10 @@ export interface Beat {
   seconds: number
 }
 
-/** What a mascot does: play the beats in order, then settle into `rest` until the next cue. */
+/**
+ * What a mascot does: play the beats in order, then settle into `rest` until the next cue. A face only
+ * shows on states that have a resting face (idle and the like); `thinking` and `sleep` keep their own.
+ */
 export interface Cue {
   beats: Beat[]
   rest: { state: StateId; face: Face }
@@ -414,10 +427,23 @@ export const CUES: Readonly<Record<Moment, Cue>> = {
 /** Jev's signature: a comet before its reaction whenever it decides (spec §8, "Jev decides → comet"). */
 export const JEV_DECIDES: Beat = { state: 'comet', seconds: 2.4 }
 
-/** The cue for a moment; with `jevDecided`, Jev's comet plays first. */
+const JEV_CUES = new Map<Moment, Cue>()
+
+/**
+ * The cue for a moment; with `jevDecided`, Jev's comet plays first. The same arguments always give the
+ * same object, so a component keyed on the cue doesn't replay it on every re-render.
+ */
 export function cueFor(moment: Moment, jevDecided = false): Cue {
   const cue = CUES[moment]
-  return jevDecided ? { beats: [JEV_DECIDES, ...cue.beats], rest: cue.rest } : cue
+  if (!jevDecided) return cue
+  let withComet = JEV_CUES.get(moment)
+  if (!withComet) JEV_CUES.set(moment, (withComet = { beats: [JEV_DECIDES, ...cue.beats], rest: cue.rest }))
+  return withComet
+}
+
+/** A key that changes exactly when the cue's content does (for components not given a key). */
+export function cueSignature(cue: Cue): string {
+  return `${cue.beats.map((b) => `${b.state}/${b.face ?? ''}/${b.seconds}`).join(',')}|${cue.rest.state}/${cue.rest.face}`
 }
 
 /** Total length of a cue's beats, in seconds. */
@@ -494,7 +520,33 @@ describe('MascotDriver', () => {
     }
     expect(orbitAt('hexagone')).not.toBe(orbitAt('capsule'))
   })
+
+  // Frames also carry the engine's always-on life (breathing, drift) on absolute time, so these compare
+  // the body's size (how far it reaches), which is what the beat decides.
+  it('restarts a one-shot that is already showing (a second comet starts over)', () => {
+    const d = new MascotDriver('hexagone', cueFor('raise', true), 0)
+    d.frame(1)
+    d.play(cueFor('raise', true), 1) // Jev decides again 1 s into its comet
+    const replayed = extent(d.frame(1.1).bodyPath)
+    const fresh = extent(new MascotDriver('hexagone', cueFor('raise', true), 0).frame(0.1).bodyPath)
+    const continued = extent(new MascotDriver('hexagone', cueFor('raise', true), 0).frame(1.1).bodyPath)
+    expect(Math.abs(replayed - fresh)).toBeLessThan(fresh * 0.05)
+    expect(continued).toBeLessThan(fresh * 0.5) // carrying on would have shown the collapsed dot
+  })
+
+  it('starts its first state at the time it is given', () => {
+    const later = extent(new MascotDriver('capsule', cueFor('all_in'), 5).frame(5.5).bodyPath)
+    const now = extent(new MascotDriver('capsule', cueFor('all_in'), 0).frame(0.5).bodyPath)
+    const wrong = extent(new MascotDriver('capsule', cueFor('all_in'), 0).frame(5.5).bodyPath)
+    expect(Math.abs(later - now)).toBeLessThan(now * 0.05)
+    expect(Math.abs(wrong - now)).toBeGreaterThan(now * 0.05)
+  })
 })
+
+/** How far a body path reaches from the centre (its largest coordinate). */
+function extent(path: string): number {
+  return Math.max(...(path.match(/-?\d+(\.\d+)?/g) ?? []).map((n) => Math.abs(Number(n))))
+}
 ```
 
 - [ ] **Step 2: Run it to verify it fails**
@@ -511,6 +563,10 @@ import { BotEngine, type BotFrame } from './engine/engine'
 import { EXPRESSION_BY_ID } from './engine/expressions'
 import { RAYON } from './engine/repere'
 import { SHAPE_BY_ID, type ShapeId } from './engine/skins'
+import type { StateId } from './engine/states'
+
+/** States that loop or hold: entering one again just continues it. Every other state is a one-shot. */
+const LOOPING: ReadonlySet<StateId> = new Set<StateId>(['idle', 'thinking', 'sleep', 'wink', 'wide', 'notify', 'swirl'])
 
 /**
  * Plays cues on one engine, clock-free: `frame(now)` applies every beat change due by `now` (at its
@@ -526,7 +582,10 @@ export class MascotDriver {
 
   constructor(shape: ShapeId, cue: Cue, now = 0) {
     const radii = SHAPE_BY_ID.get(shape)?.radii ?? null
-    this.engine = new BotEngine(RAYON, cue.beats[0]?.state ?? cue.rest.state, radii, null)
+    const first = cue.beats[0]?.state ?? cue.rest.state
+    this.engine = new BotEngine(RAYON, first, radii, null)
+    // The engine counts its first state from 0; start it at `now` instead.
+    this.engine.reset(first, now)
     this.cue = cue
     this.startedAt = now
     this.enter(0, now)
@@ -568,7 +627,10 @@ export class MascotDriver {
     const state = beat?.state ?? this.cue.rest.state
     const face = beat ? (beat.face ?? this.cue.rest.face) : this.cue.rest.face
     this.engine.setExpression(EXPRESSION_BY_ID.get(face) ?? null, at)
-    this.engine.setState(state, at)
+    // The engine ignores a change to the state already showing, which would let a second comet
+    // (or burst, or orbit) carry on from the first instead of starting over: restart one-shots.
+    if (beat && state === this.engine.state && !LOOPING.has(state)) this.engine.reset(state, at)
+    else this.engine.setState(state, at)
     this.next = i + 1
   }
 
@@ -582,7 +644,7 @@ export class MascotDriver {
 - [ ] **Step 4: Run tests and typecheck**
 
 Run: `pnpm --filter @ab/mascot exec vitest run && pnpm --filter @ab/mascot typecheck`
-Expected: PASS (82 tests); typecheck clean.
+Expected: PASS (84 tests); typecheck clean.
 
 - [ ] **Step 5: Commit**
 
@@ -598,13 +660,13 @@ git -c user.email=jobinb6444@gmail.com -c user.name=0xjba commit -m "feat(mascot
 **Files:**
 - Create: `packages/mascot/src/MascotSvg.tsx`, `packages/mascot/src/Mascot.tsx`, `packages/mascot/vitest.config.ts`
 - Modify: `packages/mascot/package.json`, `packages/mascot/tsconfig.json`, `packages/mascot/src/index.ts`
-- Test: `packages/mascot/test/render.test.tsx`
+- Test: `packages/mascot/test/render.test.tsx`, `packages/mascot/test/client.test.tsx`, `packages/mascot/test/shape-rule.test.ts`
 
-- [ ] **Step 1: Dependencies, config and the failing test**
+- [ ] **Step 1: Dependencies, config and the failing tests**
 
 Run (downloads React from the npm registry):
 ```bash
-pnpm --filter @ab/mascot add -D react@19.3.0 react-dom@19.3.0 @types/react@19 @types/react-dom@19
+pnpm --filter @ab/mascot add -D react@19.3.0 react-dom@19.3.0 @types/react@19 @types/react-dom@19 jsdom@26
 ```
 then make `packages/mascot/package.json`:
 ```json
@@ -623,6 +685,7 @@ then make `packages/mascot/package.json`:
   "devDependencies": {
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
+    "jsdom": "^26.1.0",
     "react": "19.3.0",
     "react-dom": "19.3.0"
   },
@@ -695,9 +758,98 @@ describe('Mascot', () => {
 })
 ```
 
-- [ ] **Step 2: Run it to verify it fails**
+`packages/mascot/test/client.test.tsx` (runs in jsdom: still frames must redraw when the cue or shape changes):
+```ts
+// @vitest-environment jsdom
+import { act } from 'react'
+import { createRoot, type Root } from 'react-dom/client'
+import { renderToStaticMarkup } from 'react-dom/server'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { cueFor, cueLength } from '../src/cues'
+import { Mascot, stillFrame } from '../src/Mascot'
+import { MascotSvg } from '../src/MascotSvg'
 
-Run: `pnpm --filter @ab/mascot exec vitest run test/render.test.tsx`
+;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
+
+let root: Root | null = null
+let host: HTMLDivElement
+const mount = (el: React.ReactElement) => {
+  host = document.createElement('div')
+  document.body.append(host)
+  root = createRoot(host)
+  act(() => root!.render(el))
+}
+const update = (el: React.ReactElement) => act(() => root!.render(el))
+const body = () => host.querySelector('mask path')!.getAttribute('d')
+const eyes = () => [...host.querySelectorAll('mask path')].slice(1).map((p) => p.getAttribute('transform')).join('|')
+
+function prefersReducedMotion(reduced: boolean) {
+  vi.stubGlobal('matchMedia', (q: string) => ({ matches: reduced && q.includes('reduce'), addEventListener: () => {}, removeEventListener: () => {} }))
+}
+
+afterEach(() => {
+  act(() => root?.unmount())
+  root = null
+  vi.unstubAllGlobals()
+})
+
+describe('Mascot in the browser', () => {
+  it('under reduced motion shows the resting pose of each new cue', () => {
+    prefersReducedMotion(true)
+    mount(<Mascot shape="capsule" cue={cueFor('waiting')} />)
+    const waiting = eyes()
+    update(<Mascot shape="capsule" cue={cueFor('fold')} />)
+    expect(eyes()).not.toBe(waiting)
+    const expected = renderToStaticMarkup(<MascotSvg frame={stillFrame('capsule', cueFor('fold'), cueLength(cueFor('fold')) + 1)} uid="x" size={160} />)
+    expect(expected).toContain(body()!)
+    update(<Mascot shape="squircle" cue={cueFor('fold')} />)
+    expect(expected).not.toContain(body()!) // a new shape redraws too
+  })
+
+  it('redraws a frozen mascot when its cue changes', () => {
+    prefersReducedMotion(false)
+    mount(<Mascot shape="hexagone" cue={cueFor('waiting')} frozenAt={0.5} />)
+    const before = body()
+    update(<Mascot shape="hexagone" cue={cueFor('all_in')} frozenAt={0.5} />)
+    expect(body()).not.toBe(before) // the "!" of exclaim, not the hexagon
+  })
+
+  it('animates otherwise, and stops its frame loop when removed', () => {
+    prefersReducedMotion(false)
+    const cancel = vi.spyOn(window, 'cancelAnimationFrame')
+    mount(<Mascot shape="goutte" cue={cueFor('deciding')} title="DRIP, deciding" />)
+    expect(host.querySelector('svg')!.getAttribute('aria-label')).toBe('DRIP, deciding')
+    act(() => root!.unmount())
+    root = null
+    expect(cancel).toHaveBeenCalled()
+  })
+})
+```
+
+`packages/mascot/test/shape-rule.test.ts`:
+```ts
+import { describe, expect, it } from 'vitest'
+import { BotEngine } from '../src/engine/engine'
+import { SHAPES } from '../src/engine/skins'
+import { STATES } from '../src/engine/states'
+
+describe('shape rule', () => {
+  it('never modifies the shared shape profiles while animating', () => {
+    const before = SHAPES.map((s) => [...s.radii])
+    for (const shape of SHAPES) {
+      for (const state of STATES) {
+        const e = new BotEngine(100, state.id, shape.radii)
+        for (let t = 0; t < 4; t += 0.25) e.sample(t)
+      }
+    }
+    expect(SHAPES.map((s) => [...s.radii])).toEqual(before)
+  })
+})
+```
+
+- [ ] **Step 2: Run them to verify they fail**
+
+Run: `pnpm --filter @ab/mascot exec vitest run test/render.test.tsx test/client.test.tsx`
 Expected: FAIL (cannot resolve `../src/Mascot`).
 
 - [ ] **Step 3: Implement**
@@ -722,7 +874,7 @@ export interface MascotSvgProps {
   ink?: string
   /** What is behind the mascot: seen through the eyes. */
   paper?: string
-  /** Accessible name, e.g. "JEV, thinking". */
+  /** Accessible name, e.g. "JEV, thinking". Without one the drawing is decorative (hidden from screen readers). */
   title?: string
 }
 
@@ -743,7 +895,12 @@ export function MascotSvg({ frame, uid, size, ink = MASCOT_WHITE, paper = FELT, 
     )
   }
   return (
-    <svg width={size} height={size} viewBox={`${-VB} ${-VB} ${VB * 2} ${VB * 2}`} role="img" aria-label={title}>
+    <svg
+      width={size}
+      height={size}
+      viewBox={`${-VB} ${-VB} ${VB * 2} ${VB * 2}`}
+      {...(title ? { role: 'img', 'aria-label': title } : { 'aria-hidden': true })}
+    >
       {title ? <title>{title}</title> : null}
       <defs>
         <mask id={maskId} maskUnits="userSpaceOnUse" x={-VB} y={-VB} width={VB * 2} height={VB * 2}>
@@ -788,8 +945,8 @@ export function MascotSvg({ frame, uid, size, ink = MASCOT_WHITE, paper = FELT, 
 `packages/mascot/src/Mascot.tsx`:
 ```ts
 'use client'
-import { useEffect, useId, useRef, useState } from 'react'
-import type { Cue } from './cues'
+import { useEffect, useId, useMemo, useRef, useState } from 'react'
+import { cueLength, cueSignature, type Cue } from './cues'
 import { MascotDriver } from './driver'
 import type { BotFrame } from './engine/engine'
 import type { ShapeId } from './engine/skins'
@@ -798,7 +955,7 @@ import { FELT, MASCOT_WHITE, MascotSvg } from './MascotSvg'
 export interface MascotProps {
   shape: ShapeId
   cue: Cue
-  /** Replays the cue whenever this changes (e.g. `${handId}:${decisionCount}`); defaults to the cue itself. */
+  /** Replays the cue whenever this changes (e.g. `${handId}:${decisionCount}`); defaults to the cue's content. */
   cueKey?: string
   size?: number
   ink?: string
@@ -814,59 +971,71 @@ export interface MascotProps {
   id?: string
 }
 
-const reducedMotion = () => typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches === true
+/** Whether the viewer asks for reduced motion, following changes (false while rendering on the server). */
+function usePrefersReducedMotion(): boolean {
+  const [reduced, setReduced] = useState(false)
+  useEffect(() => {
+    const query = typeof window !== 'undefined' ? window.matchMedia?.('(prefers-reduced-motion: reduce)') : undefined
+    if (!query) return
+    const update = () => setReduced(query.matches)
+    update()
+    query.addEventListener?.('change', update)
+    return () => query.removeEventListener?.('change', update)
+  }, [])
+  return reduced
+}
+
+/** One still frame of a cue at `t` seconds, from a fresh driver (pure: same inputs, same frame). */
+export function stillFrame(shape: ShapeId, cue: Cue, t: number): BotFrame {
+  return new MascotDriver(shape, cue, 0).frame(t)
+}
 
 /**
  * An animated mascot. It plays `cue` (beats, then the rest pose) and replays it whenever `cueKey`
- * changes, blending from whatever is on screen. With `frozenAt`, or when the viewer prefers reduced
- * motion, it draws a single still frame (server rendering, previews, accessibility).
+ * changes, blending from whatever is on screen. With `frozenAt` it draws that still frame; when the
+ * viewer prefers reduced motion it draws the cue's resting pose. Still frames are recomputed whenever
+ * the shape, cue or key change.
  */
 export function Mascot({ shape, cue, cueKey, size = 160, ink = MASCOT_WHITE, paper = FELT, title, frozenAt, id }: MascotProps) {
   const reactId = useId()
   const uid = `m${(id ?? reactId).replace(/[^A-Za-z0-9_-]/g, '')}`
+  const key = cueKey ?? cueSignature(cue)
+  const reduced = usePrefersReducedMotion()
+  const still = frozenAt !== undefined || reduced
+  const stillAt = frozenAt ?? cueLength(cue) + 1
+
+  const stillShown = useMemo(() => (still ? stillFrame(shape, cue, stillAt) : null), [still, shape, key, stillAt]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Animated path: one driver for the component's life, a clock started on first animation.
   const driver = useRef<MascotDriver | null>(null)
-  const clock = useRef<{ origin: number } | null>(null)
-  const [frame, setFrame] = useState<BotFrame>(() => {
-    const d = new MascotDriver(shape, cue, 0)
-    driver.current = d
-    return d.frame(frozenAt ?? 0)
-  })
-  const key = cueKey ?? cue
-
-  // A new cue (or the same cue under a new key) starts from the current time.
-  useEffect(() => {
-    const d = driver.current
-    if (!d || frozenAt !== undefined) return
-    const now = clock.current ? (performance.now() - clock.current.origin) / 1000 : 0
-    d.play(cue, now)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [key])
+  const origin = useRef<number | null>(null)
+  const [animated, setAnimated] = useState<BotFrame>(() => stillFrame(shape, cue, 0))
+  const now = () => (origin.current === null ? 0 : (performance.now() - origin.current) / 1000)
 
   useEffect(() => {
+    if (still) return
+    origin.current ??= performance.now()
+    driver.current ??= new MascotDriver(shape, cue, now())
     const d = driver.current
-    if (!d) return
-    const now = clock.current ? (performance.now() - clock.current.origin) / 1000 : 0
-    d.setShape(shape, now)
-  }, [shape])
-
-  useEffect(() => {
-    const d = driver.current
-    if (!d) return
-    if (frozenAt !== undefined || reducedMotion()) {
-      setFrame(d.frame(frozenAt ?? 0))
-      return
-    }
-    clock.current ??= { origin: performance.now() }
     let raf = 0
     const tick = () => {
-      setFrame(d.frame((performance.now() - clock.current!.origin) / 1000))
+      setAnimated(d.frame(now()))
       raf = requestAnimationFrame(tick)
     }
     raf = requestAnimationFrame(tick)
     return () => cancelAnimationFrame(raf)
-  }, [frozenAt])
+  }, [still]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  return <MascotSvg frame={frame} uid={uid} size={size} ink={ink} paper={paper} {...(title ? { title } : {})} />
+  // A new cue (or key), or coming back from a still frame, plays the current cue from now.
+  useEffect(() => {
+    if (!still) driver.current?.play(cue, now())
+  }, [key, still]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (!still) driver.current?.setShape(shape, now())
+  }, [shape, still]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  return <MascotSvg frame={stillShown ?? animated} uid={uid} size={size} ink={ink} paper={paper} {...(title ? { title } : {})} />
 }
 ```
 
@@ -885,7 +1054,7 @@ export type { ShapeId } from './engine/skins'
 - [ ] **Step 4: Run tests and typecheck**
 
 Run: `pnpm --filter @ab/mascot exec vitest run && pnpm --filter @ab/mascot typecheck`
-Expected: PASS (85 tests); typecheck clean.
+Expected: PASS (91 tests); typecheck clean.
 
 - [ ] **Step 5: Commit**
 
@@ -981,7 +1150,7 @@ console.log(`wrote ${out}`)
 Run: `pnpm --filter @ab/mascot typecheck && pnpm --filter @ab/mascot preview`
 Expected: `wrote …/docs/brand/mascots.html`. Open it in a browser: five white characters with distinct shapes (hexagon, capsule, squircle, droplet, cloud); in the moments grid every row keeps each character's shape (the thinking dots, the all-in burst, the win orbit with white rings, the sleep dot); no two mascots share a shape.
 
-Then run `pnpm test && pnpm typecheck`: all pass (engine 112, mascot 85, players 44, core 39, analysis 20, server 42, study 49).
+Then run `pnpm test && pnpm typecheck`: all pass (engine 112, mascot 91, players 44, core 39, analysis 20, server 42, study 49).
 
 - [ ] **Step 3: Commit**
 

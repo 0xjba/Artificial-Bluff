@@ -99,7 +99,7 @@ Last updated: 2026-09-22
 - [x] Task 4: Driver (0fc326f; spec ✅)
 - [x] Task 5: React component (358a4c2; spec ✅)
 - [x] Task 6: Preview sheet (0f558c6; spec ✅; 391 tests)
-- [ ] Final branch review (opus)
+- [ ] Final branch review (opus): merge after fixes → still frames redraw on cue/shape change (reduced motion shows resting pose), stable cueFor + cueSignature key, driver restarts one-shots + honours start time, aria-hidden without title, rings lightness 0.8, eye-clipping comment honest, SHAPES immutability test (fix pending; mascot 91, total 397)
 
 ## Key decisions (summary; spec is authoritative)
 
@@ -151,6 +151,8 @@ Last updated: 2026-09-22
 - Scratch bloub preview (custom colours, Mascots.vue) lived in the session scratchpad; replaced by Plan 4b's `pnpm --filter @ab/mascot preview` → docs/brand/mascots.html.
 
 ## Execution log
+
+- TODO (Plan 4c, from Plan 4b review): next.config transpilePackages ['@ab/mascot']; /about must include the full bloub MIT notice text; profile five animated mascots (write attributes via refs or 30 fps idle if janky).
 
 - 2026-09-22: apps/server test flake identified (director test > 5 s default under full-suite load) and fixed with a 30 s testTimeout (a62efc4).
 
