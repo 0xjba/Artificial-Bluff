@@ -150,7 +150,7 @@ describe('/play', () => {
     await act(async () => button('Stop after this hand')!.click())
     for (let i = 0; i < 400 && !button('New table'); i++) await act(async () => await new Promise((r) => setTimeout(r, 10)))
     expect(button('New table')).toBeDefined()
-    expect(host.querySelectorAll('.log li.hand')).toHaveLength(1) // the hand in progress finished, no other began
+    expect(host.querySelectorAll('.hand-head')).toHaveLength(1) // the hand in progress finished, no other began
     expect(text()).toContain('(interrupted)')
   })
 })

@@ -3,8 +3,21 @@ import { card, chips, fallbackNotice } from './format'
 
 export interface LogLine {
   seq: number
+  /** When it happened (the event's timestamp, ms). */
+  ts: number
   text: string
   kind: 'hand' | 'action' | 'street' | 'win' | 'end'
+  /** Short label shown beside the line: HAND, FOLD, CHECK, CALL, BET, RAISE, ALL-IN, FLOP, TURN, RIVER, WIN, SPLIT, END. */
+  tag: string
+  /** The hand number, on 'hand' lines. */
+  hand?: number
+}
+
+/** The tag for a decision's menu label. */
+function actionTag(label: string): string {
+  if (/^(Call all-in|All-in)/.test(label)) return 'ALL-IN'
+  const m = /^(Fold|Check|Call|Bet|Raise)/.exec(label)
+  return m ? m[1]!.toUpperCase() : 'ACT'
 }
 
 /**
@@ -44,26 +57,32 @@ const cardText = (c: string) => {
  * showdown hands a pot was won with).
  */
 export function logLine(e: GameEvent, name: (id: string) => string, view: TableView): LogLine | null {
+  const at = { seq: e.seq, ts: e.ts }
   switch (e.type) {
-    case 'hand_started':
-      return { seq: e.seq, kind: 'hand', text: `Hand ${view.handsPlayed + 1} · blinds ${chips(e.smallBlind)}/${chips(e.bigBlind)}` }
+    case 'hand_started': {
+      const hand = view.handsPlayed + 1
+      return { ...at, kind: 'hand', tag: 'HAND', hand, text: `Hand ${hand} · blinds ${chips(e.smallBlind)}/${chips(e.bigBlind)}` }
+    }
     case 'decision': {
       const why = e.fallback ? ` (${fallbackNotice(e.fallbackKind, e.fallbackReason)})` : ''
-      return { seq: e.seq, kind: 'action', text: `${name(e.playerId)} ${describe(e.label)}${why}` }
+      return { ...at, kind: 'action', tag: actionTag(e.label), text: `${name(e.playerId)} ${describe(e.label)}${why}` }
     }
-    case 'street_dealt': {
-      const street = e.street.charAt(0).toUpperCase() + e.street.slice(1)
-      return { seq: e.seq, kind: 'street', text: `${street}: ${e.cards.map(cardText).join(' ')}` }
-    }
+    case 'street_dealt':
+      return { ...at, kind: 'street', tag: e.street.toUpperCase(), text: e.cards.map(cardText).join(' ') }
     case 'pot_awarded': {
       const who = e.winners.map(name).join(' & ')
-      const verb = e.winners.length > 1 ? 'split' : 'wins'
+      const split = e.winners.length > 1
       const shown = view.hand?.showdown?.[e.winners[0] ?? '']
       const how = shown ? ` with ${shown.label.toLowerCase()}` : !view.hand?.showdown && e.eligible.length === 1 ? ' (everyone else folded)' : ''
-      return { seq: e.seq, kind: 'win', text: `${who} ${verb} ${chips(e.amount)}${how}` }
+      return { ...at, kind: 'win', tag: split ? 'SPLIT' : 'WIN', text: `${who} ${split ? 'split' : 'wins'} ${chips(e.amount)}${how}` }
     }
     case 'game_ended':
-      return { seq: e.seq, kind: 'end', text: e.winner ? `${name(e.winner)} wins the game (${e.reason.replace('_', ' ')})` : `Game over (${e.reason.replace('_', ' ')})` }
+      return {
+        ...at,
+        kind: 'end',
+        tag: 'END',
+        text: e.winner ? `${name(e.winner)} wins the game (${e.reason.replace('_', ' ')})` : `Game over (${e.reason.replace('_', ' ')})`,
+      }
     default:
       return null
   }

@@ -2,16 +2,30 @@
 import type { TableView } from '@ab/core/view'
 import type { Channel } from '@ab/server'
 import { useEffect, useRef, useState } from 'react'
+import { chips } from '../lib/format'
 import type { LogLine } from '../lib/log'
 import { playSound, soundFor, unlockAudio } from '../lib/sounds'
-import { ActionLog } from './ActionLog'
-import { LowerThird } from './LowerThird'
-import { Scoreboard } from './Scoreboard'
-import { Table } from './Table'
+import { DecisionCard } from './DecisionCard'
+import { HandLog } from './HandLog'
+import { NewHere } from './NewHere'
+import { PlayersPanel } from './PlayersPanel'
+import { Stage } from './Stage'
 
 const MUTE_KEY = 'artificialBluff.muted'
 
-/** The whole spectator screen for one programme (live or replay): table, lower third, scoreboard, log. */
+/**
+ * What the programme strip says beside the tag: a live game shows its hand number and blinds, a replay
+ * its subject ("REPLAY · live game x" → "live game x"), so the tag is never repeated.
+ */
+export function programmeTitle(channel: Pick<Channel, 'mode' | 'title'> | null, view: TableView): string {
+  if (!channel) return 'Connecting…'
+  if (channel.mode !== 'live') return channel.title.replace(/^REPLAY\s*·\s*/i, '')
+  const hand = view.hand && !view.hand.ended ? view.handsPlayed + 1 : view.handsPlayed
+  const blinds = view.hand ? ` · BLINDS ${chips(view.hand.smallBlind)}/${chips(view.hand.bigBlind)}` : ''
+  return hand > 0 ? `HAND ${hand}${blinds}` : ''
+}
+
+/** The whole spectator screen for one programme: players, the felt, the last decision and the hand log. */
 export function Broadcast(props: {
   channel: Pick<Channel, 'mode' | 'title'> | null
   view: TableView
@@ -19,9 +33,14 @@ export function Broadcast(props: {
   decisionEquity: number | null
   /** Feed connection, for the live screen: 'lost' shows a notice. */
   connection?: 'connecting' | 'open' | 'lost'
+  /** Buttons for this programme (replay speed, stopping a browser table…), shown in the strip. */
   controls?: React.ReactNode
+  /** The seek bar, under the table. */
+  seek?: React.ReactNode
   /** Live time shift: `behind` dims the LIVE tag (watching the past); clicking it returns to live. */
   live?: { behind: boolean; onGoLive: () => void }
+  /** The one-line explainer for newcomers (the home page shows it). */
+  explainer?: boolean
 }) {
   const [muted, setMuted] = useState(true)
   useEffect(() => {
@@ -56,6 +75,7 @@ export function Broadcast(props: {
   }, [newest, previous, muted])
 
   const mode = props.channel?.mode ?? 'idle'
+  const tag = mode === 'live' ? '● LIVE' : mode === 'replay' ? 'REPLAY' : 'OFF AIR'
   return (
     <div className="broadcast">
       <div className="programme">
@@ -66,10 +86,10 @@ export function Broadcast(props: {
             onClick={props.live.onGoLive}
             title={props.live.behind ? 'Back to live' : 'You are watching live'}
           >
-            ● LIVE
+            {tag}
           </button>
         ) : (
-          <span className={`tag ${mode}`}>{mode === 'live' ? '● LIVE' : mode === 'replay' ? 'REPLAY' : 'OFF AIR'}</span>
+          <span className={`tag ${mode}`}>{tag}</span>
         )}
         <span className="title">{programmeTitle(props.channel, props.view)}</span>
         {props.connection === 'lost' ? <span className="warn">reconnecting…</span> : null}
@@ -78,29 +98,16 @@ export function Broadcast(props: {
           {muted ? 'Sound off' : 'Sound on'}
         </button>
       </div>
-      <div className="stage">
-        <div className="main">
-          <Table view={props.view} />
-          <LowerThird view={props.view} decisionEquity={props.decisionEquity} />
-        </div>
-        <aside>
-          <Scoreboard view={props.view} />
-          <ActionLog lines={props.log} />
+      {props.explainer ? <NewHere /> : null}
+      <div className="stage-grid">
+        <PlayersPanel view={props.view} />
+        <Stage view={props.view} />
+        <aside className="side">
+          <DecisionCard view={props.view} decisionEquity={props.decisionEquity} />
+          <HandLog lines={props.log} view={props.view} />
         </aside>
       </div>
+      {props.seek}
     </div>
   )
-}
-
-/**
- * The title beside the tag, without repeating it: a live game shows its hand number, a replay its
- * subject ("REPLAY · live game x" → "live game x").
- */
-export function programmeTitle(channel: Pick<Channel, 'mode' | 'title'> | null, view: TableView): string {
-  if (!channel) return 'Connecting…'
-  if (channel.mode === 'live') {
-    const hand = view.hand && !view.hand.ended ? view.handsPlayed + 1 : view.handsPlayed
-    return hand > 0 ? `Hand ${hand}` : ''
-  }
-  return channel.title.replace(/^REPLAY\s*·\s*/i, '')
 }

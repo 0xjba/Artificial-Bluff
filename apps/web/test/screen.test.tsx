@@ -1,35 +1,38 @@
-import { buildView, emptyView, withEquity } from '@ab/core/view'
+import { applyEvent, buildView, emptyView, withEquity } from '@ab/core/view'
 import { parseServerConfig, startApp, type FeedMessage } from '@ab/server'
 import { CallingStation, MockLlm, TagBot } from '@ab/players'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
-import { logOrder } from '../components/ActionLog'
 import { Broadcast, programmeTitle } from '../components/Broadcast'
+import { handGroups } from '../components/HandLog'
 import { PIPS, PlayingCard } from '../components/PlayingCard'
-import { EQUITY_HELP } from '../components/Seat'
+import { isCurrent } from '../components/SiteNav'
+import { seatPlace } from '../components/Stage'
 import type { LogLine } from '../lib/log'
-import { seatPosition } from '../components/Table'
 import { initialFeed, reduceFeed } from '../lib/feed'
+import { logLine } from '../lib/log'
 import { mockGame } from './fixtures'
 
 const name = (id: string) => id.toUpperCase()
 
 describe('Broadcast screen', () => {
-  it('renders every seat with its character, model badge and mascot, plus the lower third, scoreboard and log', async () => {
+  it('renders every seat with its character, mascot, the players panel, the last decision and the log', async () => {
     const events = await mockGame(4)
     const cut = events.findIndex((e, i) => i > 30 && e.type === 'decision')
     const view = buildView(events.slice(0, cut + 1))
     const html = renderToStaticMarkup(
-      <Broadcast channel={{ mode: 'live', title: 'LIVE' }} view={view} log={[{ seq: 1, kind: 'action', text: 'JEV raises to 300' }]} decisionEquity={0.3} />,
+      <Broadcast channel={{ mode: 'live', title: 'LIVE' }} view={view} log={[{ seq: 1, ts: Date.UTC(2026, 8, 22, 12, 4), kind: 'action', tag: 'RAISE', text: 'JEV raises to 300' }]} decisionEquity={0.3} />,
     )
     for (const who of ['JEV', 'PILL', 'BLOCK', 'DRIP', 'NIMBUS']) expect(html).toContain(`<b>${who}</b>`)
-    expect(html).toContain('mock/jev') // the model badge
-    expect(html.match(/<svg /g)!.length - (html.match(/<svg class="card/g)?.length ?? 0)).toBe(5) // one mascot per seat
+    expect(html).toContain('mock/jev') // the model, in the players panel
+    expect(html.match(/<svg /g)!.length - (html.match(/<svg class="card/g)?.length ?? 0)).toBe(10) // a mascot per seat, on the felt and in the panel
     expect(html).toContain('● LIVE')
-    expect(html).toContain('said <b>')
-    expect(html).toContain('true <b>30%</b>')
+    expect(html).toContain('IT SAID')
+    expect(html).toContain('>30%</b>') // the true chance, against what the model said
     expect(html).toContain('JEV raises to 300')
+    expect(html).toContain('RAISE')
     expect(html).toContain('Sound off')
+    expect(html).toContain('WHO IS PLAYING')
     expect(html).not.toMatch(/NaN|undefined/)
   })
 
@@ -39,10 +42,19 @@ describe('Broadcast screen', () => {
     expect(html).toContain('Decisions will appear here.')
   })
 
-  it('places seats around the rim, first at the bottom centre', () => {
-    expect(seatPosition(0, 5)).toEqual({ left: 50, top: 99 })
-    const tops = [0, 1, 2, 3, 4].map((i) => seatPosition(i, 5).top)
-    expect(Math.min(...tops)).toBeLessThan(15) // two seats along the top
+  it('places seats around the portrait felt, the first at the bottom', () => {
+    expect(seatPlace(0, 5)).toEqual({ left: 50, top: 95 })
+    for (const n of [2, 3, 4, 5]) {
+      const places = Array.from({ length: n }, (_, i) => seatPlace(i, n))
+      expect(places[0]).toEqual({ left: 50, top: 95 })
+      expect(new Set(places.map((p) => `${p.left},${p.top}`)).size).toBe(n) // no two seats in one place
+      expect(Math.min(...places.map((p) => p.top))).toBeLessThan(25) // someone across the table
+    }
+    expect(seatPlace(1, 7).top).toBeGreaterThan(0) // more seats than places: round the ellipse
+  })
+
+  it('underlines the section being viewed', () => {
+    expect([isCurrent('/', '/'), isCurrent('/', '/replays'), isCurrent('/replays', '/replays/live-1'), isCurrent('/play', '/replays')]).toEqual([true, false, true, false])
   })
 })
 
@@ -82,7 +94,7 @@ describe('end to end', () => {
       expect(state.view.seats).toHaveLength(5)
       const html = renderToStaticMarkup(<Broadcast channel={state.channel} view={state.view} log={state.log} decisionEquity={state.decisionEquity} />)
       expect(html).toContain('● LIVE')
-      expect(html.match(/<svg /g)!.length - (html.match(/<svg class="card/g)?.length ?? 0)).toBe(5)
+      expect(html.match(/<svg /g)!.length - (html.match(/<svg class="card/g)?.length ?? 0)).toBe(10)
       expect(state.log.length).toBeGreaterThan(0)
     } finally {
       await app.close()
@@ -114,7 +126,7 @@ describe('screen pieces', () => {
   it('never repeats the tag in the title', async () => {
     const events = await mockGame(2)
     const cut = events.findIndex((e) => e.type === 'decision')
-    expect(programmeTitle({ mode: 'live', title: 'LIVE' }, buildView(events.slice(0, cut + 1)))).toBe('Hand 1')
+    expect(programmeTitle({ mode: 'live', title: 'LIVE' }, buildView(events.slice(0, cut + 1)))).toBe('HAND 1 · BLINDS 25/50')
     expect(programmeTitle({ mode: 'live', title: 'LIVE' }, emptyView())).toBe('')
     expect(programmeTitle({ mode: 'replay', title: 'REPLAY · live game live-1' }, emptyView())).toBe('live game live-1')
     expect(programmeTitle(null, emptyView())).toBe('Connecting…')
@@ -128,18 +140,32 @@ describe('screen pieces', () => {
     expect(html(true)).toContain('Back to live')
   })
 
-  it('groups the log by hand, newest hand first, header on top', () => {
-    const l = (seq: number, kind: LogLine['kind']) => ({ seq, kind, text: String(seq) })
-    const order = logOrder([l(1, 'hand'), l(2, 'action'), l(3, 'action'), l(4, 'hand'), l(5, 'action')]).map((x) => x.seq)
-    expect(order).toEqual([4, 5, 1, 3, 2])
+  it('groups the log by hand: newest hand first, its own lines newest first, with a summary', async () => {
+    const events = await mockGame(3)
+    let view = emptyView()
+    const lines = events
+      .map((e) => {
+        const line = logLine(e, name, view)
+        view = applyEvent(view, e)
+        return line
+      })
+      .filter((l) => l !== null)
+    const groups = handGroups(lines, view)
+    expect(groups).toHaveLength(3)
+    expect(groups.map((g) => g.title)).toEqual(['Hand 3', 'Hand 2', 'Hand 1'])
+    expect(groups[0]!.lines[0]!.seq).toBeGreaterThan(groups[0]!.lines.at(-1)!.seq) // newest first inside a hand
+    expect(groups.at(-1)!.meta).toMatch(/^[A-Z &]+ won [\d,]+$/) // who won it, and nothing else
+    const open = handGroups(lines.slice(0, -4), { ...view, hand: { ...view.hand!, ended: false, pot: 900, street: 'flop' } })
+    expect(open[0]!.meta).toBe('in progress · pot 900 · flop')
   })
 
-  it('labels the win bar', async () => {
+  it('shows each seat\'s win chance, in the panel and on the seat', async () => {
     const events = await mockGame(2)
     const cut = events.findIndex((e) => e.type === 'decision')
     const view = withEquity(buildView(events.slice(0, cut + 1)), { jev: 0.36, pill: 0.64 }, true)
     const html = renderToStaticMarkup(<Broadcast channel={{ mode: 'live', title: 'LIVE' }} view={view} log={[]} decisionEquity={null} />)
-    expect(html).toContain('Win ≈36%')
-    expect(html).toContain(EQUITY_HELP.slice(0, 30))
+    expect(html.match(/Win chances/g)!.length).toBe(view.seats.length * 2) // once per seat, once per panel row
+    expect(html).toContain('≈36%')
+    expect(html).toContain('Chance this player wins the hand')
   })
 })
