@@ -1,5 +1,5 @@
 import { applyEvent, emptyView, equityKey, MemoryStore, runTournamentGame, tableEquity, withEquity, type GameEvent, type GameStore } from '@ab/core/browser'
-import { liveTurboConfig } from '@ab/engine'
+import type { BlindLevel, TournamentConfig } from '@ab/engine'
 import { adaptLineup, JevPlayer, LlmPlayer, TagBot, type CatalogModel, type Player, type PlayerSpec } from '@ab/players'
 import type { Channel, FeedMessage } from '@ab/server'
 import { jevDecisionUsd, MAX_DECISION_USD, type ModelOption, type SeatChoice } from './models'
@@ -19,14 +19,61 @@ export const MAX_BUDGET_USD = 20
 export const DECISION_TIMEOUT_MS = 20_000
 /** Pause after each event, so viewers can follow bots and fast models. */
 export const TABLE_PACE_MS = 900
+/** How fast the table plays: the pause after each event. */
+export const PACES = { live: 900, fast: 300, instant: 0 } as const
+export type Pace = keyof typeof PACES
+/** Blinds a table can start at; they double every BLIND_LEVEL_HANDS hands. */
+export const BLINDS = [
+  { smallBlind: 50, bigBlind: 100 },
+  { smallBlind: 100, bigBlind: 200 },
+  { smallBlind: 250, bigBlind: 500 },
+] as const
+export const STACKS = [10_000, 20_000] as const
+/** Hand counts a table can stop at; `null` plays until one seat is left (capped at MAX_HANDS). */
+export const HAND_COUNTS = [20, 40, null] as const
+export const MAX_HANDS = 200
+export const BLIND_LEVEL_HANDS = 10
+/** The smallest table: two seats. */
+export const MIN_SEATS = 2
+
+export interface GameOptions {
+  smallBlind: number
+  bigBlind: number
+  startingStack: number
+  /** Hands to play, or null to play until one seat is left. */
+  hands: number | null
+  pace: Pace
+}
+
+export const DEFAULT_GAME: GameOptions = { smallBlind: 100, bigBlind: 200, startingStack: 10_000, hands: 40, pace: 'live' }
+
+/** Blind levels for a table: the chosen blinds, doubling each level. */
+export function blindLevels(smallBlind: number, bigBlind: number, levels = 8): BlindLevel[] {
+  return Array.from({ length: levels }, (_, i) => ({ smallBlind: smallBlind * 2 ** i, bigBlind: bigBlind * 2 ** i }))
+}
+
+/** The tournament a table plays. */
+export function tournamentFor(game: GameOptions, seed: string): TournamentConfig {
+  return {
+    startingStack: game.startingStack,
+    levels: blindLevels(game.smallBlind, game.bigBlind),
+    handsPerLevel: BLIND_LEVEL_HANDS,
+    maxHands: game.hands ?? MAX_HANDS,
+    seed,
+  }
+}
 
 export const seatId = (seat: SeatChoice, index: number): string => (index === 0 && seat.kind !== 'jev' ? 'pebble' : SEAT_IDS[index]!)
+
+/** The seats that actually play (empty ones are left out). */
+export const filledSeats = (seats: SeatChoice[]) => seats.map((seat, index) => ({ seat, index })).filter(({ seat }) => seat.kind !== 'empty')
 
 export interface TableSetup {
   seats: SeatChoice[]
   openrouterKey: string | null
   typesafeKey: string | null
   budgetUsd: number
+  game: GameOptions
 }
 
 export interface TableDeps {
@@ -48,10 +95,12 @@ export interface TableDeps {
 /** What stops a table from starting, in plain words (empty when it can start). */
 export function checkSetup(setup: TableSetup, models: Map<string, ModelOption>): string[] {
   const problems: string[] = []
-  if (setup.seats.length !== SEAT_IDS.length) problems.push(`a table has ${SEAT_IDS.length} seats`)
+  const playing = filledSeats(setup.seats)
+  if (setup.seats.length > SEAT_IDS.length) problems.push(`a table has at most ${SEAT_IDS.length} seats`)
+  if (playing.length < MIN_SEATS) problems.push(`fill at least ${MIN_SEATS} seats`)
   setup.seats.forEach((s, i) => {
     if (s.kind === 'jev' && i !== 0) problems.push('Jev can only play the first seat')
-    if (s.kind === 'llm' && !models.has(s.model)) problems.push(`seat ${i + 1}: choose a model from the list`)
+    if (s.kind === 'llm' && !models.has(s.model.trim())) problems.push(`seat ${i + 1}: choose a model from the list`)
   })
   if (setup.seats.some((s) => s.kind === 'llm') && !setup.openrouterKey) problems.push('connect OpenRouter (or paste a key) for the model seats')
   if (setup.seats.some((s) => s.kind === 'jev') && !setup.typesafeKey) problems.push('add a TypeSafe key for the Jev seat')
@@ -61,10 +110,10 @@ export function checkSetup(setup: TableSetup, models: Map<string, ModelOption>):
 
 /** The players for a checked setup: Jev through our relay, models straight to OpenRouter, bots free. */
 export function buildPlayers(setup: TableSetup, deps: TableDeps): Player[] {
-  const specs: PlayerSpec[] = setup.seats.map((s, i): PlayerSpec => {
-    const id = seatId(s, i)
-    if (s.kind === 'jev') return { id, kind: 'jev', model: JEV_MODEL }
-    if (s.kind === 'llm') return { id, kind: 'llm', model: s.model }
+  const specs: PlayerSpec[] = filledSeats(setup.seats).map(({ seat, index }): PlayerSpec => {
+    const id = seatId(seat, index)
+    if (seat.kind === 'jev') return { id, kind: 'jev', model: JEV_MODEL }
+    if (seat.kind === 'llm') return { id, kind: 'llm', model: seat.model.trim() }
     return { id, kind: 'bot', bot: 'tag' }
   })
   const { specs: adapted } = adaptLineup(specs, deps.catalog)
@@ -127,10 +176,10 @@ export class LocalTable {
     await runTournamentGame({
       gameId: this.gameId,
       players: buildPlayers(this.setup, this.deps),
-      tournament: liveTurboConfig(this.deps.seed ?? randomSeed()),
+      tournament: tournamentFor(this.setup.game, this.deps.seed ?? randomSeed()),
       store: this.#gameStore,
       decisionTimeoutMs: this.deps.decisionTimeoutMs ?? DECISION_TIMEOUT_MS,
-      paceMs: this.deps.paceMs ?? TABLE_PACE_MS,
+      paceMs: this.deps.paceMs ?? PACES[this.setup.game.pace],
       budgetUsd: this.setup.budgetUsd,
       signal: this.#abort.signal,
       meta: { source: 'browser-table' },
@@ -152,8 +201,7 @@ export class LocalTable {
 
   /** Estimated price of one decision by a seat (the dearest allowed model if unknown; 0 for bots). */
   #decisionUsd(playerId: string): number {
-    const index = this.setup.seats.findIndex((s, i) => seatId(s, i) === playerId)
-    const seat = this.setup.seats[index]
+    const seat = this.setup.seats.find((s, i) => s.kind !== 'empty' && seatId(s, i) === playerId)
     if (seat?.kind === 'jev') return jevDecisionUsd()
     if (seat?.kind === 'llm') return this.deps.models.get(seat.model)?.decisionUsd ?? MAX_DECISION_USD
     return 0
