@@ -241,6 +241,35 @@ MIT notice.
 Removed from salvaged frontend: wallet/wagmi, token betting, claims, chain polling, snapshot-diff inference, all
 TEN branding and parody personas.
 
+### 7.1 Run your own table (Plan 5)
+
+- **/play:** visitors seat Jev (first seat only), any supported OpenRouter model, or a free bot in each of the five seats.
+  They watch a turbo tournament on the usual broadcast screen.
+- **Where the game runs:** in the visitor's browser: `LocalTable` with a `MemoryStore`, through `@ab/core/browser`, which
+  never imports SQLite or Node. Nothing is stored on our server, and browser tables are never mixed into research
+  results. Closing the tab ends the game.
+- **Keys:** kept in the tab's session storage, or in local storage if the visitor ticks "remember on this device".
+  "Sign in with OpenRouter" uses OAuth PKCE: no key pasting, and the key is user-controlled.
+- **Model seats** call OpenRouter directly (OpenRouter allows browser calls from any origin).
+- **Jev seats:** TypeSafe's API refuses browser (cross-origin) calls, so Jev calls go through a stateless relay,
+  `POST /api/typesafe/v1/systemone` on the web app. It forwards the visitor's key per request and never stores or logs
+  it. Limits:
+  - only `v1/systemone` paths;
+  - same-origin callers only;
+  - bodies of 64 KB at most;
+  - 120 calls per minute per address.
+
+  The page labels the relay next to the TypeSafe key field. Open item: TypeSafe to allow browser calls, then remove
+  the relay.
+- **Supported models** come from OpenRouter's public catalog:
+  - text in and out, with `structured_outputs`;
+  - no `:free`, `:batch` or `~alias` variants;
+  - a fixed price of at most $0.02 per decision (estimated at 800 prompt and 80 reply tokens).
+
+  Ten well-known models are listed first. Request settings are adapted per model as in `adaptLineup`.
+- **Cost:** the estimate assumes up to 120 decisions per paid seat. The spending cap defaults to $1 (range $0.10 to
+  $20) and ends the game once reached. "Stop after this hand" ends it early.
+
 ## 8. Brand
 
 - **Direction C, Broadcast.** Felt `#0B2A24`, panel `#0E3029` / `#123A32`, rule `#1F4A40`, cream text `#F3EBDD`,

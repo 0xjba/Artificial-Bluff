@@ -24,3 +24,4 @@ plus a live spectator game.
 - `pnpm study report <study.json> [--mock]` writes `reports/<id>/report.html` plus JSON/CSV exports from the event log (free).
 - `pnpm study run <study.json> --mock` is a free rehearsal; `--live` spends real money (up to the study's budget): never run `--live` without the user's explicit go-ahead.
 - Deploy: `docker compose up -d --build` (server + web + Caddy HTTPS; `DOMAIN` and keys in `.env`); guide in `docs/deploy.md`. Live games start only via the admin API from the VPS itself.
+- `/play` runs a table in the visitor's browser with their own keys (Plan 5). Jev calls go through the `/api/typesafe` relay until TypeSafe allows browser calls.
