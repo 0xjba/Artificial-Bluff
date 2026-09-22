@@ -21,6 +21,21 @@ importers:
         specifier: ^2.1.0
         version: 2.1.9(@types/node@22.20.4)
 
+  apps/server:
+    dependencies:
+      '@ab/analysis':
+        specifier: workspace:*
+        version: link:../../packages/analysis
+      '@ab/core':
+        specifier: workspace:*
+        version: link:../../packages/core
+      '@ab/engine':
+        specifier: workspace:*
+        version: link:../../packages/engine
+      '@ab/players':
+        specifier: workspace:*
+        version: link:../../packages/players
+
   apps/study:
     dependencies:
       '@ab/analysis':
