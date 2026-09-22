@@ -70,11 +70,12 @@ Last updated: 2026-09-22
 - [x] Task 1: Exact main-pot equity in the engine (2cda785; spec ✅)
 - [x] Task 2: Analysis package and hand records, outcome A (0c8fd2e; spec ✅)
 - [x] Task 3: Outcome C and per-action score (e34cf53; spec ✅)
-- [x] Task 4: Calibration and player metrics (b8fa9bb; spec ✅). Opus review of Tasks 1-4: approve with fixes → auto decisions out of latency/cost, calls scored by equity, per-action calibration per type only, winnable-pot odds, group by game, VPIP without walks, model-only fallback rate, 7 tests (follow-up fix pending)
+- [x] Task 4: Calibration and player metrics (b8fa9bb; spec ✅). Opus review of Tasks 1-4: approve with fixes → auto decisions out of latency/cost, calls scored by equity, per-action calibration per type only, winnable-pot odds, group by game, VPIP without walks, model-only fallback rate, 7 tests (fixed in b7f39c3)
 - [x] Task 5: Valid hand ids + paired contrasts with Holm (5a083ad; spec ✅)
-- [x] Task 6: Report model + CSV export (a80ed5a; spec ✅; report.ts follow-up with the review fix)
-- [ ] Task 7: HTML report (study 46)
-- [ ] Task 8: pnpm study report (study 47; analysis 20; total 256)
+- [x] Task 6: Report model + CSV export (a80ed5a + b7f39c3; spec ✅)
+- [x] Task 7: HTML report (d122fac; spec ✅)
+- [x] Task 8: pnpm study report (9e2c24d; spec ✅; 256 tests)
+- [ ] Final branch review (opus)
 
 ## Key decisions (summary; spec is authoritative)
 
