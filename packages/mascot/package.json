@@ -7,6 +7,16 @@
   "types": "src/index.ts",
   "scripts": {
     "test": "vitest run",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "preview": "tsx scripts/preview.tsx"
+  },
+  "devDependencies": {
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "react": "19.3.0",
+    "react-dom": "19.3.0"
+  },
+  "peerDependencies": {
+    "react": "^19.2.0"
   }
 }
