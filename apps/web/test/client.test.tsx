@@ -59,8 +59,11 @@ describe('ReplayScreen', () => {
       if (i % 5 === 0) click(i % 10 === 0 ? '2x' : '1x')
     }
     const shown = Number(host.querySelector('.progress')!.textContent!.split('/')[0])
-    const expected = events.slice(0, shown).filter((e) => logLine(e, (id) => id.toUpperCase(), emptyView()) !== null).length
-    expect(host.querySelectorAll('.log li')).toHaveLength(Math.min(expected, 60))
+    // Hand starts are group headings in the log, not rows.
+    const written = events.slice(0, shown).map((e) => logLine(e, (id) => id.toUpperCase(), emptyView())).filter((l) => l !== null)
+    const rows = written.slice(-60).filter((l) => l.kind !== 'hand').length
+    expect(host.querySelectorAll('.log li')).toHaveLength(rows)
+    expect(host.querySelectorAll('.hand-head').length).toBe(written.slice(-60).filter((l) => l.kind === 'hand').length)
     expect(replayPause(events.find((e) => e.type === 'decision')!)).toBe(1400)
   })
 
@@ -74,7 +77,7 @@ describe('ReplayScreen', () => {
 })
 
 describe('Broadcast sounds', () => {
-  const line = (seq: number, text: string) => ({ seq, kind: 'action' as const, text })
+  const line = (seq: number, text: string) => ({ seq, ts: Date.UTC(2026, 8, 22, 12, 0) + seq * 1000, kind: 'action' as const, tag: 'CALL', text })
   const render = (lines: ReturnType<typeof line>[]) =>
     act(() => root!.render(<Broadcast channel={{ mode: 'live', title: 'LIVE' }} view={emptyViewForTest()} log={lines} decisionEquity={null} />))
 
@@ -170,7 +173,7 @@ describe('LiveScreen time shift', () => {
     for (const e of events.slice(40, 80)) send({ type: 'event', channelId: 'c1', event: e })
     expect(fetched[0]).toMatch(/\/api\/games\/g\/events\?after=0$/)
     expect(host.querySelector('.seek')).not.toBeNull()
-    expect(host.querySelectorAll('.log li.hand').length).toBeGreaterThan(0) // the log covers the game from its start
+    expect(host.querySelectorAll('.hand-head').length).toBeGreaterThan(0) // the log covers the game from its start
 
     back()
     expect(tag().className).toContain('behind')

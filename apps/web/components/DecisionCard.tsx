@@ -6,44 +6,45 @@ import { fallbackNotice, ms, pct, shortModel, usd } from '../lib/format'
 const optionName = (id: string) => id.replace(/_/g, ' ').replace(/\b(\d)(\d)bb\b/, '$1.$2bb')
 
 /**
- * The latest decision, as a broadcast lower third: who, what, how sure, and what they said their
- * chances were against the true chances. Jev shows its option probabilities; LLMs their reasoning.
+ * The last decision: who acted, what they did, the chance they gave themselves against the true
+ * chance, and how sure they were. Jev answers with a probability for every option, so it shows those
+ * bars; the LLMs write a line of reasoning instead.
  */
-export function LowerThird({ view, decisionEquity }: { view: TableView; decisionEquity: number | null }) {
+export function DecisionCard({ view, decisionEquity }: { view: TableView; decisionEquity: number | null }) {
   const d = view.lastDecision
   if (!d)
     return (
-      <section className="lower-third empty">
-        Decisions will appear here.
+      <section className="decision empty">
+        <h2>LAST DECISION</h2>
+        <p className="muted">Decisions will appear here.</p>
         <span className="sr-only" aria-live="polite" />
       </section>
     )
   const seat = view.seats.find((s) => s.playerId === d.playerId)
-  const who = characterFor(d.playerId, view.seats.indexOf(seat!))
+  const who = characterFor(d.playerId, view.seats.findIndex((s) => s.playerId === d.playerId))
   const probs = d.optionProbabilities ? Object.entries(d.optionProbabilities).sort((a, b) => (b[1] ?? 0) - (a[1] ?? 0)).slice(0, 5) : null
   return (
-    <section className={`lower-third${seat?.kind === 'jev' ? ' jev' : ''}`}>
+    <section className="decision" style={{ '--seat': who.color } as React.CSSProperties}>
       {/* Screen readers hear one short line per decision, not the whole panel. */}
       <span className="sr-only" aria-live="polite">{`${who.name}: ${d.label}`}</span>
-      <header>
-        <b>{who.name}</b> <span className="badge">{shortModel(seat?.model ?? '')}</span>
-        <span className="action">{d.label}</span>
-        {d.fallback ? <span className="warn">{fallbackNotice(d.fallbackKind, d.fallbackReason)}</span> : null}
-        <span className="stats">
-          {ms(d.latencyMs)} · {usd(d.costUsd)}
-        </span>
-      </header>
-      <div className="said">
-        <span>
-          said <b>{pct(d.winProbability)}</b> to win
-        </span>
-        <span>
-          true <b>{pct(decisionEquity)}</b>
-        </span>
-        <span>
-          confidence <b>{pct(d.confidence)}</b>
-        </span>
+      <h2>
+        LAST DECISION <b>{who.name}</b> <span className="action">{d.label}</span>
+      </h2>
+      <div className="claims">
+        <div>
+          <span>IT SAID</span>
+          <b>{pct(d.winProbability)}</b>
+        </div>
+        <div>
+          <span>TRUE</span>
+          <b className="true">{pct(decisionEquity)}</b>
+        </div>
+        <div>
+          <span>CONFIDENCE</span>
+          <b>{pct(d.confidence)}</b>
+        </div>
       </div>
+      {d.fallback ? <p className="warn">{fallbackNotice(d.fallbackKind, d.fallbackReason)}</p> : null}
       {probs ? (
         <ul className="probs" aria-label="option probabilities">
           {probs.map(([id, p]) => (
@@ -59,6 +60,9 @@ export function LowerThird({ view, decisionEquity }: { view: TableView; decision
       ) : d.reasoning ? (
         <p className="reasoning">“{d.reasoning}”</p>
       ) : null}
+      <footer>
+        {shortModel(seat?.model ?? '')} · {ms(d.latencyMs)} · {usd(d.costUsd)}
+      </footer>
     </section>
   )
 }
