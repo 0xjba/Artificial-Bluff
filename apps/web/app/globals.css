@@ -559,7 +559,7 @@ button.tag.live {
   grid-template-columns: auto minmax(0, 1fr);
   align-items: center;
   column-gap: 9px;
-  row-gap: 7px;
+  row-gap: 5px;
   box-shadow: 0 6px 18px rgba(0, 0, 0, 0.3);
 }
 .seat-card.acting {
@@ -611,43 +611,48 @@ button.tag.live {
   text-overflow: ellipsis;
 }
 .seat-id .stack {
+  display: flex;
+  align-items: center;
+  gap: 4px;
   font-family: var(--font-mono), ui-monospace, monospace;
   font-size: 13.5px;
   font-weight: 600;
   line-height: 1.25;
 }
-.seat-bottom {
-  grid-column: 1 / -1;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-.seat-cards {
-  display: inline-flex;
-  gap: 3px;
+.seat-id .stack svg {
+  color: var(--dim);
   flex: none;
 }
+/* The cards sit under the mascot and the last action beside them, in a row of fixed height: the pill
+   is the same size before and after a deal, and a long action wraps instead of being cut. */
+.seat-cards {
+  grid-column: 1;
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  min-height: 36px;
+}
+/* The same size as a dealt card, so nothing moves when the cards arrive. */
 .card.gone {
-  width: 24px;
-  height: 33px;
+  width: 26px;
+  height: 36px;
   border-radius: 4px;
   border: 1px dashed #2c5a4e;
   color: var(--muted);
-  font-size: 11px;
+  font-size: 12px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
 }
 .seat-act {
-  flex: 1;
-  min-width: 0;
-  font-size: 11.5px;
+  grid-column: 2;
+  align-self: center;
+  font-size: 11px;
   font-weight: 600;
+  line-height: 1.25;
   color: var(--cream);
   text-align: right;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  overflow-wrap: anywhere;
 }
 .seat-act.now {
   color: var(--gold);
@@ -1016,8 +1021,12 @@ button.tag.live {
   .seat-id b {
     font-size: 13px;
   }
-  .seat-stack {
-    font-size: 12px;
+  .seat-id small {
+    font-size: 8px;
+    letter-spacing: 0.02em;
+  }
+  .seat-id .stack {
+    font-size: 12.5px;
   }
   .board {
     gap: 4px;
