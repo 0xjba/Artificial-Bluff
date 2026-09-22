@@ -33,6 +33,19 @@ importers:
         specifier: workspace:*
         version: link:../../packages/players
 
+  packages/analysis:
+    dependencies:
+      '@ab/core':
+        specifier: workspace:*
+        version: link:../core
+      '@ab/engine':
+        specifier: workspace:*
+        version: link:../engine
+    devDependencies:
+      '@ab/players':
+        specifier: workspace:*
+        version: link:../players
+
   packages/core:
     dependencies:
       '@ab/engine':
