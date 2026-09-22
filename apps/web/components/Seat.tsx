@@ -57,11 +57,11 @@ export function Seat({ view, seat, index }: { view: TableView; seat: SeatView; i
       <span className="seat-cards">
         {seat.hole && !dim ? seat.hole.map((c) => <PlayingCard key={c} code={c} small />) : [0, 1].map((i) => <span key={i} className="card gone">–</span>)}
       </span>
-      <span className={`seat-act${acting ? ' now' : ''}`}>{acting ? 'Thinking…' : lastWord(seat)}</span>
       <span className="seat-win" title="Chance this player wins the hand from here, from everyone's cards. The players can't see it.">
         <span>Win chances</span>
         <b>{winWord(view, seat)}</b>
       </span>
+      <span className={`seat-act${acting ? ' now' : ''}${dim ? ' quiet' : ''}`}>{acting ? 'Thinking…' : lastWord(seat)}</span>
     </div>
   )
 }

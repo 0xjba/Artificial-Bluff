@@ -22,6 +22,8 @@ export function DecisionCard({ view, decisionEquity }: { view: TableView; decisi
     )
   const seat = view.seats.find((s) => s.playerId === d.playerId)
   const who = characterFor(d.playerId, view.seats.findIndex((s) => s.playerId === d.playerId))
+  // Jev answers with a probability for every option, so its confidence is not the LLMs' number.
+  const jev = seat?.kind === 'jev'
   const entries = d.optionProbabilities ? Object.entries(d.optionProbabilities) : []
   const probs = entries.length ? entries.sort((a, b) => (b[1] ?? 0) - (a[1] ?? 0)).slice(0, 5) : null
   return (
@@ -32,17 +34,20 @@ export function DecisionCard({ view, decisionEquity }: { view: TableView; decisi
         LAST DECISION <b>{who.name}</b> <span className="action">{d.label}</span>
       </h2>
       <div className="claims">
-        <div>
+        <div title="The chance of winning this hand that the player claimed, just before it acted.">
           <span>IT SAID</span>
           <b>{pct(d.winProbability)}</b>
+          <small>its own win chance</small>
         </div>
-        <div>
+        <div title="The real chance of winning from here, worked out from every player's cards. No player is ever told it.">
           <span>TRUE</span>
           <b className="true">{pct(decisionEquity)}</b>
+          <small>from every card</small>
         </div>
-        <div>
+        <div title={jev ? "How much of Jev's probability sat on the option it chose." : 'How sure the player said it was that this was the right move.'}>
           <span>CONFIDENCE</span>
           <b>{pct(d.confidence)}</b>
+          <small>{jev ? 'weight on this option' : 'in this move'}</small>
         </div>
       </div>
       {d.fallback ? <p className="warn">{fallbackNotice(d.fallbackKind, d.fallbackReason)}</p> : null}

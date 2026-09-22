@@ -554,12 +554,14 @@ button.tag.live {
   background: var(--panel-2);
   border: 1px solid var(--rule);
   border-radius: 13px;
-  padding: 8px 9px;
+  /* No bottom padding: the last action is a bar flush with the pill's bottom edge. */
+  padding: 8px 9px 0;
+  overflow: hidden;
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
   align-items: center;
   column-gap: 9px;
-  row-gap: 5px;
+  row-gap: 6px;
   box-shadow: 0 6px 18px rgba(0, 0, 0, 0.3);
 }
 .seat-card.acting {
@@ -623,13 +625,13 @@ button.tag.live {
   color: var(--dim);
   flex: none;
 }
-/* The cards sit under the mascot and the last action beside them, in a row of fixed height: the pill
-   is the same size before and after a deal, and a long action wraps instead of being cut. */
+/* The cards sit in the middle of the pill, always the same height whether or not they are dealt. */
 .seat-cards {
-  grid-column: 1;
+  grid-column: 1 / -1;
   display: flex;
   align-items: center;
-  gap: 3px;
+  justify-content: center;
+  gap: 4px;
   min-height: 36px;
 }
 /* The same size as a dealt card, so nothing moves when the cards arrive. */
@@ -644,24 +646,35 @@ button.tag.live {
   align-items: center;
   justify-content: center;
 }
+/* The last action reads as a bar across the pill's bottom edge, so nothing has to be cut. */
 .seat-act {
-  grid-column: 2;
-  align-self: center;
-  font-size: 11px;
+  grid-column: 1 / -1;
+  margin: 0 -9px;
+  padding: 3px 8px;
+  min-height: 18px;
+  background: #16201d;
+  border-top: 1px solid var(--rule);
+  font-size: 10.5px;
   font-weight: 600;
-  line-height: 1.25;
+  line-height: 1.2;
   color: var(--cream);
-  text-align: right;
+  text-align: center;
   overflow-wrap: anywhere;
 }
 .seat-act.now {
-  color: var(--gold);
+  background: var(--gold);
+  border-top-color: var(--gold);
+  color: #14251f;
+}
+.seat-act.quiet {
+  color: var(--dim);
 }
 .seat-win {
   display: none;
   grid-column: 1 / -1;
   align-items: center;
   gap: 6px;
+  margin-bottom: 2px;
   background: #17211e;
   border-radius: 7px;
   padding: 4px 7px;
@@ -739,8 +752,18 @@ button.tag.live {
   color: var(--dim);
 }
 .claims b {
+  display: block;
   font-size: 20px;
   line-height: 1.15;
+}
+/* What each number is, in plain words: the labels alone don't say it. */
+.claims small {
+  display: block;
+  margin-top: 2px;
+  font-size: 10px;
+  line-height: 1.25;
+  color: var(--dim);
+  text-wrap: pretty;
 }
 .claims b.true {
   color: var(--gold);
@@ -1015,8 +1038,11 @@ button.tag.live {
     left: calc((50 + (var(--l) - 50) * 0.62) * 1%);
   }
   .seat-card {
-    padding: 7px 8px;
+    padding: 7px 8px 0;
     column-gap: 7px;
+  }
+  .seat-act {
+    margin: 0 -8px;
   }
   .seat-id b {
     font-size: 13px;
