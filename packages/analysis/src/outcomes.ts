@@ -1,4 +1,4 @@
-import { mainPotSharesBySubset, type Card } from '@ab/engine'
+import { deriveSeed, mainPotSharesBySubset, remainingBoards, sampleMainPotShares, type Card } from '@ab/engine'
 import type { DecisionRecord, HandRecord } from './hands'
 
 /** A decision with its outcome C and its per-action score. */
@@ -24,6 +24,19 @@ export interface ScoredDecision extends DecisionRecord {
  * subset. Duplicate rotations deal the same cards, so they share entries.
  */
 export type ShareCache = Map<string, number[]>
+
+export interface ScoreOptions {
+  /**
+   * Above this many hand evaluations for one deal and board, shares are estimated from sampled boards
+   * instead of enumerated. Left out (the default), every share is exact, which is what a study wants;
+   * the site uses it to summarise long logs in reasonable time.
+   */
+  maxEvaluations?: number
+  /** Boards sampled when estimating (default 20,000: standard error under 0.4 percentage points). */
+  samples?: number
+  /** Namespace for the sampling seed, so the same log always gives the same estimate. */
+  seedNamespace?: string
+}
 
 interface Canonical {
   /** Seat ids in canonical (card) order. */
@@ -61,7 +74,7 @@ export function actionGood(d: DecisionRecord, share: number): 0 | 1 {
  * Every decision of every hand, with outcome C and the per-action score. All live-player subsets
  * needed for one deal and board are enumerated in a single pass.
  */
-export function scoreDecisions(hands: readonly HandRecord[], cache: ShareCache = new Map()): ScoredDecision[] {
+export function scoreDecisions(hands: readonly HandRecord[], cache: ShareCache = new Map(), options: ScoreOptions = {}): ScoredDecision[] {
   const canon = new Map(hands.map((h) => [h, canonical(h)]))
   const pending = new Map<string, { holes: Card[][]; board: Card[]; subsets: Map<string, number[]> }>()
   for (const hand of hands) {
@@ -77,7 +90,15 @@ export function scoreDecisions(hands: readonly HandRecord[], cache: ShareCache =
   }
   for (const job of pending.values()) {
     const keys = [...job.subsets.keys()]
-    const results = mainPotSharesBySubset(job.holes, job.board, [...job.subsets.values()])
+    const subsets = [...job.subsets.values()]
+    const known = job.holes.flat().length + job.board.length
+    const evaluations = remainingBoards(known, job.board.length) * subsets.reduce((sum, s) => sum + s.length, 0)
+    if (options.maxEvaluations !== undefined && evaluations > options.maxEvaluations) {
+      const samples = options.samples ?? 20_000
+      keys.forEach((k, i) => cache.set(k, sampleMainPotShares(job.holes, job.board, subsets[i]!, samples, deriveSeed(options.seedNamespace ?? 'score', k))))
+      continue
+    }
+    const results = mainPotSharesBySubset(job.holes, job.board, subsets)
     keys.forEach((k, i) => cache.set(k, results[i]!))
   }
   const out: ScoredDecision[] = []

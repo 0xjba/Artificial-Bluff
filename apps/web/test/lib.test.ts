@@ -108,7 +108,14 @@ describe('feed', () => {
     expect(lines.filter((l) => l.kind === 'hand').at(-1)!.text).toMatch(/^Hand \d+ · blinds [\d,]+\/[\d,]+$/)
     expect(lines.some((l) => l.kind === 'win' && /^[A-Z &]+ (wins|split) [\d,]+/.test(l.text))).toBe(true)
     for (const l of lines.filter((x) => x.kind === 'action')) expect(l.text).toMatch(/^[A-Z]+ (folds|checks|calls|bets|raises to|goes all-in)\b/)
-    for (const l of lines.filter((x) => x.kind === 'street')) expect(l.text).toMatch(/^(Flop|Turn|River): ([2-9JQKA]|10)[♠♥♦♣]/)
+    for (const l of lines.filter((x) => x.kind === 'street')) {
+      expect(l.tag).toMatch(/^(FLOP|TURN|RIVER)$/)
+      expect(l.text).toMatch(/^(([2-9JQKA]|10)[♠♥♦♣]\uFE0E ?)+$/) // just the cards: the tag says which street
+    }
+    for (const l of lines) expect(l.ts).toBeGreaterThan(0)
+    expect(lines.filter((l) => l.kind === 'hand').map((l) => l.hand)).toEqual(lines.filter((l) => l.kind === 'hand').map((_, i) => i + 1))
+    for (const l of lines.filter((x) => x.kind === 'action')) expect(['FOLD', 'CHECK', 'CALL', 'BET', 'RAISE', 'ALL-IN']).toContain(l.tag)
+    expect(lines.filter((l) => l.kind === 'win').every((l) => l.tag === 'WIN' || l.tag === 'SPLIT')).toBe(true)
     for (const l of lines) expect(l.text).not.toMatch(/ ms\b|hand-|undefined/)
     expect(soundFor('street', 'FLOP')).toBe('card')
     expect(soundFor('action', 'PILL folds')).toBe('fold')
@@ -120,7 +127,9 @@ describe('feed', () => {
   })
 
   it('describes each decision in plain words', () => {
-    const d = (label: string, extra = {}) => logLine({ type: 'decision', seq: 9, playerId: 'jev', label, fallback: false, fallbackKind: null, fallbackReason: null, ...extra } as never, name, emptyView())!.text
+    const line = (label: string, extra = {}) => logLine({ type: 'decision', seq: 9, ts: 5, playerId: 'jev', label, fallback: false, fallbackKind: null, fallbackReason: null, ...extra } as never, name, emptyView())!
+    const d = (label: string, extra = {}) => line(label, extra).text
+    expect(['Fold', 'Check', 'Call 150', 'Call all-in 1,250', 'Bet 200', 'Raise to 1,300', 'All-in 4,800'].map((l) => line(l).tag)).toEqual(['FOLD', 'CHECK', 'CALL', 'ALL-IN', 'BET', 'RAISE', 'ALL-IN'])
     expect(d('Fold')).toBe('JEV folds')
     expect(d('Check')).toBe('JEV checks')
     expect(d('Call 150')).toBe('JEV calls 150')

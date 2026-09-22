@@ -33,3 +33,32 @@ export function fallbackNotice(kind: string | null, reason: string | null): stri
   if (kind === 'model') return 'invalid answer'
   return 'fallback'
 }
+
+const POSITION_NAMES: Record<string, string> = {
+  BTN: 'Dealer',
+  SB: 'Small blind',
+  BB: 'Big blind',
+  UTG: 'First to act',
+  'UTG+1': 'Early',
+  'UTG+2': 'Early',
+  MP: 'Middle',
+  LJ: 'Middle',
+  HJ: 'Middle',
+  CO: 'Before dealer',
+}
+
+/** A table position in plain words: "BB" → "Big blind", "CO" → "Before dealer". */
+export const positionName = (p: string | null) => (p ? (POSITION_NAMES[p] ?? p) : '')
+
+/** A net result with its sign: +6,200, −3,100, 0. */
+export const signedChips = (n: number) => (n > 0 ? `+${chips(n)}` : n < 0 ? `−${chips(-n)}` : '0')
+
+/** A menu label, shortened for a seat card: "Raise to 2,400" → "Raise 2,400", "Call all-in 450" → "All-in 450". */
+export const shortAction = (label: string) =>
+  label.replace(/^Raise to /, 'Raise ').replace(/^Call all-in /, 'All-in ')
+
+/** Time of day for the hand log: 21:04. */
+export const clock = (ts: number) => {
+  const d = new Date(ts)
+  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
+}
