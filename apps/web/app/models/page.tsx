@@ -55,8 +55,8 @@ export default async function Models() {
       ) : (
         <>
           <div className="models-scroll">
-            <div className="board">
-              <div className="board-head">
+            <div className="models-board">
+              <div className="row-head">
                 <span>#</span>
                 <span />
                 <span>SEAT / MODEL</span>
@@ -69,7 +69,7 @@ export default async function Models() {
               {seats.map((s, i) => {
                 const who = characterFor(s.playerId, i)
                 return (
-                  <div className="board-row" key={s.playerId} style={{ '--seat': who.color } as React.CSSProperties}>
+                  <div className="row" key={s.playerId} style={{ '--seat': who.color } as React.CSSProperties}>
                     <span className="rank">{i + 1}</span>
                     <span className="face">
                       <MascotBadge playerId={s.playerId} index={i} size={28} />

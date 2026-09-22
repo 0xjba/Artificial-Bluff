@@ -50,8 +50,9 @@ export function LiveScreen({ feedUrl }: { feedUrl: string }) {
     return () => clearTimeout(timer)
   }, [past, channel])
 
-  // Seeking needs the whole game from its start with nothing missing (the backlog may still be loading).
-  const canSeek = channel?.mode === 'live' && seekable(history)
+  // Seeking needs the whole programme from its start with nothing missing (the backlog may still be
+  // loading). A replay can be scrubbed too: its events arrive on the same feed.
+  const canSeek = seekable(history)
   const seekTo = (pos: number | null) => {
     if (!channel || pos === null || pos >= history.length) return setPast(null)
     const playing = past?.playing ?? true
@@ -71,6 +72,7 @@ export function LiveScreen({ feedUrl }: { feedUrl: string }) {
       onPrevHand={() => seekTo(prevHand(history, pos))}
       onNextHand={() => seekTo(nextHand(history, pos))}
       onTogglePlay={() => setPast((p) => p && { ...p, playing: !p.playing })}
+      mode={channel?.mode ?? 'idle'}
     />
   ) : null
 

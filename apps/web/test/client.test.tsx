@@ -32,6 +32,12 @@ const click = (label: string) => {
   if (!button) throw new Error(`no button ${label}`)
   act(() => button.click())
 }
+/** Buttons that show an icon are found by their accessible name. */
+const clickLabel = (label: string) => {
+  const button = host.querySelector(`button[aria-label="${label}"]`) as HTMLButtonElement | null
+  if (!button) throw new Error(`no button labelled ${label}`)
+  act(() => button.click())
+}
 
 beforeEach(() => {
   played.length = 0
@@ -86,7 +92,7 @@ describe('Broadcast sounds', () => {
     const a = line(5, 'JEV raises to 300')
     render([a])
     expect(played).toEqual([]) // muted by default
-    click('Sound off')
+    clickLabel('turn sound on')
     const b = line(6, 'PILL folds')
     render([a, b])
     expect(played).toEqual(['fold'])

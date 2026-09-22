@@ -11,6 +11,8 @@ export interface SeekBarProps {
   hand: { at: number; of: number }
   behind: boolean
   playing: boolean
+  /** A replay is played by the server; the bar still scrubs what has arrived. */
+  mode: 'live' | 'replay' | 'idle'
   onSeek: (pos: number) => void
   onPrevHand: () => void
   onNextHand: () => void
@@ -52,7 +54,11 @@ export function SeekBar(props: SeekBarProps) {
         </div>
         <span className="at">{props.hand.of === 0 ? 'DEALING…' : props.behind ? `HAND ${props.hand.at} OF ${props.hand.of}` : `HAND 1 → ${props.hand.of}`}</span>
       </div>
-      <p>Drag back to rewatch any hand of this game — the table replays from there.</p>
+      <p>
+        {props.mode === 'live'
+          ? 'Drag back to rewatch any hand of this game — the table replays from there.'
+          : 'Drag back to rewatch any hand of this replay — it plays on from there.'}
+      </p>
     </div>
   )
 }
