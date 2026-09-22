@@ -125,6 +125,10 @@ describe('HTTP API', () => {
     const first = await app({ dbPath })
     expect(first.store.game('crashed-live')!.status).toBe('interrupted')
     expect(first.store.game('study-in-progress')!.status).toBe('running') // another process may be running it
+    // Its events stay secret until it's over: every rotation of a duplicate group deals the same cards.
+    const studyEvents = await fetch(`${first.url}/api/games/study-in-progress/events`)
+    expect(studyEvents.status).toBe(409)
+    expect(await studyEvents.text()).not.toContain('cards_dealt')
     // A second server process (simulated: another running process holds the lock) is refused.
     writeFileSync(`${dbPath}.server.lock`, String(process.ppid))
     await expect(app({ dbPath })).rejects.toThrow(/another live server/)
@@ -146,12 +150,15 @@ describe('HTTP API', () => {
     expect(started.status).toBe(201)
     const { gameId } = await started.json()
     expect((await admin(a, '/api/admin/games')).status).toBe(409)
-    // While it runs: the feed shows it, its config and events are withheld.
+    // While it runs: the feed shows it and its events so far can be read (to seek back), but its config is withheld.
     const feed = await readFeed(a, (m) => m.filter((x) => x.type === 'event').length >= 20)
     expect(feed[0]).toMatchObject({ type: 'snapshot', channel: { mode: 'live', gameId } })
     expect(feed.filter((m) => m.type === 'event').every((m) => (m as { event: { gameId: string } }).event.gameId === gameId)).toBe(true)
     expect((await (await fetch(`${a.url}/api/games/${gameId}`)).json()).config).toBeNull()
-    expect((await fetch(`${a.url}/api/games/${gameId}/events`)).status).toBe(409)
+    const sofar = await (await fetch(`${a.url}/api/games/${gameId}/events`)).json()
+    expect(sofar.game).toMatchObject({ id: gameId, status: 'running', config: null })
+    expect(sofar.events[0]).toMatchObject({ type: 'game_started', gameId })
+    expect(sofar.events.length).toBeGreaterThanOrEqual(20)
     const list = await (await fetch(`${a.url}/api/games`)).json()
     expect(list.games[0]).toMatchObject({ id: gameId, status: 'running' })
     expect(list.games[0]).not.toHaveProperty('config')
