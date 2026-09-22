@@ -55,7 +55,7 @@ function send(res: ServerResponse, status: number, body: unknown): void {
  * - GET  /api/feed              Server-Sent Events: a snapshot, then events and equity updates
  * - GET  /api/games             finished and running games (configs withheld while running)
  * - GET  /api/games/:id         one game
- * - GET  /api/games/:id/events  events of a game so far (a running study's deck seeds withheld), in pages:
+ * - GET  /api/games/:id/events  events of a live game so far, or of a study once it is over, in pages:
  *                                ?after=<seq> (default 0), up to 5,000 per page; `next` is the next ?after
  * - POST /api/admin/games       start a live game (Authorization: Bearer ADMIN_TOKEN)
  * - POST /api/admin/games/stop  stop the live game after the current hand
@@ -154,6 +154,9 @@ export function createHttpServer(deps: HttpDeps): Server {
         const after = Number(url.searchParams.get('after') ?? 0)
         if (!Number.isInteger(after) || after < 0) return send(res, 400, { error: 'after must be a whole number' })
         const over = isOver(row)
+        // A running live game's events are what the feed already showed. A study's stay secret until it
+        // is over for good: every rotation of a duplicate group is dealt the same cards.
+        if (!over && row.kind !== 'live') return send(res, 409, { error: 'the study is not over yet (it can still be resumed)' })
         const events = deps.store.events(row.id, after, EVENTS_PAGE_LIMIT).map((e) => publicEvent(e, over))
         const next = events.length === EVENTS_PAGE_LIMIT ? events.at(-1)!.seq : null
         return send(res, 200, { game: publicGame(row), events, next })

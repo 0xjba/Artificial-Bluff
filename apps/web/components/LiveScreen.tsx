@@ -2,7 +2,7 @@
 import { characterFor } from '@ab/mascot'
 import { useEffect, useRef, useState } from 'react'
 import { reduceFeed, type FeedState } from '../lib/feed'
-import { feedAt, handAt, handStarts, nextHand, prevHand } from '../lib/timeshift'
+import { feedAt, handAt, handStarts, nextHand, prevHand, seekable } from '../lib/timeshift'
 import { Broadcast } from './Broadcast'
 import { replayPause } from './ReplayScreen'
 import { useFeed } from './useFeed'
@@ -11,6 +11,9 @@ const name = (id: string) => characterFor(id).name
 
 /** Watching the past of the live game: how many events are shown, that screen, and whether it plays on. */
 interface Past {
+  /** The programme and feed snapshot it was built from: a new programme or a reconnect returns to live. */
+  channelId: string
+  snapshot: number
   pos: number
   state: FeedState
   playing: boolean
@@ -24,12 +27,11 @@ interface Past {
 export function LiveScreen({ feedUrl }: { feedUrl: string }) {
   const feed = useFeed(feedUrl)
   const { channel, history } = feed
-  const [past, setPast] = useState<Past | null>(null)
+  const [stored, setPast] = useState<Past | null>(null)
+  // Derived while rendering (not reset in an effect), so the old game never shows for a frame.
+  const past = stored && stored.channelId === channel?.id && stored.snapshot === feed.snapshots ? stored : null
   const historyRef = useRef(history)
   historyRef.current = history
-
-  // A new programme starts live.
-  useEffect(() => setPast(null), [channel?.id])
 
   // Play the past on, one event at a time, back to live when it catches up.
   useEffect(() => {
@@ -47,11 +49,12 @@ export function LiveScreen({ feedUrl }: { feedUrl: string }) {
     return () => clearTimeout(timer)
   }, [past, channel])
 
-  // Seeking needs the whole game from its start (the backlog may still be loading, or have failed).
-  const canSeek = channel?.mode === 'live' && history[0]?.type === 'game_started'
+  // Seeking needs the whole game from its start with nothing missing (the backlog may still be loading).
+  const canSeek = channel?.mode === 'live' && seekable(history)
   const seek = (pos: number | null) => {
     if (!channel || pos === null || pos >= history.length) return setPast(null)
-    setPast((p) => ({ pos, state: feedAt(channel, history, pos, name), playing: p?.playing ?? true }))
+    const playing = past?.playing ?? true
+    setPast({ channelId: channel.id, snapshot: feed.snapshots, pos, state: feedAt(channel, history, pos, name), playing })
   }
   const pos = past?.pos ?? history.length
   const first = handStarts(history)[0] ?? 1

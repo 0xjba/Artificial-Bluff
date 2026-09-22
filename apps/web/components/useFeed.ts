@@ -54,34 +54,36 @@ export function useFeed(url: string): FeedState & { connection: Connection } {
     }
   }, [url])
 
-  // Joining a live game: fetch its events so far, so viewers can seek back to before they arrived.
+  // Joining a live game (or reconnecting, which resets the history): fetch its events so far, so viewers
+  // can seek back to before they arrived.
   const channelId = state.channel?.id
   const liveGame = state.channel?.mode === 'live' ? state.channel.gameId : null
+  const snapshots = state.snapshots
   useEffect(() => {
     if (!channelId || !liveGame) return
-    let stopped = false
-    void loadHistory(liveGame).then((events) => {
-      if (!stopped && events) dispatch({ type: 'history', channelId, events })
+    const abort = new AbortController()
+    void loadHistory(url, liveGame, abort.signal).then((events) => {
+      if (!abort.signal.aborted && events) dispatch({ type: 'history', channelId, events })
     })
-    return () => {
-      stopped = true
-    }
-  }, [channelId, liveGame])
+    return () => abort.abort()
+  }, [url, channelId, liveGame, snapshots])
   return { ...state, connection }
 }
 
-/** A game's events so far (paged by the API), or null if they can't be read now. */
-async function loadHistory(gameId: string): Promise<GameEvent[] | null> {
+/** A game's events so far (paged by the API, from the feed's server), or null if they can't be read now. */
+async function loadHistory(feedUrl: string, gameId: string, signal: AbortSignal): Promise<GameEvent[] | null> {
   const events: GameEvent[] = []
   let after = 0
   try {
+    const base = new URL(feedUrl, window.location.href)
     for (;;) {
-      const res = await fetch(`/api/games/${encodeURIComponent(gameId)}/events?after=${after}`, { cache: 'no-store' })
+      const page = new URL(`/api/games/${encodeURIComponent(gameId)}/events?after=${after}`, base)
+      const res = await fetch(page, { cache: 'no-store', signal: AbortSignal.any([signal, AbortSignal.timeout(15_000)]) })
       if (!res.ok) return null
-      const page = (await res.json()) as { events: GameEvent[]; next: number | null }
-      events.push(...page.events)
-      if (page.next === null) return events
-      after = page.next
+      const body = (await res.json()) as { events: GameEvent[]; next: number | null }
+      events.push(...body.events)
+      if (body.next === null) return events
+      after = body.next
     }
   } catch {
     return null // no seeking back before joining; the feed's own events still can be

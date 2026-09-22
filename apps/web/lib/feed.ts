@@ -13,19 +13,21 @@ export interface FeedState {
   decisionEquity: number | null
   /** Every event of the programme seen so far, oldest first (to seek back through a live game). */
   history: GameEvent[]
+  /** Snapshots received (a reconnect sends one for the same channel): the history is reloaded after each. */
+  snapshots: number
 }
 
 /** The programme's earlier events, fetched after joining (merged with those the feed has brought since). */
 export type HistoryMessage = { type: 'history'; channelId: string; events: GameEvent[] }
 
-export const initialFeed = (): FeedState => ({ channel: null, view: emptyView(), log: [], decisionEquity: null, history: [] })
+export const initialFeed = (): FeedState => ({ channel: null, view: emptyView(), log: [], decisionEquity: null, history: [], snapshots: 0 })
 
 /**
  * Folds one feed message into the client state. A snapshot replaces everything (new programme or
  * reconnect); events and equity for another channel are ignored (they raced a programme change).
  */
 export function reduceFeed(state: FeedState, message: FeedMessage | HistoryMessage, name: (id: string) => string): FeedState {
-  if (message.type === 'snapshot') return { channel: message.channel, view: message.view, log: [], decisionEquity: null, history: [] }
+  if (message.type === 'snapshot') return { channel: message.channel, view: message.view, log: [], decisionEquity: null, history: [], snapshots: state.snapshots + 1 }
   if (!state.channel || message.channelId !== state.channel.id) return state
   if (message.type === 'history') {
     const history = mergeHistory(message.events, state.history)

@@ -7,7 +7,10 @@ export interface LogLine {
   kind: 'hand' | 'action' | 'street' | 'win' | 'end'
 }
 
-/** A decision's menu label ("Raise to 1,300", "Call all-in 150") as a third-person verb phrase. */
+/**
+ * A decision's menu label ("Raise to 1,300", "Call all-in 150") as a third-person verb phrase. An all-in
+ * raise shows the total it raises to (as the menu does), not the chips added.
+ */
 function describe(label: string): string {
   const m = /^(Fold|Check|Call all-in|Call|Bet|Raise to|All-in)\s*(.*)$/.exec(label)
   if (!m) return label.toLowerCase()
@@ -26,13 +29,13 @@ function describe(label: string): string {
     case 'Raise to':
       return `raises to ${amount}`
     default:
-      return `goes all-in for ${amount}`
+      return `goes all-in (${amount})`
   }
 }
 
 const cardText = (c: string) => {
   const x = card(c)
-  return `${x.rank}${x.suit}`
+  return `${x.rank}${x.suit}\uFE0E`
 }
 
 /**

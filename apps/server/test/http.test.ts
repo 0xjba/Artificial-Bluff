@@ -125,6 +125,10 @@ describe('HTTP API', () => {
     const first = await app({ dbPath })
     expect(first.store.game('crashed-live')!.status).toBe('interrupted')
     expect(first.store.game('study-in-progress')!.status).toBe('running') // another process may be running it
+    // Its events stay secret until it's over: every rotation of a duplicate group deals the same cards.
+    const studyEvents = await fetch(`${first.url}/api/games/study-in-progress/events`)
+    expect(studyEvents.status).toBe(409)
+    expect(await studyEvents.text()).not.toContain('cards_dealt')
     // A second server process (simulated: another running process holds the lock) is refused.
     writeFileSync(`${dbPath}.server.lock`, String(process.ppid))
     await expect(app({ dbPath })).rejects.toThrow(/another live server/)

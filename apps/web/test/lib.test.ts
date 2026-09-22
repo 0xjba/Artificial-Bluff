@@ -127,7 +127,7 @@ describe('feed', () => {
     expect(d('Call all-in 1,250')).toBe('JEV calls all-in for 1,250')
     expect(d('Bet 200')).toBe('JEV bets 200')
     expect(d('Raise to 1,300')).toBe('JEV raises to 1,300')
-    expect(d('All-in 4,800')).toBe('JEV goes all-in for 4,800')
+    expect(d('All-in 4,800')).toBe('JEV goes all-in (4,800)')
     expect(d('Fold', { fallback: true, fallbackKind: 'timeout', fallbackReason: 'timeout' })).toBe('JEV folds (timed out)')
   })
 })

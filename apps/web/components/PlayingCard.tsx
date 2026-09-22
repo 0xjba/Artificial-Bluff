@@ -42,6 +42,8 @@ export function PlayingCard({ code, small = false }: { code: string | null; smal
     )
   }
   const c = card(code)
+  // Text presentation: some platforms draw ♥ and ♦ as colour emoji otherwise (ignoring the fill).
+  const glyph = `${c.suit}\uFE0E`
   const suitName = { '♠': 'spades', '♥': 'hearts', '♦': 'diamonds', '♣': 'clubs' }[c.suit] ?? c.suit
   const rankName = { A: 'ace', K: 'king', Q: 'queen', J: 'jack' }[c.rank] ?? c.rank
   const pips = PIPS[c.rank]
@@ -54,7 +56,7 @@ export function PlayingCard({ code, small = false }: { code: string | null; smal
           {c.rank}
         </text>
         <text x={W / 2 + 4} y={H / 2 + 18} textAnchor="middle" dominantBaseline="central" fontSize="80" className="pip">
-          {c.suit}
+          {glyph}
         </text>
       </svg>
     )
@@ -66,7 +68,7 @@ export function PlayingCard({ code, small = false }: { code: string | null; smal
         {c.rank}
       </text>
       <text x="8" y="42" className="corner-suit" fontSize="16">
-        {c.suit}
+        {glyph}
       </text>
     </g>
   )
@@ -82,12 +84,12 @@ export function PlayingCard({ code, small = false }: { code: string | null; smal
             {c.rank}
           </text>
           <text x={W / 2} y={H / 2 + 30} textAnchor="middle" dominantBaseline="central" fontSize="22" className="pip">
-            {c.suit}
+            {glyph}
           </text>
         </g>
       ) : c.rank === 'A' ? (
         <text x={W / 2} y={H / 2} textAnchor="middle" dominantBaseline="central" fontSize="56" className="pip">
-          {c.suit}
+          {glyph}
         </text>
       ) : (
         pips?.map(([px, py], i) => {
@@ -95,7 +97,7 @@ export function PlayingCard({ code, small = false }: { code: string | null; smal
           const y = PIP_BOX.y + py * PIP_BOX.h
           return (
             <text key={i} x={x} y={y} textAnchor="middle" dominantBaseline="central" fontSize="21" className="pip" transform={py > 0.5 ? `rotate(180 ${x} ${y})` : undefined}>
-              {c.suit}
+              {glyph}
             </text>
           )
         })

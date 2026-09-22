@@ -42,16 +42,18 @@ export function Broadcast(props: {
       return !m
     })
   }
-  // One sound per new log line. Lines are new objects, so a restart or a new programme (whose event
-  // numbers start low again) still makes sound; a snapshot clears the log, so joining is silent.
+  // One sound per line added to the log. A log rebuilt at once (joining, seeking, back to live, a
+  // restart) is silent: only a line appended after the previous newest one makes a sound.
   const lastLine = useRef<LogLine | undefined>(undefined)
   const newest = props.log.at(-1)
+  const previous = props.log.at(-2)
   useEffect(() => {
-    if (!newest || newest === lastLine.current) return
+    const before = lastLine.current
     lastLine.current = newest
+    if (!newest || newest === before || previous !== before) return
     const sound = soundFor(newest.kind, newest.text)
     if (!muted && sound) playSound(sound)
-  }, [newest, muted])
+  }, [newest, previous, muted])
 
   const mode = props.channel?.mode ?? 'idle'
   return (

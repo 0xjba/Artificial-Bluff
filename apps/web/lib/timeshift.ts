@@ -42,3 +42,10 @@ export function nextHand(events: GameEvent[], pos: number): number | null {
 export function handAt(events: GameEvent[], pos: number): number {
   return handStarts(events).filter((p) => p <= pos).length
 }
+
+/** Whether the history is the whole programme from its start with nothing missing (so the past can be rebuilt). */
+export function seekable(events: GameEvent[]): boolean {
+  const first = events[0]
+  const last = events.at(-1)
+  return first?.type === 'game_started' && last !== undefined && last.seq - first.seq + 1 === events.length
+}
