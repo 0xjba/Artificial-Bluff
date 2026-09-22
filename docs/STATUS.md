@@ -29,7 +29,7 @@ Last updated: 2026-09-22
 | 1 | Monorepo + game engine (`packages/engine`) | ✅ Merged to master (9de0579), 99 tests |
 | 2 | Players (Jev, LLM, bots, mock), table runner, SQLite event log | ✅ Merged to master (b94a7be), 181 tests |
 | 3 | Study runner (duplicate, budget cap, resume, CI stop) + report/charts | 3a study runner: ✅ merged (04bc98f), 220 tests; 3b analysis + report: ✅ merged (0d46196), 258 tests |
-| 4 | 4a live server (SSE feed, replays, admin start/stop); 4b mascots (bloub engine, shapes, React component); 4c web (Broadcast UI) | 4a: ✅ merged, 306 tests; 4b: ✅ merged, 397 tests; 4c: ✅ built and reviewed on `feat/plan-4c-web` (412 tests), ready to merge |
+| 4 | 4a live server (SSE feed, replays, admin start/stop); 4b mascots (bloub engine, shapes, React component); 4c web (Broadcast UI) | 4a: ✅ merged, 306 tests; 4b: ✅ merged, 397 tests; 4c: ✅ merged, 412 tests |
 
 ### Plan 1 task progress
 
@@ -160,6 +160,8 @@ Last updated: 2026-09-22
 - Scratch bloub preview (custom colours, Mascots.vue) lived in the session scratchpad; replaced by Plan 4b's `pnpm --filter @ab/mascot preview` → docs/brand/mascots.html.
 
 ## Execution log
+
+- 2026-09-22: Plan 4c merged to master and pushed. All planned pieces done (engine, players, study, report, live server, mascots, web). Next candidates: real smoke run (needs keys + go-ahead), deployment, deferred TODOs.
 
 - TODO (Plan 4c re-review, minor): ReplayScreen restart when index is already 0 doesn't re-apply game_started (practically unreachable; add a generation counter).
 
