@@ -1,0 +1,9 @@
+Third-party code included in artificialBluff
+============================================
+
+bloub (packages/mascot/src/engine)
+  https://github.com/jeremy-prt/bloub, commit b4bb3c1
+  MIT License, Copyright (c) 2026 Jérémy Perret
+  Full text: packages/mascot/LICENSE-bloub
+  Modified: white rings; players keep their body shape through all animations
+  (see packages/mascot/src/engine/README.md).

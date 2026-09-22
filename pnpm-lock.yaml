@@ -86,6 +86,8 @@ importers:
         specifier: 0.6.0
         version: 0.6.0
 
+  packages/mascot: {}
+
   packages/players:
     dependencies:
       '@ab/engine':
