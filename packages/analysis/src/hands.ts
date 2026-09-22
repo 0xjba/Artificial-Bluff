@@ -15,6 +15,11 @@ export interface DecisionRecord {
   chipsIn: number
   /** Pot before the action (every chip committed this hand, current street included). */
   pot: number
+  /**
+   * The part of the pot this player can win: every seat's chips up to what this player will have in
+   * after calling (the excess goes back to its owner). Pot odds use it, as the players were shown.
+   */
+  winnablePot: number
   toCall: number
   /** The player's stack just before this decision. */
   stackBefore: number
@@ -66,18 +71,20 @@ type HandEvent = Extract<GameEvent, { handId: string | null }>
 
 /**
  * Rebuilds complete hands from an event log (events of several hands may interleave, as in a study
- * with parallel tables). Hands without an id, or that never reached hand_ended, are skipped.
+ * with parallel tables; events of several games are kept apart by game id). Hands without an id, or
+ * that never reached hand_ended, are skipped.
  */
 export function extractHands(events: readonly GameEvent[]): HandRecord[] {
-  const byHand = new Map<string, HandEvent[]>()
+  const byHand = new Map<string, { handId: string; events: HandEvent[] }>()
   for (const e of events) {
     if (!('handId' in e) || e.handId === null) continue
-    const list = byHand.get(e.handId)
-    if (list) list.push(e)
-    else byHand.set(e.handId, [e])
+    const key = `${e.gameId}\u0000${e.handId}`
+    const entry = byHand.get(key)
+    if (entry) entry.events.push(e)
+    else byHand.set(key, { handId: e.handId, events: [e] })
   }
   const hands: HandRecord[] = []
-  for (const [handId, list] of byHand) {
+  for (const { handId, events: list } of byHand.values()) {
     const hand = buildHand(handId, list)
     if (hand) hands.push(hand)
   }
@@ -91,7 +98,8 @@ function buildHand(handId: string, events: HandEvent[]): HandRecord | null {
   if (!started || started.type !== 'hand_started' || !dealt || dealt.type !== 'cards_dealt' || !ended || ended.type !== 'hand_ended') return null
 
   const order = started.seats.map((s) => s.playerId)
-  const stacks = new Map(started.seats.map((s) => [s.playerId, s.stack]))
+  const startStacks = new Map(started.seats.map((s) => [s.playerId, s.stack]))
+  const stacks = new Map(startStacks)
   for (const post of started.posts) stacks.set(post.playerId, stacks.get(post.playerId)! - post.amount)
   const position = new Map(started.seats.map((s) => [s.playerId, s.position]))
   const folded = new Set<string>()
@@ -107,6 +115,9 @@ function buildHand(handId: string, events: HandEvent[]): HandRecord | null {
       if (e.street === 'flop') sawFlop = order.filter((id) => !folded.has(id))
     } else if (e.type === 'decision') {
       const stackBefore = stacks.get(e.playerId)!
+      const committed = (id: string) => startStacks.get(id)! - stacks.get(id)!
+      const reach = committed(e.playerId) + e.toCall
+      const winnablePot = order.reduce((sum, id) => sum + Math.min(committed(id), reach), 0)
       drafts.push({
         handId,
         index: drafts.length,
@@ -118,6 +129,7 @@ function buildHand(handId: string, events: HandEvent[]): HandRecord | null {
         actionType: e.action.type,
         chipsIn: e.chipsIn,
         pot: e.pot,
+        winnablePot,
         toCall: e.toCall,
         stackBefore,
         board: [...board],

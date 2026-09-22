@@ -10,9 +10,11 @@ export interface ScoredDecision extends DecisionRecord {
    */
   expectedShare: number
   /**
-   * Per-action outcome: 1 if the action worked out, else 0. A fold is scored by all-in equity: it was
-   * right if the expected share was below the pot odds, toCall / (pot + toCall). Any other action was
-   * right if the player's stack did not shrink from just before it to the end of the hand.
+   * Per-action outcome: 1 if the action was right, else 0. Folds and calls are scored by all-in equity
+   * (outcome C) against the pot odds toCall / (winnablePot + toCall): a fold was right below them, a
+   * call at or above them. Checks and raises have no such rule; they count as right if the player's
+   * stack did not shrink from just before the action to the end of the hand, so later streets feed
+   * into their score. Only ever compare this within one action type.
    */
   actionGood: 0 | 1
 }
@@ -49,7 +51,9 @@ function subsetOf(c: Canonical, d: DecisionRecord): { subset: number[]; key: str
 
 /** Per-action outcome (see ScoredDecision.actionGood). */
 export function actionGood(d: DecisionRecord, share: number): 0 | 1 {
-  if (d.actionType === 'fold') return share < d.toCall / (d.pot + d.toCall) ? 1 : 0
+  const potOdds = d.toCall / (d.winnablePot + d.toCall)
+  if (d.actionType === 'fold') return share < potOdds ? 1 : 0
+  if (d.actionType === 'call') return share >= potOdds ? 1 : 0
   return d.stackChange >= 0 ? 1 : 0
 }
 

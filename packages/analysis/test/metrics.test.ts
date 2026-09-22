@@ -49,6 +49,22 @@ describe('playerMetrics', () => {
     const c = playerMetrics(extractHands(events), 'c')
     expect(c.fallbacks).toEqual({ model: 3, infra: 0, timeout: 0, auto: 1 }) // after 3 in a row the seat is auto-played
     expect(c.fallbackRate).toBe(1)
+    expect(c.modelFallbackRate).toBe(0.75)
     expect(c.costUsd).toBeCloseTo(0.003, 12) // auto-played decisions make no call
+    // Per-decision figures cover the 3 answered decisions only: the auto one (0 ms, $0) would flatter them.
+    expect(c.costPerDecisionUsd).toBeCloseTo(0.001, 12)
+    expect(c.meanInputTokens).toBe(0)
+  })
+
+  it('leaves walks out of VPIP and PFR', async () => {
+    const board = ['2c', '7d', '9h', 'Js', '4c']
+    const deal = [['Ah', 'Ad'], ['Kh', 'Kd'], ['3h', '8s']]
+    // Hand 1: a and b fold, c (big blind) wins a walk without deciding anything.
+    const walk = await playFixedHand([scripted('a', () => 'fold'), scripted('b', () => 'fold'), scripted('c', () => undefined)], deal, board, 'w')
+    // Hand 2: a raises, c calls it.
+    const played = await playFixedHand([scripted('a', (o) => (o.street === 'preflop' ? 'open_3bb' : undefined)), scripted('b', () => 'fold'), scripted('c', () => undefined)], deal, board, 'p')
+    const c = playerMetrics(extractHands([...walk, ...played]), 'c')
+    expect(c.hands).toBe(2)
+    expect(c.style.vpip).toBe(1) // 1 of 1 hand with a preflop decision, not 1 of 2
   })
 })

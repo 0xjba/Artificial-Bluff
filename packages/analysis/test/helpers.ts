@@ -54,17 +54,18 @@ export function scripted(
   }
 }
 
-/** Plays one hand of 50/100 blinds, 10,000 chip stacks, button at seat 0, with a fixed deal. */
+/** Plays one hand of 50/100 blinds, 10,000 chip stacks (unless given), button at seat 0, with a fixed deal. */
 export async function playFixedHand(
   players: Player[],
   holes: string[][],
   board: string[],
   handId = 'h1',
   sink = memorySink(),
+  stacks: number[] = players.map(() => 10_000),
 ): Promise<GameEvent[]> {
   await playHand({
     config: {
-      seats: players.map((p) => ({ id: p.id, stack: 10_000 })),
+      seats: players.map((p, i) => ({ id: p.id, stack: stacks[i]! })),
       buttonIndex: 0,
       smallBlind: 50,
       bigBlind: 100,

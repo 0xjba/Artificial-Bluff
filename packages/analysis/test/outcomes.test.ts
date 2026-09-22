@@ -1,6 +1,6 @@
 import { mainPotShares, mainPotSharesBySubset, type Card } from '@ab/engine'
 import { describe, expect, it } from 'vitest'
-import { extractHands } from '../src/hands'
+import { extractHands, type DecisionRecord } from '../src/hands'
 import { actionGood, scoreDecisions, type ShareCache } from '../src/outcomes'
 import { playFixedHand, scripted } from './helpers'
 
@@ -28,6 +28,25 @@ describe('outcome C: expected main-pot share at the decision', () => {
     expect(first + mirrored).toBeCloseTo(1, 12)
   })
 
+  it('scores two live sets of one deal and board in the same pass', async () => {
+    // a opens, b folds, c calls: preflop decisions see {a, b, c} and then {a, c}.
+    const opener = scripted('a', (o) => (o.street === 'preflop' ? 'open_3bb' : undefined))
+    const folder = scripted('b', () => 'fold')
+    const [hand] = extractHands(await playFixedHand([opener, folder, caller('c')], [['Ah', 'Kd'], ['Qh', 'Qd'], ['7s', '6s']], board))
+    const holes = [cards('Ah Kd'), cards('Qh Qd'), cards('7s 6s')]
+    const [all, headsUp] = mainPotSharesBySubset(holes, [], [[0, 1, 2], [0, 2]])
+    const scored = scoreDecisions([hand!])
+    const pre = scored.filter((d) => d.street === 'preflop')
+    expect(pre.map((d) => [d.playerId, d.live.length])).toEqual([
+      ['a', 3],
+      ['b', 3],
+      ['c', 2],
+    ])
+    expect(pre[0]!.expectedShare).toBeCloseTo(all![0]!, 12)
+    expect(pre[1]!.expectedShare).toBeCloseTo(all![1]!, 12)
+    expect(pre[2]!.expectedShare).toBeCloseTo(headsUp![1]!, 12)
+  })
+
   it("treats a folded player's cards as dead", async () => {
     // a (button, facing the big blind) folds two aces; b's later equity must not count on an ace coming.
     const folder = scripted('a', () => 'fold')
@@ -43,14 +62,15 @@ describe('outcome C: expected main-pot share at the decision', () => {
 
 describe('per-action outcome', () => {
   it('scores a fold by all-in equity against the pot odds, other actions by the chips that followed', async () => {
-    // b folds a weak hand to a flop bet (right); c calls the flop bet with kings and loses to aces (wrong),
-    // but its turn and river checks cost nothing more, so they count as fine.
+    // b folds a weak hand to a flop bet (right, by equity); c calls the flop bet with kings behind aces
+    // (wrong, by equity). Checks are scored by the chips that followed: c's preflop and flop checks led
+    // to chips lost, its turn and river checks cost nothing more.
     const bettor = scripted('a', (o) => (o.street === 'flop' ? 'pot_50' : undefined))
     const folder = scripted('b', (o) => (o.street === 'flop' ? 'fold' : undefined))
     const [hand] = extractHands(await playFixedHand([bettor, folder, caller('c')], [['Ah', 'Ad'], ['3h', '8d'], ['Kh', 'Kd']], board))
     const scored = scoreDecisions([hand!])
     const fold = scored.find((d) => d.actionType === 'fold')!
-    expect(fold.expectedShare).toBeLessThan(fold.toCall / (fold.pot + fold.toCall))
+    expect(fold.expectedShare).toBeLessThan(fold.toCall / (fold.winnablePot + fold.toCall))
     expect(fold.actionGood).toBe(1)
     expect(scored.filter((d) => d.playerId === 'c').map((d) => [d.street, d.actionType, d.actionGood])).toEqual([
       ['preflop', 'check', 0],
@@ -63,4 +83,24 @@ describe('per-action outcome', () => {
     // The same fold with the aces instead would have been wrong.
     expect(actionGood(fold, 0.9)).toBe(0)
   })
+
+  it('scores calls by equity too, and uses the pot the player can actually win', () => {
+    const base = scoreDecisionsStub()
+    // Facing a 950 all-in call with only 1,150 winnable (a short stack), 30% equity is not enough to call...
+    const shortCall = { ...base, actionType: 'call' as const, toCall: 950, pot: 10_150, winnablePot: 1_150 }
+    expect(actionGood(shortCall, 0.3)).toBe(0) // pot odds 950 / 2,100 = 45%
+    expect(actionGood(shortCall, 0.5)).toBe(1)
+    // ...and folding it is right, although the raw pot (10,150) would suggest 9% odds.
+    expect(actionGood({ ...shortCall, actionType: 'fold' }, 0.3)).toBe(1)
+  })
 })
+
+/** A minimal decision record for scoring rules (only the fields actionGood reads matter). */
+function scoreDecisionsStub(): DecisionRecord {
+  return {
+    handId: 'x', index: 0, playerId: 'p', street: 'preflop', position: 'SB', model: 'm', optionId: 'call', actionType: 'call',
+    chipsIn: 0, pot: 0, winnablePot: 0, toCall: 0, stackBefore: 0, board: [], live: ['p', 'q'], winProbability: null, confidence: null,
+    optionProbabilities: null, latencyMs: 0, inputTokens: 0, outputTokens: 0, reasoningTokens: 0, costUsd: 0, retries: 0,
+    fallback: false, fallbackKind: null, mainPotShare: 0, stackChange: 0,
+  }
+}

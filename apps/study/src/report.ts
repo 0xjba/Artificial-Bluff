@@ -25,8 +25,10 @@ export interface PlayerCalibration {
   winA: Calibration
   /** Stated win probability vs outcome C (expected main-pot share at the decision). */
   winC: Calibration
-  /** Confidence vs whether the chosen action worked out, overall and per action type. */
-  action: Calibration
+  /**
+   * Confidence vs whether the chosen action was right, per action type. Never pooled: the rules differ
+   * by type (equity for folds and calls, later chips for checks and raises) and so do their base rates.
+   */
   actionByType: Record<'fold' | 'check' | 'call' | 'raise', Calibration>
 }
 
@@ -112,7 +114,6 @@ export function analyseStudy(store: EventStore, config: StudyConfig, opts: { foc
       confidenceSource: CONFIDENCE_SOURCE[info.get(playerId)?.kind ?? ''] ?? 'unknown',
       winA: calibration(win.map((d) => ({ p: d.winProbability!, o: d.mainPotShare }))),
       winC: calibration(win.map((d) => ({ p: d.winProbability!, o: d.expectedShare }))),
-      action: calibration(conf.map((d) => ({ p: d.confidence!, o: d.actionGood }))),
       actionByType: { fold: actionOf('fold'), check: actionOf('check'), call: actionOf('call'), raise: actionOf('raise') },
     }
   }
@@ -145,11 +146,12 @@ export function analyseStudy(store: EventStore, config: StudyConfig, opts: { foc
     metrics: config.lineup.map((s) => playerMetrics(hands, s.id)),
     calibration: config.lineup.map((s) => calibrationOf(s.id)),
     notes: [
+      'VPIP and PFR leave out walks (hands with no preflop decision). AF is postflop bets and raises per call (undefined with no calls); WTSD is showdowns per hand seen to the flop.',
       'bb/100: 95% Student t CIs over neighbour blocks of seed groups (df = blocks - 1); the percentile bootstrap CI is a sensitivity check. Per-player CIs are marginal: claims about pairs rest on the Holm-corrected paired contrasts.',
       'Calibration A (headline): stated win probability vs the share of the main pot actually won (1, 1/k for a k-way split, 0 after any fold). Calibration C: vs the expected main-pot share at the decision from all hole cards (exact enumeration), which removes later actions and board luck.',
-      "Per-action calibration: confidence vs whether the action worked out. A fold counts as right if all-in equity was below the pot odds; any other action if the player's stack didn't shrink from that point to the end of the hand.",
+      "Per-action calibration, by action type only: confidence vs whether the action was right. Folds and calls are scored by all-in equity (outcome C) against the pot odds of the pot the player could win: a fold is right below them, a call at or above them. This treats the hand as if it went to showdown now and ignores players still to act, a standard approximation. Checks and raises have no such rule: they count as right if the player's stack didn't shrink from that point to the end of the hand, so later streets feed into their score.",
       "Confidence means different things: Jev's is derived from its option probabilities, the LLMs' is self-reported. Compare each player with itself, not the two kinds with each other.",
-      'Decisions that fell back to check/fold (timeouts, invalid output, provider errors) are excluded from calibration and counted under fallbacks. Latency includes them (a timeout counts at the time limit).',
+      "Decisions that fell back to check/fold (timeouts, invalid output, provider errors) are excluded from calibration and counted under fallbacks; only invalid, empty, refused or truncated output counts against the model itself. Latency, tokens and cost per decision include timeouts (at the time limit) but not auto-played decisions (a seat skipped after repeated failures).",
       'Cost: LLMs as reported per call by OpenRouter; Jev as input tokens x the published price (see the pre-registration).',
     ],
   }

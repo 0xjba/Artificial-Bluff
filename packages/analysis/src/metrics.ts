@@ -13,9 +13,9 @@ export function quantile(values: readonly number[], q: number): number | null {
 }
 
 export interface PlayStyle {
-  /** Share of hands the player voluntarily put chips in preflop (call or raise). */
+  /** Share of hands the player voluntarily put chips in preflop (call or raise); walks don't count. */
   vpip: number | null
-  /** Share of hands the player raised preflop. */
+  /** Share of hands the player raised preflop; walks don't count. */
   pfr: number | null
   /** Aggression factor: postflop bets and raises per postflop call. */
   af: number | null
@@ -33,13 +33,18 @@ export interface PlayerMetrics {
   meanInputTokens: number | null
   meanOutputTokens: number | null
   meanReasoningTokens: number | null
-  /** Latency per decision in ms (timeouts count at the time limit). */
+  /**
+   * Latency, tokens and cost per decision are over answered decisions: auto-played ones (the seat was
+   * skipped after repeated failures, logged at 0 ms and $0) are left out. Timeouts count at the limit.
+   */
   latencyP50Ms: number | null
   latencyP95Ms: number | null
   latencyMeanMs: number | null
   fallbacks: Record<FallbackKind, number>
   /** Share of decisions that fell back to check/fold, any kind. */
   fallbackRate: number | null
+  /** Share of decisions that fell back because of the model's own output (invalid, empty, refused, truncated). */
+  modelFallbackRate: number | null
   /** Share of decisions that needed a retry. */
   retryRate: number | null
   style: PlayStyle
@@ -52,10 +57,12 @@ const mean = (xs: readonly number[]) => (xs.length ? xs.reduce((s, x) => s + x, 
 export function playerMetrics(hands: readonly HandRecord[], playerId: string): PlayerMetrics {
   const seated = hands.filter((h) => h.seats.some((s) => s.playerId === playerId))
   const decisions = seated.flatMap((h) => h.decisions.filter((d) => d.playerId === playerId))
+  const answered = decisions.filter((d) => d.fallbackKind !== 'auto')
   const costUsd = decisions.reduce((s, d) => s + d.costUsd, 0)
   const fallbacks: Record<FallbackKind, number> = { model: 0, infra: 0, timeout: 0, auto: 0 }
   for (const d of decisions) if (d.fallbackKind) fallbacks[d.fallbackKind]++
 
+  let preflopHands = 0
   let vpip = 0
   let pfr = 0
   let aggressive = 0
@@ -65,6 +72,7 @@ export function playerMetrics(hands: readonly HandRecord[], playerId: string): P
   for (const h of seated) {
     const mine = h.decisions.filter((d) => d.playerId === playerId)
     const pre = mine.filter((d) => d.street === 'preflop')
+    if (pre.length) preflopHands++ // a walk (no preflop decision) is not a chance to play
     if (pre.some((d) => d.actionType === 'call' || d.actionType === 'raise')) vpip++
     if (pre.some((d) => d.actionType === 'raise')) pfr++
     for (const d of mine) {
@@ -83,17 +91,18 @@ export function playerMetrics(hands: readonly HandRecord[], playerId: string): P
     hands: seated.length,
     decisions: decisions.length,
     costUsd,
-    costPerDecisionUsd: ratio(costUsd, decisions.length),
+    costPerDecisionUsd: ratio(costUsd, answered.length),
     costPer100HandsUsd: seated.length ? (costUsd / seated.length) * 100 : null,
-    meanInputTokens: mean(decisions.map((d) => d.inputTokens)),
-    meanOutputTokens: mean(decisions.map((d) => d.outputTokens)),
-    meanReasoningTokens: mean(decisions.map((d) => d.reasoningTokens)),
-    latencyP50Ms: quantile(decisions.map((d) => d.latencyMs), 0.5),
-    latencyP95Ms: quantile(decisions.map((d) => d.latencyMs), 0.95),
-    latencyMeanMs: mean(decisions.map((d) => d.latencyMs)),
+    meanInputTokens: mean(answered.map((d) => d.inputTokens)),
+    meanOutputTokens: mean(answered.map((d) => d.outputTokens)),
+    meanReasoningTokens: mean(answered.map((d) => d.reasoningTokens)),
+    latencyP50Ms: quantile(answered.map((d) => d.latencyMs), 0.5),
+    latencyP95Ms: quantile(answered.map((d) => d.latencyMs), 0.95),
+    latencyMeanMs: mean(answered.map((d) => d.latencyMs)),
     fallbacks,
     fallbackRate: ratio(decisions.filter((d) => d.fallback).length, decisions.length),
+    modelFallbackRate: ratio(fallbacks.model, decisions.length),
     retryRate: ratio(decisions.filter((d) => d.retries > 0).length, decisions.length),
-    style: { vpip: ratio(vpip, seated.length), pfr: ratio(pfr, seated.length), af: ratio(aggressive, calls), wtsd: ratio(showdowns, sawFlop) },
+    style: { vpip: ratio(vpip, preflopHands), pfr: ratio(pfr, preflopHands), af: ratio(aggressive, calls), wtsd: ratio(showdowns, sawFlop) },
   }
 }
