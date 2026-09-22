@@ -1,9 +1,26 @@
+import type { ModelsTable } from '@ab/server'
 import type { StudyReport } from '@ab/study'
+import type { Metadata } from 'next'
 import { connection } from 'next/server'
 import { ms, usd } from '../../lib/format'
 import { listReports } from '../../lib/reports'
+import { researchHeadline, researchMetrics } from '../../lib/research'
+import { API_URL } from '../../lib/api'
 
-export const metadata = { title: 'Research · artificialBluff' }
+export const revalidate = 0
+
+/** What every model has done across the finished live games (the live server does the arithmetic). */
+async function loadModels(): Promise<ModelsTable | null> {
+  try {
+    const res = await fetch(`${API_URL}/api/models`, { cache: 'no-store', signal: AbortSignal.timeout(20_000) })
+    if (!res.ok) return null
+    return (await res.json()) as ModelsTable
+  } catch {
+    return null
+  }
+}
+
+export const metadata: Metadata = { title: 'Research · artificialBluff' }
 
 const num = (x: number | null, d = 1) => (x === null || !Number.isFinite(x) ? '–' : x.toFixed(d))
 const ci = (low: number | null, high: number | null) => (low === null || high === null || !Number.isFinite(low) || !Number.isFinite(high) ? '[–∞, ∞]' : `[${low.toFixed(1)}, ${high.toFixed(1)}]`)
@@ -73,20 +90,89 @@ function Study({ r, dir }: { r: StudyReport; dir: string }) {
 export default async function Research() {
   await connection()
   const reports = listReports()
+  const table = await loadModels()
+  const metrics = table && table.hands > 0 ? researchMetrics(table) : []
   return (
-    <section className="page">
-      <h1>Research</h1>
-      <p className="lede">
-        A pre-registered, duplicate-format study: every deal is replayed with each player in each seat, so the cards cancel out and what remains is
-        decision quality. We compare TypeSafe’s Jev with frontier LLMs on results, cost, latency and how well each one knows its own chances.
-      </p>
-      <ul className="method">
-        <li>Everyone sees the same facts, computed by code: no equity hints.</li>
-        <li>Results in big blinds per 100 hands with 95% confidence intervals; pairwise claims only from the pre-registered, Holm-corrected comparisons.</li>
-        <li>Calibration: stated win probability against the share of the pot actually won, and against the true odds at the moment of the decision.</li>
-        <li>Costs as billed; latency as measured per decision. Download everything below.</li>
-      </ul>
-      {reports.length === 0 ? <p className="muted">No study reports yet. Run a study, then `pnpm study report`.</p> : reports.map((e) => <Study key={e.dir} r={e.report} dir={e.dir} />)}
-    </section>
+    <div className="research">
+      <section className="intro">
+        <span className="kicker">RESEARCH</span>
+        <h1>I&apos;m Jobin Ayathil.</h1>
+        <p>
+          I&apos;ve spent the last five years in developer relations, which mostly means sitting where a complicated system meets the people trying to use it,
+          and fixing whatever makes them give up.
+        </p>
+        <p>
+          Poker is the cheapest honest test I could find for a decision model. A hand forces a choice under hidden information, prices it in chips, and settles
+          the argument within seconds — and unlike a benchmark, nobody can talk their way out of the result. Artificial Bluff seats five models at the same
+          table, logs every decision with the probability the model claimed, and compares that against the true chance computed from all the cards. What comes
+          out is not a leaderboard of cleverness but a record of which models know what they don&apos;t know.
+        </p>
+        <p className="links">
+          <a href="https://github.com/0xjba">GitHub</a>
+          <a href="https://www.linkedin.com/in/0xjba/">LinkedIn</a>
+          <a href="mailto:jobinb6444@gmail.com">jobinb6444@gmail.com</a>
+        </p>
+      </section>
+
+      <section className="hands-say">
+        <span className="kicker">WHAT THE HANDS SAY</span>
+        <h2>{table && table.hands > 0 ? researchHeadline(table) : 'No games have finished yet.'}</h2>
+        {metrics.length ? (
+          <>
+            <p className="lede">
+              Every seat played the same hands under the same rules, and every decision was logged with the model&apos;s own stated win chance beside the true
+              one.
+            </p>
+            <div className="metrics">
+              {metrics.map((m) => (
+                <div key={m.what}>
+                  <b>{m.value}</b>
+                  <span>{m.what}</span>
+                </div>
+              ))}
+            </div>
+            <p className="caveat">
+              These figures come from the event log of {table!.games} finished live {table!.games === 1 ? 'game' : 'games'} ({table!.hands} hands,{' '}
+              {table!.seats.length} seats). They are demo scale, not a study result: the sample is small, blinds rise throughout, and the line-up can change
+              between games. The study below is the pre-registered version, with each deal replayed in every seat.
+            </p>
+          </>
+        ) : (
+          <p className="lede">Once the first live game finishes, this section fills in from its event log. The study below is the pre-registered version.</p>
+        )}
+        <div className="findings">
+          <div>
+            <h3>Jev answers with a distribution</h3>
+            <p>
+              Jev returns a probability for every option it was offered — fold, call, raise to a size — so the log records not just what it did but how close
+              the second choice was. The LLM seats answer with one action, a win chance and a confidence.
+            </p>
+          </div>
+          <div>
+            <h3>Chips stay in code</h3>
+            <p>No model writes a number. The engine computes pots, stacks and side pots; models only choose from priced options, so a figure cannot be invented.</p>
+          </div>
+          <div>
+            <h3>Spectators see what players cannot</h3>
+            <p>
+              True chances are computed from all hole cards for the broadcast only. No seat ever receives them, which is what makes the stated-against-true
+              comparison fair.
+            </p>
+          </div>
+        </div>
+      </section>
+
+      <section className="report-section">
+        <span className="kicker">TECHNICAL REPORT</span>
+        <h2>Measuring stated confidence against true equity in AI-vs-AI Texas Hold&apos;em</h2>
+        {reports.length === 0 ? (
+          <p className="lede">
+            No study has been run yet. When one is, its report appears here with every number, the pre-registration hash, and the full decision log to download.
+          </p>
+        ) : (
+          reports.map((e) => <Study key={e.dir} r={e.report} dir={e.dir} />)
+        )}
+      </section>
+    </div>
   )
 }

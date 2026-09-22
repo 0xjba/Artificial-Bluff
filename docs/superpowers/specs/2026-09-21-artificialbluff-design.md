@@ -276,6 +276,33 @@ TEN branding and parody personas.
 - **Content-Security-Policy:** Caddy sends `connect-src 'self' https://openrouter.ai`, so an injected script
   couldn't send stored keys anywhere else.
 
+### 7.2 Site design (revamp, 2026-09-22)
+
+From the user's design pack, with mock, wrong and redundant parts corrected. Fonts: Archivo and Chivo Mono.
+Mascots are **coloured** per seat (JEV gold, PILL cream, BLOCK red, DRIP teal, NIMBUS purple), which supersedes
+the earlier white-only rule; the colour is also the seat's accent on bars and cards.
+
+- **Live (/)**: portrait felt, seats on the rim (bottom seat first), pot and board in the middle, "who is playing"
+  panel on the left (model, stack, net result, win chance, average latency, spend), last decision and hand log on
+  the right, seek bar with a tick per hand underneath, and a dismissible "new here?" line. The phone layout is the
+  same one column by column. Seat positions are plain words ("Big blind", "Before dealer"); the board stays in one
+  row of five; cards keep the real faces (corners, pips, court frames).
+- **Replays (/replays)**: every hand of a game as a card, newest first, with filter chips (biggest pot, knock-outs,
+  showdowns, Jev vs LLM, worst reads, split pots, timeouts), a featured hand, and a game picker. Tags and headlines
+  are worked out from the log by `/api/hands/:id`; nothing is written by hand. "Watch" opens the replay on that hand
+  (`/replays/<id>?hand=N`).
+- **Models (/models)**: `/api/models` sums every finished live game per seat: chips won, bb/100, hands won, win
+  rate, average decision time, spend per decision, fallbacks, honesty gap (stated minus true win chance, in points)
+  and play style (VPIP, PFR, aggression factor, WTSD). Seat dossiers repeat the style as bars. A note explains each
+  measure. No personality blurbs: every line is measured.
+- **Run a table (/play)**: line-up rows with a per-seat key state, free bots and empty seats (2 to 5 play), game
+  options (blinds doubling every 10 hands, starting stack, pace, hand count), budget cap, an estimate panel (cost,
+  decisions a hand, dearest and cheapest paid seat, run time), a keys card and a plain account of where keys go.
+- **Research (/research)**: the one light page. The author's introduction, then figures computed from the finished
+  live games (`/api/models`) with a headline generated from those numbers and a caveat that they are demo scale,
+  then the study reports. Nothing is claimed that the data doesn't show; before any game has finished the section
+  says so. Jev answers with a probability per option; the LLM seats state a win chance and confidence.
+
 ## 8. Brand
 
 - **Direction C, Broadcast.** Felt `#0B2A24`, panel `#0E3029` / `#123A32`, rule `#1F4A40`, cream text `#F3EBDD`,
