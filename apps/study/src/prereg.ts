@@ -20,7 +20,13 @@ export function preregistration(config: StudyConfig, adaptedLineup: PlayerSpec[]
     outcomes: {
       calibrationHeadline: 'main-pot share: 1 if won alone, 1/k if split k ways, 0 if lost or folded at any point',
       calibrationSecond: 'expected main-pot share at decision time from all hole cards (exact enumeration)',
+      perAction:
+        'confidence vs 0/1 per action type, never pooled: fold right if all-in equity < toCall / (winnable pot + toCall), ' +
+        "call right if >= it; check and raise right if the player's stack did not shrink from the action to the end of the hand",
     },
+    contrasts:
+      'the first jev seat minus each other seat in bb/100, paired by neighbour block: 95% t CI and two-sided paired t test, ' +
+      'Holm correction over those n - 1 comparisons; no other pairwise claims',
     stopping:
       'every checkEvery groups: over the completed prefix of groups in whole neighbour blocks, stop when every ' +
       "player's 95% Student t CI (df = blocks - 1) half-width of bb/100 is at most targetHalfWidthBb100; never " +

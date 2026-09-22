@@ -5,7 +5,7 @@
  * pnpm study report <config.json> [--mock] [--out dir]       write the HTML report and CSV/JSON exports (free)
  * Options: --db <path> (default data/studies.db); --takeover resumes a study a crash left marked
  * running (only if no other run of it is active). Keys come from .env (see .env.example).
- * Exit codes: 0 finished (or prereg/status), 1 error, 2 usage, 3 stopped early (budget cap or
+ * Exit codes: 0 finished (or prereg/status/report), 1 error, 2 usage, 3 stopped early (budget cap or
  * interrupted: resume by running again).
  */
 import { EventStore } from '@ab/core'

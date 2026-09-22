@@ -8,7 +8,14 @@ export function esc(value: unknown): string {
 
 const num = (x: number | null | undefined, digits = 1) => (x === null || x === undefined || !Number.isFinite(x) ? '–' : x.toFixed(digits))
 const pct = (x: number | null | undefined, digits = 1) => (x === null || x === undefined ? '–' : `${(x * 100).toFixed(digits)}%`)
-const usd = (x: number | null | undefined) => (x === null || x === undefined ? '–' : x === 0 ? '$0' : x < 0.01 ? `$${x.toFixed(5)}` : `$${x.toFixed(4)}`)
+/** Dollars with at least three significant digits (Jev's cost per decision is millionths of a dollar). */
+const usd = (x: number | null | undefined) => {
+  if (x === null || x === undefined) return '–'
+  if (x === 0) return '$0'
+  const digits = Math.min(12, Math.max(4, Math.ceil(-Math.log10(Math.abs(x))) + 2))
+  return `$${x.toFixed(digits)}`
+}
+const pValue = (p: number | null) => (p === null ? '–' : p < 0.0001 ? '&lt;0.0001' : p.toFixed(4))
 const ms = (x: number | null | undefined) => (x === null || x === undefined ? '–' : x >= 1000 ? `${(x / 1000).toFixed(2)} s` : x < 1 ? '<1 ms' : `${x.toFixed(0)} ms`)
 const ci = (low: number, high: number) => (Number.isFinite(low) && Number.isFinite(high) ? `[${low.toFixed(1)}, ${high.toFixed(1)}]` : '[–∞, ∞]')
 
@@ -101,6 +108,8 @@ svg .lbl{fill:var(--cream);font-size:13px}svg .tick{fill:var(--muted);font-size:
 .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:12px}
 figure.rel{margin:0}figcaption{font-size:13px;color:var(--muted);margin-top:4px}figcaption b{color:var(--cream)}
 .yes{color:var(--brass);font-weight:600}.no{color:var(--muted)}
+.mark{color:var(--brass)}
+.banner{border:1px solid var(--alert);color:var(--cream);background:rgba(217,83,79,.12);border-radius:6px;padding:8px 12px;margin:0 0 16px}
 .note{color:var(--muted)}ul.notes li{margin-bottom:6px}
 td span.note{white-space:normal;display:inline-block;min-width:240px;text-align:left}
 details{background:var(--panel);border:1px solid var(--rule);border-radius:6px;padding:8px 12px}
@@ -117,7 +126,8 @@ export function renderReportHtml(report: StudyReport): string {
       return [p.playerId, text.length > 26 ? `${text.slice(0, 25)}…` : text]
     }),
   )
-  const name = (id: string) => esc(label.get(id) ?? id)
+  const name = (id: string) =>
+    esc(label.get(id) ?? id) + (id === report.focusId ? ' <span class="mark" title="focus player">◆</span>' : '')
   const focusRow = (id: string) => (id === report.focusId ? ' class="focus"' : '')
   const rowsWithFocus = (html: string, ids: string[]) => {
     let i = 0
@@ -125,13 +135,17 @@ export function renderReportHtml(report: StudyReport): string {
   }
   const s = report.study
   const ids = report.players.map((p) => p.playerId)
+  const mocks = report.players.filter((p) => p.kind === 'mock').map((p) => p.playerId.toUpperCase())
+  const banners =
+    (mocks.length ? `<p class="banner">Mock seats (${esc(mocks.join(', '))}): free stand-ins with scripted play and simulated costs. Not research results.</p>` : '') +
+    (s.status !== 'ended' ? `<p class="banner">Interim report: the study has not ended (${esc(s.status)}). Numbers will change.</p>` : '')
 
   const meta = [
     ['Study', s.id],
     ['Status', `${s.status}${s.endReason ? ` (${s.endReason})` : ''}`],
     ['Analysed', `${s.analysedGroups} groups · ${s.blocks} blocks · ${s.hands} hands`],
     ['Decisions', String(s.decisions)],
-    ['Spent', usd(s.costUsd)],
+    ['Spent (all hands)', usd(s.costUsd)],
     ['Pre-registration hash', s.configHash],
     ['Generated', report.generatedAt],
   ]
@@ -165,13 +179,13 @@ export function renderReportHtml(report: StudyReport): string {
       'bb/100 difference',
     ) +
     table(
-      ['Opponent', 'Difference (bb/100)', '95% t CI', 'p', 'p (Holm)', 'Significant'],
+      ['Opponent', 'Difference (bb/100)', '95% t CI (unadjusted)', 'p', 'p (Holm)', 'Significant'],
       report.contrasts.map((c) => [
         name(c.otherId),
         num(c.diff.mean),
         ci(c.diff.low, c.diff.high),
-        num(c.pValue, 4),
-        num(c.pHolm, 4),
+        pValue(c.pValue),
+        pValue(c.pHolm),
         c.significant ? '<span class="yes">yes</span>' : '<span class="no">no</span>',
       ]),
     )
@@ -259,7 +273,8 @@ export function renderReportHtml(report: StudyReport): string {
 <body>
 <main>
 <h1>artificial<span>Bluff</span> · study ${esc(s.id)}</h1>
-<p class="sub">Duplicate-format No-Limit Hold'em: Jev against LLMs on results, cost, latency and calibration.</p>
+<p class="sub">Duplicate-format No-Limit Hold'em: Jev against LLMs on results, cost, latency and calibration. ◆ marks the focus player of the head-to-head comparisons.</p>
+${banners}
 <dl class="meta">${meta}</dl>
 <h2>Line-up</h2>${lineup}
 <h2>1. Results</h2>${results}

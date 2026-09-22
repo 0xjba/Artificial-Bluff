@@ -4,7 +4,8 @@ import { describe, expect, it } from 'vitest'
 import { parseStudyConfig, type StudyConfig } from '../src/config'
 import { decisionsCsv } from '../src/exports'
 import { preregistration } from '../src/prereg'
-import { analyseStudy, focusPlayer, studyHands } from '../src/report'
+import { analyseStudy, analysedGroupCount, focusPlayer, studyHands } from '../src/report'
+import { emptyProgress, handKeyOf } from '../src/progress'
 import { runStudy } from '../src/run'
 
 const ids = ['jev', 'pill', 'block', 'drip', 'nimbus']
@@ -50,6 +51,8 @@ describe('study report', () => {
     // Chips are conserved in every analysed hand, so bb/100 sums to zero.
     expect(report.results.reduce((s, r) => s + r.bb100.mean, 0)).toBeCloseTo(0, 9)
     expect(JSON.parse(JSON.stringify(report))).toEqual(report) // JSON-safe
+    // The comparison family and the per-action rules are part of the pre-registration.
+    expect(report.study.preregistration).toMatchObject({ contrasts: expect.stringContaining('Holm'), outcomes: { perAction: expect.stringContaining('winnable pot') } })
   })
 
   it('leaves out hands cut off by the budget cap, using the replayed attempt instead', async () => {
@@ -64,6 +67,20 @@ describe('study report', () => {
     expect(hands.some((h) => !h.handId.endsWith('#1'))).toBe(true) // a replayed attempt is used
     const { report } = analyseStudy(store, config({ budgetUsd: 50 }), { focusId: 'jev', generatedAt: at })
     expect(report.study.costUsd).toBeGreaterThan(report.metrics.reduce((s, m) => s + m.costUsd, 0)) // cut-off hands cost money too
+  })
+
+  it('uses the logged stopping boundary until the study ends, and analysedGroups after', () => {
+    const c = config({ minGroups: 40, maxGroups: 80 })
+    const p = emptyProgress()
+    for (let g = 0; g < 12; g++) for (let r = 0; r < 5; r++) p.valid.set(handKeyOf(g, r), {})
+    expect(analysedGroupCount(p, 'running', c)).toBe(12) // no stop logged: the completed prefix
+    p.lastCheckpoint = { groups: 8, stop: true } // rule met at 8, hands still finishing (or a crash)
+    expect(analysedGroupCount(p, 'running', c)).toBe(8)
+    p.analysedGroups = 8
+    expect(analysedGroupCount(p, 'ended', c)).toBe(8)
+    p.lastCheckpoint = { groups: 4, stop: false }
+    p.analysedGroups = null
+    expect(analysedGroupCount(p, 'interrupted', c)).toBe(12)
   })
 
   it('picks the Jev seat as the focus and refuses a config that is not the study', async () => {
@@ -90,5 +107,10 @@ describe('decisionsCsv', () => {
     expect(lines).toHaveLength(decisions.length + 1)
     expect(lines[0]!.split(',').slice(0, 3)).toEqual(['handId', 'index', 'playerId'])
     expect(decisionsCsv([{ ...decisions[0]!, model: 'a "quoted", model' }])).toContain('"a ""quoted"", model"')
+    expect(lines[0]).toContain(',pot,winnablePot,toCall,')
+    // Text that a spreadsheet would evaluate is defused; negative numbers are not.
+    const row = decisionsCsv([{ ...decisions[0]!, model: '=HYPERLINK("x")', stackChange: -150 }]).split('\n')[1]!
+    expect(row).toContain(`"'=HYPERLINK(""x"")"`)
+    expect(row.endsWith(',-150')).toBe(true)
   })
 })
