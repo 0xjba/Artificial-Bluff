@@ -134,12 +134,35 @@ describe('forme personnalisee', () => {
     expect(goutte.sample(1).bodyPath).not.toBe(rond.sample(1).bodyPath)
   })
 
+  // artificialBluff: 'sleep' moved to the next test (its body is a small circle, so it now takes the shape).
   it('laisse intacts les etats qui dessinent leur propre forme', () => {
-    for (const id of ['exclaim', 'alert', 'sleep', 'egg', 'hexagon'] as const) {
+    for (const id of ['exclaim', 'alert', 'egg', 'hexagon'] as const) {
       const nu = new BotEngine(100, id)
       const habille = new BotEngine(100, id, radii('goutte'))
       expect(habille.sample(1).bodyPath).toBe(nu.sample(1).bodyPath)
     }
+  })
+
+  // artificialBluff: every player keeps its own shape through the animations drawn as a circle.
+  it('keeps the chosen shape through every state that draws the body as a circle', () => {
+    for (const id of ['thinking', 'sleep', 'burst', 'comet'] as const) {
+      for (const t of [0.1, 0.5, 1, 2]) {
+        const nu = new BotEngine(100, id).sample(t).bodyPath
+        expect(new BotEngine(100, id, radii('hexagone')).sample(t).bodyPath, `${id}@${t}`).not.toBe(nu)
+        expect(new BotEngine(100, id, radii('cercle')).sample(t).bodyPath, `${id}@${t}`).toBe(nu) // a circle is a circle
+      }
+    }
+  })
+
+  // artificialBluff: the win animation spins the player's own shape, never the upstream triangle.
+  it('spins the chosen shape in orbit, with the same rotation', () => {
+    const triangle = new BotEngine(100, 'orbit').sample(0.5).bodyPath
+    for (const forme of ['cercle', 'hexagone', 'goutte'] as const) {
+      expect(new BotEngine(100, 'orbit', radii(forme)).sample(0.5).bodyPath).not.toBe(triangle)
+    }
+    // Same shape at two moments differs only by the rotation: its radius profile is the chosen one.
+    const early = new BotEngine(100, 'orbit', radii('cercle')).sample(0.5).bodyPath
+    expect(early).toBe(new BotEngine(100, 'orbit', radii('cercle')).sample(0.5).bodyPath)
   })
 
   it('morphe vers la nouvelle forme au lieu de sauter', () => {

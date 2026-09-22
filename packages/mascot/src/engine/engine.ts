@@ -89,6 +89,20 @@ const lerpEye = (a: Pose['eyes'][number], b: Pose['eyes'][number], t: number) =>
   tilt: lerp(a.tilt ?? 0, b.tilt ?? 0, t)
 })
 
+/** artificialBluff: states that spin or move the whole body and should do it in the player's shape. */
+export const KEEPS_SHAPE: ReadonlySet<StateId> = new Set<StateId>(['orbit'])
+
+/**
+ * artificialBluff: the radius of a silhouette that is a circle (every sample equal), else null.
+ * Exported for tests.
+ */
+export function circleRadius(radii: readonly number[]): number | null {
+  const first = radii[0]
+  if (first === undefined) return null
+  for (const r of radii) if (Math.abs(r - first) > 1e-9) return null
+  return first
+}
+
 /** Interpolation de deux poses. Le decor se croise en opacite, pas en geometrie. */
 function blendPose(a: Pose, b: Pose, t: number): Pose {
   const out = 1 - t
@@ -276,6 +290,20 @@ export class BotEngine {
     if (def.baseBody && shape) {
       // on garde la pose (rotation, decalage, squash) et on n'echange que le profil
       pose = { ...pose, sil: { ...pose.sil, radii: shape } }
+    } else if (shape) {
+      // artificialBluff: every player keeps its own body shape through every animation.
+      // - `orbit` (the win) spins a triangle that relaxes into the ball: it spins the player's shape
+      //   instead, with the same rotation and drift;
+      // - a state that draws the body as a circle of radius r (burst, comet, the thinking dots, the
+      //   sleep dot) draws the player's shape at that size, keeping the pose's rotation and squash;
+      // - states drawn as glyphs (the "!" bars) or as other shapes (egg, hexagon, play) are left as
+      //   they are: there, the silhouette is the message.
+      if (KEEPS_SHAPE.has(def.id)) {
+        pose = { ...pose, sil: { ...pose.sil, radii: shape } }
+      } else {
+        const r = circleRadius(pose.sil.radii)
+        if (r !== null) pose = { ...pose, sil: { ...pose.sil, radii: shape.map((v) => v * r) } }
+      }
     }
     if (def.baseFace && expr) {
       pose = { ...pose, gaze: expr.gaze, split: expr.split, eyes: expr.eyes }
