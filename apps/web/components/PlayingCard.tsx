@@ -28,11 +28,11 @@ const PIP_BOX = { x: 33, y: 16, w: 34, h: 108 }
 /**
  * A playing card drawn like a real one: rank and suit in the top-left corner and, upside down, the
  * bottom-right; the standard pip layout for 2-10, one large suit for an ace, and a framed letter for
- * court cards. `small` cards (at the seats) keep just the two corners, drawn large, so they stay
- * readable. `code` null draws the back.
+ * court cards. `small` cards (at the seats) show the rank in the top-left and one large suit in the
+ * middle, so both stay readable at that size. `code` null draws the back.
  */
 export function PlayingCard({ code, small = false }: { code: string | null; small?: boolean }) {
-  const size = small ? { width: 26, height: 36 } : { width: 50, height: 70 }
+  const size = small ? { width: 30, height: 42 } : { width: 50, height: 70 }
   if (!code) {
     return (
       <svg className="card back" viewBox={`0 0 ${W} ${H}`} {...size} role="img" aria-label="face-down card">
@@ -46,23 +46,36 @@ export function PlayingCard({ code, small = false }: { code: string | null; smal
   const rankName = { A: 'ace', K: 'king', Q: 'queen', J: 'jack' }[c.rank] ?? c.rank
   const pips = PIPS[c.rank]
   const court = c.rank === 'J' || c.rank === 'Q' || c.rank === 'K'
-  const ten = c.rank === '10' ? { textLength: small ? 36 : 16, lengthAdjust: 'spacingAndGlyphs' } : {}
+  if (small) {
+    return (
+      <svg className={`card face${c.red ? ' red' : ''} small`} viewBox={`0 0 ${W} ${H}`} {...size} role="img" aria-label={`${rankName} of ${suitName}`}>
+        <rect x="1" y="1" width={W - 2} height={H - 2} rx="9" className="card-face" />
+        <text x="8" y="44" className="corner-rank" fontSize="46" {...(c.rank === '10' ? { textLength: 44, lengthAdjust: 'spacingAndGlyphs' } : {})}>
+          {c.rank}
+        </text>
+        <text x={W / 2 + 4} y={H / 2 + 18} textAnchor="middle" dominantBaseline="central" fontSize="80" className="pip">
+          {c.suit}
+        </text>
+      </svg>
+    )
+  }
+  const ten = c.rank === '10' ? { textLength: 16, lengthAdjust: 'spacingAndGlyphs' } : {}
   const corner = (
     <g className="corner">
-      <text x={small ? 7 : 7} y={small ? 42 : 25} className="corner-rank" fontSize={small ? 42 : 21} {...ten}>
+      <text x="7" y="25" className="corner-rank" fontSize="21" {...ten}>
         {c.rank}
       </text>
-      <text x={small ? 9 : 8} y={small ? 78 : 42} className="corner-suit" fontSize={small ? 34 : 16}>
+      <text x="8" y="42" className="corner-suit" fontSize="16">
         {c.suit}
       </text>
     </g>
   )
   return (
-    <svg className={`card face${c.red ? ' red' : ''}${small ? ' small' : ''}`} viewBox={`0 0 ${W} ${H}`} {...size} role="img" aria-label={`${rankName} of ${suitName}`}>
+    <svg className={`card face${c.red ? ' red' : ''}`} viewBox={`0 0 ${W} ${H}`} {...size} role="img" aria-label={`${rankName} of ${suitName}`}>
       <rect x="1" y="1" width={W - 2} height={H - 2} rx="9" className="card-face" />
       {corner}
       <g transform={`rotate(180 ${W / 2} ${H / 2})`}>{corner}</g>
-      {small ? null : court ? (
+      {court ? (
         <g>
           <rect x="30" y="18" width="40" height="104" rx="4" className="court-frame" />
           <text x={W / 2} y={H / 2 - 4} textAnchor="middle" dominantBaseline="central" fontSize="40" className="court-rank">
