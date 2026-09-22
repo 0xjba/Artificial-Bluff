@@ -1,0 +1,149 @@
+import { applyEvent, emptyView, equityKey, MemoryStore, runTournamentGame, tableEquity, withEquity, type GameEvent } from '@ab/core/browser'
+import { liveTurboConfig } from '@ab/engine'
+import { adaptLineup, JevPlayer, LlmPlayer, TagBot, type CatalogModel, type Player, type PlayerSpec } from '@ab/players'
+import type { Channel, FeedMessage } from '@ab/server'
+import type { ModelOption, SeatChoice } from './models'
+
+/** Seat ids (the on-screen characters). Seat 0 is JEV when Jev plays it, PEBBLE otherwise. */
+export const SEAT_IDS = ['jev', 'pill', 'block', 'drip', 'nimbus'] as const
+export const JEV_MODEL = 'jev-1.13.0'
+export const DEFAULT_SEATS: SeatChoice[] = [
+  { kind: 'jev' },
+  { kind: 'llm', model: 'anthropic/claude-sonnet-5' },
+  { kind: 'llm', model: 'openai/gpt-5.6-sol' },
+  { kind: 'llm', model: 'google/gemini-3.8-flash' },
+  { kind: 'llm', model: 'meta-llama/llama-4-maverick' },
+]
+export const MIN_BUDGET_USD = 0.1
+export const MAX_BUDGET_USD = 20
+export const DECISION_TIMEOUT_MS = 20_000
+/** Pause after each event, so viewers can follow bots and fast models. */
+export const TABLE_PACE_MS = 900
+
+export const seatId = (seat: SeatChoice, index: number): string => (index === 0 && seat.kind !== 'jev' ? 'pebble' : SEAT_IDS[index]!)
+
+export interface TableSetup {
+  seats: SeatChoice[]
+  openrouterKey: string | null
+  typesafeKey: string | null
+  budgetUsd: number
+}
+
+export interface TableDeps {
+  /** OpenRouter's catalog entries by id (for each model's request settings). */
+  catalog: Map<string, CatalogModel>
+  /** Base URL of our TypeSafe relay, e.g. `${location.origin}/api/typesafe`. */
+  relayBase: string
+  /** This site, sent to OpenRouter as the app's referer. */
+  referer: string
+  fetch?: typeof fetch
+  seed?: string
+  paceMs?: number
+  sleep?: (ms: number) => Promise<void>
+}
+
+/** What stops a table from starting, in plain words (empty when it can start). */
+export function checkSetup(setup: TableSetup, models: Map<string, ModelOption>): string[] {
+  const problems: string[] = []
+  if (setup.seats.length !== SEAT_IDS.length) problems.push(`a table has ${SEAT_IDS.length} seats`)
+  setup.seats.forEach((s, i) => {
+    if (s.kind === 'jev' && i !== 0) problems.push('Jev can only play the first seat')
+    if (s.kind === 'llm' && !models.has(s.model)) problems.push(`seat ${i + 1}: choose a model from the list`)
+  })
+  if (setup.seats.some((s) => s.kind === 'llm') && !setup.openrouterKey) problems.push('connect OpenRouter (or paste a key) for the model seats')
+  if (setup.seats.some((s) => s.kind === 'jev') && !setup.typesafeKey) problems.push('add a TypeSafe key for the Jev seat')
+  if (!(setup.budgetUsd >= MIN_BUDGET_USD && setup.budgetUsd <= MAX_BUDGET_USD)) problems.push(`the spending cap must be between $${MIN_BUDGET_USD} and $${MAX_BUDGET_USD}`)
+  return problems
+}
+
+/** The players for a checked setup: Jev through our relay, models straight to OpenRouter, bots free. */
+export function buildPlayers(setup: TableSetup, deps: TableDeps): Player[] {
+  const specs: PlayerSpec[] = setup.seats.map((s, i): PlayerSpec => {
+    const id = seatId(s, i)
+    if (s.kind === 'jev') return { id, kind: 'jev', model: JEV_MODEL }
+    if (s.kind === 'llm') return { id, kind: 'llm', model: s.model }
+    return { id, kind: 'bot', bot: 'tag' }
+  })
+  const { specs: adapted } = adaptLineup(specs, deps.catalog)
+  const fetchOpt = deps.fetch ? { fetch: deps.fetch } : {}
+  return adapted.map((spec): Player => {
+    if (spec.kind === 'jev') {
+      return new JevPlayer({ id: spec.id, model: spec.model, client: { apiKey: setup.typesafeKey!, baseURL: deps.relayBase, dangerouslyAllowBrowser: true, ...fetchOpt } })
+    }
+    if (spec.kind === 'llm') {
+      return new LlmPlayer({
+        id: spec.id,
+        model: spec.model,
+        openrouter: { apiKey: setup.openrouterKey!, referer: deps.referer, title: 'artificialBluff', ...fetchOpt },
+        ...(spec.reasoning !== undefined ? { reasoning: spec.reasoning } : {}),
+        ...(spec.structuredOutput !== undefined ? { structuredOutput: spec.structuredOutput } : {}),
+        ...(spec.sendTemperature !== undefined ? { sendTemperature: spec.sendTemperature } : {}),
+      })
+    }
+    return new TagBot(spec.id)
+  })
+}
+
+const randomSeed = () => [...crypto.getRandomValues(new Uint8Array(16))].map((b) => b.toString(16).padStart(2, '0')).join('')
+
+/**
+ * A turbo tournament played in this browser. It sends the same messages as the live server's feed (a
+ * snapshot, then events and equity), so the page shows it with the usual broadcast screen. Stopping
+ * lets the hand in progress finish; the spending cap ends the game once reached.
+ */
+export class LocalTable {
+  readonly gameId = `table-${Date.now()}`
+  readonly channel: Channel = { id: `local-${this.gameId}`, mode: 'live', title: 'Your table', gameId: this.gameId }
+  readonly #store = new MemoryStore()
+  readonly #abort = new AbortController()
+  #view = emptyView()
+  #equityKey: string | null = null
+
+  constructor(
+    readonly setup: TableSetup,
+    readonly deps: TableDeps,
+    readonly onMessage: (m: FeedMessage) => void,
+  ) {}
+
+  /** Plays the game to its end; resolves with how it ended. */
+  async start(): Promise<'ended' | 'interrupted'> {
+    this.onMessage({ type: 'snapshot', channel: this.channel, view: this.#view })
+    await runTournamentGame({
+      gameId: this.gameId,
+      players: buildPlayers(this.setup, this.deps),
+      tournament: liveTurboConfig(this.deps.seed ?? randomSeed()),
+      store: this.#store,
+      decisionTimeoutMs: DECISION_TIMEOUT_MS,
+      paceMs: this.deps.paceMs ?? TABLE_PACE_MS,
+      budgetUsd: this.setup.budgetUsd,
+      signal: this.#abort.signal,
+      meta: { source: 'browser-table' },
+      onEvent: (e) => this.#publish(e),
+      ...(this.deps.sleep ? { sleep: this.deps.sleep } : {}),
+    })
+    return this.#store.status(this.gameId) === 'ended' ? 'ended' : 'interrupted'
+  }
+
+  /** Ends the game after the hand in progress. */
+  stop(): void {
+    this.#abort.abort()
+  }
+
+  /** Spent so far by all seats (USD). */
+  spentUsd(): number {
+    return this.#store.gameCost(this.gameId)
+  }
+
+  // Same as the live server's hub: equity is recomputed when the board or the players still in change.
+  #publish(event: GameEvent): void {
+    this.#view = applyEvent(this.#view, event)
+    this.onMessage({ type: 'event', channelId: this.channel.id, event })
+    const key = equityKey(this.#view)
+    if (key === this.#equityKey) return
+    this.#equityKey = key
+    if (key === null) return
+    const result = tableEquity(this.#view)
+    this.#view = withEquity(this.#view, result?.equity ?? null, result?.estimated ?? false)
+    this.onMessage({ type: 'equity', channelId: this.channel.id, handId: this.#view.hand?.handId ?? null, equity: this.#view.equity, estimated: this.#view.equityEstimated })
+  }
+}
