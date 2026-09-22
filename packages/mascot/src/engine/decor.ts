@@ -7,7 +7,15 @@ import { TAU, clamp, createRng, r2 } from './math'
  * teintes complete a luminosite constante, avec un degrade le long de chaque
  * trace. Mesure : S 45-62 %, L 50-67 %.
  */
-function wheel(hue: number, s = 0.55, l = 0.62): string {
+/**
+ * artificialBluff: rings are neutral white, not the hue wheel of the original (the brand keeps every
+ * mascot white, and a rainbow read as the x.ai bot). Saturation 0 and lightness 0.9 make every stop the
+ * same soft white; the gradient machinery is kept so the geometry stays exactly as upstream.
+ */
+export const RING_SATURATION = 0
+export const RING_LIGHTNESS = 0.9
+
+function wheel(hue: number, s = RING_SATURATION, l = RING_LIGHTNESS): string {
   const h = ((hue % 360) + 360) % 360
   const c = (1 - Math.abs(2 * l - 1)) * s
   const x = c * (1 - Math.abs(((h / 60) % 2) - 1))
