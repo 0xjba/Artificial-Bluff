@@ -12,6 +12,7 @@ Last updated: 2026-09-22
 | Plan 1: monorepo + engine | `docs/superpowers/plans/2026-09-21-plan-1-engine.md` |
 | Plan 2: players, runner, event log | `docs/superpowers/plans/2026-09-21-plan-2-players-runner.md` |
 | Plan 3a: study runner | `docs/superpowers/plans/2026-09-21-plan-3a-study-runner.md` |
+| Plan 3b: analysis and report | `docs/superpowers/plans/2026-09-22-plan-3b-analysis-report.md` |
 | Salvage report (old TEN project) | `SALVAGE.md` |
 | Salvaged raw code (git-ignored) | `salvage/` (contracts-latest, agents-latest, frontend-latest, pokerkit-harness-old) |
 | Jev / TypeSafe API docs | `docs/jev/` |
@@ -24,7 +25,7 @@ Last updated: 2026-09-22
 |---|---|---|
 | 1 | Monorepo + game engine (`packages/engine`) | ✅ Merged to master (9de0579), 99 tests |
 | 2 | Players (Jev, LLM, bots, mock), table runner, SQLite event log | ✅ Merged to master (b94a7be), 181 tests |
-| 3 | Study runner (duplicate, budget cap, resume, CI stop) + report/charts | 3a study runner: ✅ built and reviewed on `feat/plan-3a-study` (220 tests), ready to merge; 3b analysis + report: not written |
+| 3 | Study runner (duplicate, budget cap, resume, CI stop) + report/charts | 3a study runner: ✅ merged (04bc98f), 220 tests; 3b analysis + report: plan written & verified in scratch (251 tests), executing on `feat/plan-3b-report` |
 | 4 | Live server (WebSocket, replays, admin start) + web (Broadcast UI) + mascots (bloub) | Not written yet |
 
 ### Plan 1 task progress
@@ -63,6 +64,17 @@ Last updated: 2026-09-22
 - [x] Task 4: Study runner (f7c2b56 + fixes 5df0df9, 76ca712; spec ✅; opus review + re-review → data-only check schedule, claimGame, analysedGroups)
 - [x] Task 5: pnpm study CLI + example studies (80b8083; spec ✅)
 - [x] Final branch review (opus): merge after fixes → fixed in eae9624 + a02dff0 (explicit --live, strict args, Ctrl-C in mock runs, stored line-up on resume, status uses analysedGroups, exit codes, docs); re-review: **ready to merge** (engine 104, players 44, core 35, study 37)
+
+### Plan 3b task progress
+
+- [ ] Task 1: Exact main-pot equity in the engine (expect engine 110)
+- [ ] Task 2: Analysis package and hand records, outcome A (analysis 5)
+- [ ] Task 3: Outcome C and per-action score (analysis 9)
+- [ ] Task 4: Calibration and player metrics (analysis 15)
+- [ ] Task 5: Valid hand ids + paired contrasts with Holm (study 40)
+- [ ] Task 6: Report model + CSV export (study 44)
+- [ ] Task 7: HTML report (study 46)
+- [ ] Task 8: pnpm study report (study 47; total 251)
 
 ## Key decisions (summary; spec is authoritative)
 
@@ -114,6 +126,8 @@ Last updated: 2026-09-22
 - Scratch bloub preview (custom colours, Mascots.vue) lived in the session scratchpad; recreate in Plan 4.
 
 ## Execution log
+
+- 2026-09-22: Plan 3a merged to master (04bc98f) and pushed with the branch to github.com/0xjba/Artificial-Bluff. Plan 3b written from a verified scratch reference (251 tests). Decisions: outcome C treats folded hands' cards as dead (exact equity given every dealt card); per-action score = fold right if equity < pot odds, other actions right if stack didn't shrink to hand end; exact preflop equity is batched per (deal, board) over live subsets (75 s → 12 s for 200 hands); focus player for contrasts = first jev seat.
 
 - 2026-09-21: Plan 3a Task 1-3 stats follow-up committed (f0b5424, byte-identical to reference). Task 4 committed (f7c2b56, spec ✅). Opus review of Task 4: approve with fixes → deterministic check schedule (every boundary in order; resume from last checkpoint; results pinned to the stop boundary via study_ended.analysedGroups), ci_target wins over budget_cap, claimGame + --takeover (no double runs), prereg must match config, budget overshoot documented, dead format check removed, 7 new tests. Prototyped in reference: engine 104, players 44, core 35, study 35. Follow-up fix to be applied on branch next, then Task 5.
 - 2026-09-21: Task 5 committed (80b8083, identical to reference). Opus re-review of Task 4 fixes: approve with fixes → read progress after claimGame; early return uses study_ended.analysedGroups; minGroups multiple of checkEvery. Not done (by design): checking Player kind/model against the pre-registered seat (tests deliberately use bots in mock seats; the CLI builds players from the same line-up). Reference: core 35, study 35.

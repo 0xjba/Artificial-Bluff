@@ -154,8 +154,9 @@ either at showdown or because every opponent folds"), and both get the same opti
 **Calibration outcome (user decision 2026-09-21), identical for all players:**
 - Headline (A): the player's share of the **main pot** — 1 if they win it alone, 1/k if split k ways, 0 if they lose
   or fold at any point in the hand (including later folds). Side pots are ignored.
-- Second chart (C): the player's expected main-pot share at the moment of the decision, computed from everyone's
-  actual hole cards (exact enumeration of the remaining board), so later actions and board luck don't count. Note for the write-up: Jev's `confidence`
+- Second chart (C): the player's expected main-pot share at the moment of the decision, against the players still
+  in the hand, computed from everyone's actual hole cards (exact enumeration of the remaining board; folded hands'
+  cards are dead), so later actions and board luck don't count. Note for the write-up: Jev's `confidence`
 is derived from its option probabilities, the LLMs' is self-reported — report them separately, not as one metric.
 
 **Bots:** Random, CallingStation, simple rule-based TAG, MockLLM (deterministic, free) for tests and $0 runs.
@@ -192,9 +193,12 @@ Budget and concurrency are not part of the pre-registration (they only decide ho
   Mock rehearsals test the plumbing, not the statistics: identical mock strategies break exactly even.
 
 **Outputs:** static HTML report, CSV/JSON of every decision, and the same charts on the site's `/research` page:
-results (bb/100 ± CI), cost ($/decision, $/100 hands), latency (p50/p95), win-probability calibration (reliability
-curves, Brier, ECE), per-action calibration (confidence vs realised profitability; folds scored by all-in equity at
-decision time), invalid/fallback rate, play style (VPIP, PFR, aggression, showdown %).
+results (bb/100 ± CI, Holm-corrected paired contrasts of Jev vs each model), cost ($/decision, $/100 hands), latency
+(p50/p95), win-probability calibration (reliability curves with 10 bins, Brier, ECE; outcomes A and C), per-action
+calibration (confidence vs whether the action worked out: a fold is right if all-in equity was below the pot odds,
+any other action if the player's stack didn't shrink from that point to the end of the hand), invalid/fallback rate
+by kind, play style (VPIP, PFR, AF, WTSD). `pnpm study report <study.json> [--mock]` writes `report.html`
+(self-contained), `report.json`, `decisions.csv` and `decisions.json` (Plan 3b; pure functions in `@ab/analysis`).
 
 ## 7. Live server, replays, site
 
