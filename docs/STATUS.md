@@ -88,7 +88,7 @@ Last updated: 2026-09-22
 - [x] Task 6: Live controller + director (4627e06; spec ✅)
 - [x] Task 7: Live line-up (aaba4d3; spec ✅)
 - [x] Task 8: HTTP API, app, pnpm live (4e40cea; spec ✅; 298 tests; free mock server checked end to end)
-- [ ] Final branch review (opus)
+- [ ] Final branch review (opus): merge after fixes → malformed URL 400 (was a crash), Ctrl-C double signal, SSE back-pressure (1 MB), single-server db lock + interrupt only live games, director survives errors, paged events, replay cache, stopped live games replayed, REPLAY_PACE_MS ≥ 10, catalog timeout, idle() no spin (fix pending; expect server 42, total 306)
 
 ## Key decisions (summary; spec is authoritative)
 
@@ -140,6 +140,8 @@ Last updated: 2026-09-22
 - Scratch bloub preview (custom colours, Mascots.vue) lived in the session scratchpad; recreate in Plan 4.
 
 ## Execution log
+
+- TODO (Plan 4a final review, deferred): daily spending cap across live games (a leaked admin token could start back-to-back games); `/api/health` mode during cooldown; start returning 201 even if the game fails immediately.
 
 - 2026-09-22: Plan 4a Task 6 implementer saw one transient apps/server failure under a concurrent full-workspace run (real-timer tests); not reproduced in 3 clean full runs. Watch for it; if it recurs, identify the test and make its timing robust.
 
