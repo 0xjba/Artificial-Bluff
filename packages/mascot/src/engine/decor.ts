@@ -9,11 +9,12 @@ import { TAU, clamp, createRng, r2 } from './math'
  */
 /**
  * artificialBluff: rings are neutral white, not the hue wheel of the original (the brand keeps every
- * mascot white, and a rainbow read as the x.ai bot). Saturation 0 and lightness 0.9 make every stop the
- * same soft white; the gradient machinery is kept so the geometry stays exactly as upstream.
+ * mascot white, and a rainbow read as the x.ai bot). Saturation 0 makes every stop grey-white; lightness
+ * 0.8 keeps them visible where they cross the white body. The gradient machinery is kept so the geometry
+ * stays exactly as upstream.
  */
 export const RING_SATURATION = 0
-export const RING_LIGHTNESS = 0.9
+export const RING_LIGHTNESS = 0.8
 
 function wheel(hue: number, s = RING_SATURATION, l = RING_LIGHTNESS): string {
   const h = ((hue % 360) + 360) % 360

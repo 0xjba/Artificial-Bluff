@@ -42,4 +42,30 @@ describe('MascotDriver', () => {
     }
     expect(orbitAt('hexagone')).not.toBe(orbitAt('capsule'))
   })
+
+  // Frames also carry the engine's always-on life (breathing, drift) on absolute time, so these compare
+  // the body's size (how far it reaches), which is what the beat decides.
+  it('restarts a one-shot that is already showing (a second comet starts over)', () => {
+    const d = new MascotDriver('hexagone', cueFor('raise', true), 0)
+    d.frame(1)
+    d.play(cueFor('raise', true), 1) // Jev decides again 1 s into its comet
+    const replayed = extent(d.frame(1.1).bodyPath)
+    const fresh = extent(new MascotDriver('hexagone', cueFor('raise', true), 0).frame(0.1).bodyPath)
+    const continued = extent(new MascotDriver('hexagone', cueFor('raise', true), 0).frame(1.1).bodyPath)
+    expect(Math.abs(replayed - fresh)).toBeLessThan(fresh * 0.05)
+    expect(continued).toBeLessThan(fresh * 0.5) // carrying on would have shown the collapsed dot
+  })
+
+  it('starts its first state at the time it is given', () => {
+    const later = extent(new MascotDriver('capsule', cueFor('all_in'), 5).frame(5.5).bodyPath)
+    const now = extent(new MascotDriver('capsule', cueFor('all_in'), 0).frame(0.5).bodyPath)
+    const wrong = extent(new MascotDriver('capsule', cueFor('all_in'), 0).frame(5.5).bodyPath)
+    expect(Math.abs(later - now)).toBeLessThan(now * 0.05)
+    expect(Math.abs(wrong - now)).toBeGreaterThan(now * 0.05)
+  })
 })
+
+/** How far a body path reaches from the centre (its largest coordinate). */
+function extent(path: string): number {
+  return Math.max(...(path.match(/-?\d+(\.\d+)?/g) ?? []).map((n) => Math.abs(Number(n))))
+}

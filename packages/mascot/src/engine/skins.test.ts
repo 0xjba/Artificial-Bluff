@@ -169,8 +169,9 @@ describe('formes du personnalisateur', () => {
   })
 
   // artificialBluff: narrowed to the states whose silhouette is a glyph or another shape. States that
-  // draw the body as a circle now take the chosen shape (see engine.test.ts); the test above still
-  // proves no eye leaves any silhouette.
+  // draw the body as a circle now take the chosen shape (see engine.test.ts). The test above covers the
+  // resting states only: in circle-drawn states an eye may be clipped by the silhouette's edge (e.g. the
+  // capsule in `burst` and `comet`), as upstream's own `orbit` already does. Accepted: the mask clips it.
   it("la forme choisie ne touche pas aux etats a silhouette mesuree", () => {
     for (const state of SILHOUETTE_MESUREE.filter((id) => !CIRCLE_DRAWN.has(id))) {
       const nu = new BotEngine(R, state, null, null).sample(1)
