@@ -50,7 +50,7 @@ export function SeekBar(props: SeekBarProps) {
             onChange={(e) => props.onSeek(Number(e.target.value))}
           />
         </div>
-        <span className="at">{props.behind ? `HAND ${props.hand.at} OF ${props.hand.of}` : `HAND 1 → ${props.hand.of}`}</span>
+        <span className="at">{props.hand.of === 0 ? 'DEALING…' : props.behind ? `HAND ${props.hand.at} OF ${props.hand.of}` : `HAND 1 → ${props.hand.of}`}</span>
       </div>
       <p>Drag back to rewatch any hand of this game — the table replays from there.</p>
     </div>

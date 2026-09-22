@@ -7,7 +7,7 @@ export interface Metric {
   what: string
 }
 
-const gapPts = (s: SeatSummary) => (s.honestyGapPts === null ? null : Math.abs(s.honestyGapPts))
+const errorPts = (s: SeatSummary) => s.errorPts
 const best = <T>(xs: T[], by: (x: T) => number | null) => xs.filter((x) => by(x) !== null).sort((a, b) => by(a)! - by(b)!)[0] ?? null
 const worst = <T>(xs: T[], by: (x: T) => number | null) => xs.filter((x) => by(x) !== null).sort((a, b) => by(b)! - by(a)!)[0] ?? null
 const who = (s: SeatSummary) => characterFor(s.playerId).name
@@ -17,7 +17,7 @@ const who = (s: SeatSummary) => characterFor(s.playerId).name
  * whether the cheapest seat is the same one.
  */
 export function researchHeadline(table: ModelsTable): string {
-  const honest = best(table.seats, gapPts)
+  const honest = best(table.seats, errorPts)
   const cheap = best(table.seats, (s) => s.costPerDecisionUsd)
   if (!honest || !cheap) return 'Not enough hands yet to say anything.'
   if (honest.playerId === cheap.playerId) return `The cheapest seat is also the one whose stated chances sit closest to the truth: ${who(honest)}.`
@@ -29,8 +29,8 @@ export const RATIO_WORTH_SHOWING = 1.5
 
 /** The figures under the headline, each straight from the event log. */
 export function researchMetrics(table: ModelsTable): Metric[] {
-  const honest = best(table.seats, gapPts)
-  const loud = worst(table.seats, gapPts)
+  const honest = best(table.seats, errorPts)
+  const loud = worst(table.seats, errorPts)
   const cheap = best(table.seats, (s) => s.costPerDecisionUsd)
   const dear = worst(table.seats, (s) => s.costPerDecisionUsd)
   const quick = best(table.seats, (s) => s.latencyMeanMs)
@@ -38,14 +38,21 @@ export function researchMetrics(table: ModelsTable): Metric[] {
   const decisions = table.seats.reduce((sum, s) => sum + s.decisions, 0)
   const fallbacks = table.seats.reduce((sum, s) => sum + s.fallbacks, 0)
   const metrics: Metric[] = []
-  if (honest) metrics.push({ value: `${gapPts(honest)!.toFixed(0)} pts`, what: `average gap between ${who(honest)}'s stated win chance and the true one` })
-  if (loud && loud.playerId !== honest?.playerId) metrics.push({ value: `${gapPts(loud)!.toFixed(0)} pts`, what: `the same gap for ${who(loud)}, the furthest from the truth` })
+  if (honest) metrics.push({ value: `${errorPts(honest)!.toFixed(0)} pts`, what: `${who(honest)}'s stated win chance sits this far from the true one, on average` })
+  if (loud && loud.playerId !== honest?.playerId) metrics.push({ value: `${errorPts(loud)!.toFixed(0)} pts`, what: `the same for ${who(loud)}, the furthest from the truth` })
+  const leaner = worst(table.seats, (x) => (x.biasPts === null ? null : Math.abs(x.biasPts)))
+  if (leaner && leaner.biasPts !== null && Math.abs(leaner.biasPts) >= 3) {
+    metrics.push({
+      value: `${leaner.biasPts > 0 ? '+' : '−'}${Math.abs(leaner.biasPts).toFixed(0)} pts`,
+      what: `${who(leaner)} ${leaner.biasPts > 0 ? 'talks itself up' : 'talks itself down'} by this much on average, over and under cancelled`,
+    })
+  }
   if (cheap && dear && cheap.costPerDecisionUsd && dear.costPerDecisionUsd && cheap.playerId !== dear.playerId) {
     const ratio = dear.costPerDecisionUsd / cheap.costPerDecisionUsd
     metrics.push(
       ratio >= RATIO_WORTH_SHOWING
         ? {
-            value: `${ratio.toFixed(0)}×`,
+            value: `${ratio.toFixed(ratio < 10 ? 1 : 0)}×`,
             what: `cheaper per decision: ${usd(cheap.costPerDecisionUsd)} for ${who(cheap)} against ${usd(dear.costPerDecisionUsd)} for ${who(dear)}`,
           }
         : { value: usd(cheap.costPerDecisionUsd), what: `per decision for ${who(cheap)}; every seat costs about the same` },
@@ -62,9 +69,13 @@ export function researchMetrics(table: ModelsTable): Metric[] {
         : { value: ms(quick.latencyMeanMs), what: `to a decision for ${who(quick)}; every seat answers at about the same speed` },
     )
   }
-  metrics.push({ value: decisions.toLocaleString('en-US'), what: `decisions logged across ${table.hands} hands, each with the chance its model claimed` })
-  metrics.push({ value: `${fallbacks} of ${decisions}`, what: 'decisions where a seat had to be played check-or-fold after a timeout or an invalid answer' })
-  const winners = table.seats.filter((s) => s.winRate !== null)
-  if (winners.length) metrics.push({ value: pct(winners[0]!.winRate), what: `hands won by ${who(winners[0]!)}, the seat with the most chips` })
+  const hands = `${table.hands} ${table.hands === 1 ? 'hand' : 'hands'}`
+  metrics.push({ value: decisions.toLocaleString('en-US'), what: `decisions logged across ${hands}, each with the chance its model claimed` })
+  metrics.push({
+    value: `${fallbacks} of ${decisions.toLocaleString('en-US')}`,
+    what: 'decisions where a seat had to be played check-or-fold after a timeout or an invalid answer',
+  })
+  const leader = table.seats[0] // sorted by chips won
+  if (leader && leader.winRate !== null) metrics.push({ value: pct(leader.winRate), what: `of its hands won by ${who(leader)}, the seat that won the most chips` })
   return metrics
 }

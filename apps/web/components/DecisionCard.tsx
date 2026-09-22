@@ -22,7 +22,8 @@ export function DecisionCard({ view, decisionEquity }: { view: TableView; decisi
     )
   const seat = view.seats.find((s) => s.playerId === d.playerId)
   const who = characterFor(d.playerId, view.seats.findIndex((s) => s.playerId === d.playerId))
-  const probs = d.optionProbabilities ? Object.entries(d.optionProbabilities).sort((a, b) => (b[1] ?? 0) - (a[1] ?? 0)).slice(0, 5) : null
+  const entries = d.optionProbabilities ? Object.entries(d.optionProbabilities) : []
+  const probs = entries.length ? entries.sort((a, b) => (b[1] ?? 0) - (a[1] ?? 0)).slice(0, 5) : null
   return (
     <section className="decision" style={{ '--seat': who.color } as React.CSSProperties}>
       {/* Screen readers hear one short line per decision, not the whole panel. */}

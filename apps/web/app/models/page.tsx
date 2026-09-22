@@ -21,7 +21,8 @@ async function loadModels(): Promise<ModelsTable | null> {
 }
 
 const one = (x: number | null, digits = 1) => (x === null ? '–' : x.toFixed(digits))
-const gap = (pts: number | null) => (pts === null ? '–' : `${pts > 0 ? '+' : pts < 0 ? '−' : ''}${Math.abs(pts).toFixed(0)} pts`)
+const signedPts = (pts: number | null) => (pts === null ? '–' : `${pts > 0 ? '+' : pts < 0 ? '−' : ''}${Math.abs(pts).toFixed(0)} pts`)
+const absPts = (pts: number | null) => (pts === null ? '–' : `${pts.toFixed(0)} pts`)
 
 /** How a seat plays, in one line, from its measured style. */
 function styleLine(s: ModelsTable['seats'][number]): string {
@@ -62,7 +63,8 @@ export default async function Models() {
                   <th className="n">Hands</th>
                   <th className="n">Win rate</th>
                   <th className="n">Avg time</th>
-                  <th className="n">Honesty gap</th>
+                  <th className="n" title="Mean |stated − true| win chance">Avg error</th>
+                  <th className="n" title="Mean (stated − true) win chance: over and under cancel">Leans</th>
                 </tr>
               </thead>
               <tbody>
@@ -76,6 +78,7 @@ export default async function Models() {
                           <MascotBadge playerId={s.playerId} index={i} size={26} />
                           <div>
                             <b>{who.name}</b> <span className="badge">{shortModel(s.model)}</span>
+                            {s.models.length > 1 ? <span className="badge"> +{s.models.length - 1} more</span> : null}
                             <div className="style">{styleLine(s)}</div>
                           </div>
                         </div>
@@ -84,7 +87,8 @@ export default async function Models() {
                       <td className="n">{s.hands}</td>
                       <td className="n">{pct(s.winRate)}</td>
                       <td className="n">{ms(s.latencyMeanMs)}</td>
-                      <td className="n">{gap(s.honestyGapPts)}</td>
+                      <td className="n">{absPts(s.errorPts)}</td>
+                      <td className="n">{signedPts(s.biasPts)}</td>
                     </tr>
                   )
                 })}
@@ -107,7 +111,7 @@ export default async function Models() {
                     <MascotBadge playerId={s.playerId} index={i} size={40} />
                     <div>
                       <b>{who.name}</b>
-                      <small>{shortModel(s.model)}</small>
+                      <small>{s.models.map(shortModel).join(', ')}</small>
                     </div>
                   </div>
                   {bars.map(([label, value]) => (

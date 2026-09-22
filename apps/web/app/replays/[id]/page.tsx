@@ -3,6 +3,7 @@ import { notFound } from 'next/navigation'
 import { connection } from 'next/server'
 import { ReplayScreen } from '../../../components/ReplayScreen'
 import { API_URL } from '../../../lib/api'
+import { loadHands } from '../../../lib/replays'
 
 /** Every event of a finished game (the API pages them 5,000 at a time). */
 async function loadEvents(id: string): Promise<GameEvent[] | null> {
@@ -29,9 +30,9 @@ export default async function Replay({ params, searchParams }: { params: Promise
   if (!GAME_ID.test(id)) notFound()
   const events = await loadEvents(id)
   if (!events) notFound()
-  // ?hand=N opens the replay on that hand of the game.
+  // ?hand=N opens the replay on that hand, using the same numbering the hand index publishes.
   const wanted = Number(hand)
-  const starts = events.filter((e) => e.type === 'hand_started')
-  const from = Number.isInteger(wanted) && wanted >= 1 && wanted <= starts.length ? starts[wanted - 1]!.seq : undefined
+  const index = Number.isInteger(wanted) && wanted >= 1 ? await loadHands(id) : null
+  const from = index?.find((h) => h.number === wanted)?.startSeq
   return <ReplayScreen title={`REPLAY · ${id}`} events={events} {...(from === undefined ? {} : { fromSeq: from })} />
 }

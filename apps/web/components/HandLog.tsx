@@ -28,7 +28,7 @@ export function handGroups(lines: LogLine[], view: TableView): HandGroup[] {
     const win = g.lines.find((l) => l.kind === 'win')
     const end = g.lines.find((l) => l.kind === 'end')
     // Short summary: who won how much, without the hand it won with or why.
-    g.meta = end ? end.text : win ? win.text.replace(/^(\S+( & \S+)*) (wins|split)/, '$1 won').replace(/ (with|\().*$/, '') : ''
+    g.meta = end ? end.text : win ? win.text.replace(/^(\S+( & \S+)*) wins/, '$1 won').replace(/ (with|\().*$/, '') : ''
     g.lines.reverse()
   }
   const open = groups.at(-1)
