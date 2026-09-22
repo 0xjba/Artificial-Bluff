@@ -1514,3 +1514,126 @@ code {
     padding-top: 12px;
   }
 }
+
+/* ---- research (light) ---- */
+.research {
+  /* The one light page: the study reads like a paper, not a broadcast. */
+  --paper: #f6f2e8;
+  --paper-2: #efe9dc;
+  --ink: #14251f;
+  --ink-2: #3c4b44;
+  --ink-3: #6b7a72;
+  --paper-rule: #d7cfbc;
+  --link: #8a5a12;
+  margin: -18px -24px -40px;
+  padding: 40px 24px 60px;
+  background: var(--paper);
+  color: var(--ink);
+}
+.research .kicker {
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: 10px;
+  letter-spacing: 0.16em;
+  color: var(--link);
+}
+.research h1 {
+  font-size: 40px;
+  line-height: 1.05;
+  margin: 10px 0 18px;
+}
+.research h2 {
+  font-size: 30px;
+  line-height: 1.15;
+  margin: 10px 0 14px;
+  max-width: 24ch;
+}
+.research h3 {
+  font-size: 15px;
+  margin: 0 0 6px;
+}
+.research p {
+  max-width: 68ch;
+  color: var(--ink-2);
+}
+.research .lede {
+  font-size: 16px;
+}
+.research section {
+  max-width: 900px;
+  margin: 0 auto 44px;
+}
+.research .links {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+.research a {
+  color: var(--link);
+}
+.research .metrics {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+  border: 1px solid var(--paper-rule);
+  border-radius: 10px;
+  overflow: hidden;
+  background: var(--paper-2);
+  margin: 18px 0;
+}
+.research .metrics div {
+  padding: 16px;
+  border-right: 1px solid var(--paper-rule);
+  border-bottom: 1px solid var(--paper-rule);
+}
+.research .metrics b {
+  display: block;
+  font-size: 28px;
+  line-height: 1.1;
+  margin-bottom: 6px;
+}
+.research .metrics span {
+  font-size: 12.5px;
+  color: var(--ink-3);
+}
+.research .caveat {
+  font-size: 12.5px;
+  color: var(--ink-3);
+}
+.research .findings {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 20px;
+  border-top: 1px solid var(--paper-rule);
+  padding-top: 18px;
+  margin-top: 22px;
+}
+.research .findings p {
+  font-size: 13px;
+  margin: 0;
+}
+.research .study {
+  border-top: 1px solid var(--paper-rule);
+  padding-top: 18px;
+}
+.research table {
+  background: var(--paper-2);
+}
+.research th,
+.research td {
+  border-bottom: 1px solid var(--paper-rule);
+  color: var(--ink);
+}
+.research th {
+  color: var(--ink-3);
+}
+.research tr.jev td {
+  color: var(--link);
+  font-weight: 600;
+}
+.research .muted {
+  color: var(--ink-3);
+}
+.research code {
+  background: var(--paper-2);
+  padding: 1px 4px;
+  border-radius: 3px;
+}
