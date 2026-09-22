@@ -19,7 +19,8 @@ describe('cast', () => {
 
   it('gives unknown seats a spare shape and their id in capitals', () => {
     expect(characterFor('jev')).toBe(CAST[0])
-    expect(characterFor('guest', 0)).toEqual({ id: 'guest', name: 'GUEST', shape: 'galet' })
+    expect(characterFor('guest', 0)).toEqual({ id: 'guest', name: 'GUEST', shape: 'galet', color: '#9DB8AE' })
+    expect(new Set(CAST.map((c) => c.color)).size).toBe(CAST.length) // every seat its own colour
     for (let i = 0; i < 20; i++) expect(characterFor('x', i).shape).not.toBe('cercle')
   })
 })

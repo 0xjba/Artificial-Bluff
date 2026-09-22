@@ -54,6 +54,15 @@ describe('table view', () => {
     }
   })
 
+  it('remembers each seat\'s starting stack, so screens can show the net result', async () => {
+    const events = await tournament('start')
+    const first = events.findIndex((e) => e.type === 'hand_started')
+    expect(buildView(events.slice(0, first)).seats.every((s) => s.startingStack === null)).toBe(true)
+    const end = buildView(events)
+    expect(end.seats.every((s) => s.startingStack === 3000)).toBe(true)
+    expect(end.seats.reduce((sum, s) => sum + s.stack - s.startingStack!, 0)).toBe(0) // chips only change hands
+  })
+
   it('shows hole cards, positions, the last action and decision, and marks eliminated seats out', async () => {
     const events = await tournament('view-4')
     const firstDecision = events.findIndex((e) => e.type === 'decision')

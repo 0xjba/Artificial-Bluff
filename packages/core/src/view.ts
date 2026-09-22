@@ -13,6 +13,8 @@ export interface SeatView {
   /** Position in the current hand; null when not dealt in (eliminated). */
   position: Position | null
   stack: number
+  /** Stack at the start of the game (from its first hand); null before the first hand. */
+  startingStack: number | null
   /** Chips put in on the current street. */
   bet: number
   /** Chips put in this hand. */
@@ -125,6 +127,7 @@ export function applyEvent(prev: TableView, e: GameEvent): TableView {
           model: p.model,
           position: null,
           stack: 0,
+          startingStack: null,
           bet: 0,
           committed: 0,
           status: 'active',
@@ -147,6 +150,7 @@ export function applyEvent(prev: TableView, e: GameEvent): TableView {
         if (d) {
           s.position = d.position
           s.stack = d.stack
+          s.startingStack ??= d.stack
           s.status = 'active'
           s.hole = null
         } else {
