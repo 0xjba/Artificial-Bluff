@@ -2,6 +2,9 @@ import type { Card, EndReason, HandCategory, OptionId, Position, Street } from '
 import type { PlayerKind } from '@ab/players'
 import type { FallbackKind, GameEvent, GameKind } from './events'
 
+// Browser code imports '@ab/core/view' (no database code); it needs the event types too.
+export type { DecisionEvent, EventBody, FallbackKind, GameEvent, GameKind, PlayerInfo } from './events'
+
 /** One seat as a spectator sees it. */
 export interface SeatView {
   playerId: string
@@ -23,6 +26,8 @@ export interface SeatView {
   costUsd: number
   decisions: number
   fallbacks: number
+  /** Sum of decision latencies (average = latencyMsTotal / decisions). */
+  latencyMsTotal: number
 }
 
 /** The most recent decision, for the on-screen lower third. */
@@ -129,6 +134,7 @@ export function applyEvent(prev: TableView, e: GameEvent): TableView {
           costUsd: 0,
           decisions: 0,
           fallbacks: 0,
+          latencyMsTotal: 0,
         })),
       }
     case 'hand_started': {
@@ -195,6 +201,7 @@ export function applyEvent(prev: TableView, e: GameEvent): TableView {
       s.lastLatencyMs = e.latencyMs
       s.costUsd += e.costUsd
       s.decisions++
+      s.latencyMsTotal += e.latencyMs
       if (e.fallback) s.fallbacks++
       if (v.hand) {
         v.hand.pot += e.chipsIn
