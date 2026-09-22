@@ -5,6 +5,9 @@ import { chips, ms, pct, shortModel } from '../lib/format'
 import { seatMoment } from '../lib/moments'
 import { PlayingCard } from './PlayingCard'
 
+/** What the seat's win bar means (spectators see every hand; the players never see this). */
+export const EQUITY_HELP = 'Chance this player wins the hand from here, worked out by the broadcast from everyone\'s cards. The players can\'t see it.'
+
 const STATUS: Record<SeatView['status'], string> = { active: '', folded: 'FOLDED', all_in: 'ALL-IN', out: 'OUT' }
 
 /** One seat: mascot, character name, model badge, stack, cards, last action, latency, true equity. */
@@ -33,15 +36,12 @@ export function Seat({ view, seat, index }: { view: TableView; seat: SeatView; i
       <div className="seat-row">
         <span className="seat-cards">{seat.hole ? seat.hole.map((c) => <PlayingCard key={c} code={c} small />) : null}</span>
         <span className="last">{seat.lastAction ? seat.lastAction.label : '–'}</span>
-        <span className="latency">{ms(seat.lastLatencyMs)}</span>
+        <span className="latency" title="how long the last decision took">{ms(seat.lastLatencyMs)}</span>
       </div>
       {equity !== undefined ? (
-        <div className="equity" title={view.equityEstimated ? 'true chance to win (estimate)' : 'true chance to win'}>
+        <div className="equity" title={EQUITY_HELP + (view.equityEstimated ? ' ≈ means estimated by dealing out many random boards.' : '')}>
           <span style={{ width: `${Math.round(equity * 100)}%` }} />
-          <b>
-            {pct(equity)}
-            {view.equityEstimated ? '~' : ''}
-          </b>
+          <b>{`Win ${view.equityEstimated ? '≈' : ''}${pct(equity)}`}</b>
         </div>
       ) : null}
     </div>

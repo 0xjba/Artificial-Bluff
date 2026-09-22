@@ -96,15 +96,38 @@ describe('feed', () => {
 
   it('writes log lines and picks sounds', async () => {
     const events = await mockGame(3)
-    const lines = events.map((e) => logLine(e, name)).filter((l) => l !== null)
-    expect(lines[0]).toMatchObject({ kind: 'hand' })
-    expect(lines.some((l) => l.kind === 'win' && /wins|split/.test(l.text))).toBe(true)
+    let view = emptyView()
+    const lines = events
+      .map((e) => {
+        const line = logLine(e, name, view)
+        view = applyEvent(view, e)
+        return line
+      })
+      .filter((l) => l !== null)
+    expect(lines[0]).toMatchObject({ kind: 'hand', text: 'Hand 1 · blinds 25/50' })
+    expect(lines.filter((l) => l.kind === 'hand').at(-1)!.text).toMatch(/^Hand \d+ · blinds [\d,]+\/[\d,]+$/)
+    expect(lines.some((l) => l.kind === 'win' && /^[A-Z &]+ (wins|split) [\d,]+/.test(l.text))).toBe(true)
+    for (const l of lines.filter((x) => x.kind === 'action')) expect(l.text).toMatch(/^[A-Z]+ (folds|checks|calls|bets|raises to|goes all-in)\b/)
+    for (const l of lines.filter((x) => x.kind === 'street')) expect(l.text).toMatch(/^(Flop|Turn|River): ([2-9JQKA]|10)[♠♥♦♣]/)
+    for (const l of lines) expect(l.text).not.toMatch(/ ms\b|hand-|undefined/)
     expect(soundFor('street', 'FLOP')).toBe('card')
-    expect(soundFor('action', 'PILL folds · 3 ms')).toBe('fold')
-    expect(soundFor('action', 'JEV check · 1 ms')).toBeNull()
-    expect(soundFor('action', 'JEV raise to 300 · 1 ms')).toBe('chip')
+    expect(soundFor('action', 'PILL folds')).toBe('fold')
+    expect(soundFor('action', 'JEV checks')).toBeNull()
+    expect(soundFor('action', 'JEV raises to 300')).toBe('chip')
     expect(fallbackNotice('auto', 'auto: too many failures')).toBe('connection lost: seat auto-played')
     expect(fallbackNotice('auto', 'auto: budget cap reached')).toBe('budget cap reached')
     expect(fallbackNotice('timeout', 'timeout')).toBe('timed out')
+  })
+
+  it('describes each decision in plain words', () => {
+    const d = (label: string, extra = {}) => logLine({ type: 'decision', seq: 9, playerId: 'jev', label, fallback: false, fallbackKind: null, fallbackReason: null, ...extra } as never, name, emptyView())!.text
+    expect(d('Fold')).toBe('JEV folds')
+    expect(d('Check')).toBe('JEV checks')
+    expect(d('Call 150')).toBe('JEV calls 150')
+    expect(d('Call all-in 1,250')).toBe('JEV calls all-in for 1,250')
+    expect(d('Bet 200')).toBe('JEV bets 200')
+    expect(d('Raise to 1,300')).toBe('JEV raises to 1,300')
+    expect(d('All-in 4,800')).toBe('JEV goes all-in for 4,800')
+    expect(d('Fold', { fallback: true, fallbackKind: 'timeout', fallbackReason: 'timeout' })).toBe('JEV folds (timed out)')
   })
 })

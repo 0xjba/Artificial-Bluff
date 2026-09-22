@@ -2,6 +2,7 @@
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { emptyView } from '@ab/core/view'
 import { logLine } from '../lib/log'
 import { mockGame } from './fixtures'
 
@@ -57,7 +58,7 @@ describe('ReplayScreen', () => {
       if (i % 5 === 0) click(i % 10 === 0 ? '2x' : '1x')
     }
     const shown = Number(host.querySelector('.progress')!.textContent!.split('/')[0])
-    const expected = events.slice(0, shown).map((e) => logLine(e, (id) => id.toUpperCase())).filter((l) => l !== null).length
+    const expected = events.slice(0, shown).filter((e) => logLine(e, (id) => id.toUpperCase(), emptyView()) !== null).length
     expect(host.querySelectorAll('.log li')).toHaveLength(Math.min(expected, 60))
     expect(replayPause(events.find((e) => e.type === 'decision')!)).toBe(1400)
   })
