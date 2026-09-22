@@ -15,19 +15,8 @@ export function mainPotShares(holes: readonly (readonly Card[])[], board: readon
   return mainPotSharesBySubset(holes, board, [holes.map((_, i) => i)])[0]!
 }
 
-/**
- * mainPotShares for several subsets of the same players (e.g. who was still in the hand at each
- * decision of a deal) in one pass over the boards. `subsets[k]` lists indices into `holes` (at least
- * two each); result `[k][j]` is the share of player `subsets[k][j]`. Every player's hole cards are
- * dead, including those outside a subset (a folded hand's cards can't come on the board), so this is
- * the exact equity given every dealt card. Enumerating the boards once is what makes exact preflop
- * equity affordable for a whole study.
- */
-export function mainPotSharesBySubset(
-  holes: readonly (readonly Card[])[],
-  board: readonly Card[],
-  subsets: readonly (readonly number[])[],
-): number[][] {
+/** Checks a deal and its subsets (shared by the exact and sampled versions); returns every known card. */
+function validateDeal(holes: readonly (readonly Card[])[], board: readonly Card[], subsets: readonly (readonly number[])[]): Card[] {
   if (holes.length < 2) throw new Error('mainPotShares needs at least two players')
   if (![0, 3, 4, 5].includes(board.length)) throw new Error(`mainPotShares: a board has 0, 3, 4 or 5 cards, got ${board.length}`)
   for (const h of holes) if (h.length !== 2) throw new Error('mainPotShares: every player needs two hole cards')
@@ -41,6 +30,23 @@ export function mainPotSharesBySubset(
       throw new Error(`mainPotShares: bad subset ${sub.join(',')}`)
     }
   }
+  return known
+}
+
+/**
+ * mainPotShares for several subsets of the same players (e.g. who was still in the hand at each
+ * decision of a deal) in one pass over the boards. `subsets[k]` lists indices into `holes` (at least
+ * two each); result `[k][j]` is the share of player `subsets[k][j]`. Every player's hole cards are
+ * dead, including those outside a subset (a folded hand's cards can't come on the board), so this is
+ * the exact equity given every dealt card. Enumerating the boards once is what makes exact preflop
+ * equity affordable for a whole study.
+ */
+export function mainPotSharesBySubset(
+  holes: readonly (readonly Card[])[],
+  board: readonly Card[],
+  subsets: readonly (readonly number[])[],
+): number[][] {
+  const known = validateDeal(holes, board, subsets)
 
   const code = (c: Card) => cardCode(c[0]!, c[1]!)
   const holeCodes = holes.map((h) => h.map(code))
@@ -91,6 +97,9 @@ export function mainPotSharesBySubset(
 
 /** How many boards can still come, given the number of known cards (all hole cards plus the board). */
 export function remainingBoards(knownCards: number, boardLength: number): number {
+  if (![0, 3, 4, 5].includes(boardLength) || !Number.isInteger(knownCards) || knownCards < boardLength + 4 || knownCards > 52) {
+    throw new Error(`remainingBoards: bad input (${knownCards} known cards, board of ${boardLength})`)
+  }
   const rest = 52 - knownCards
   const k = 5 - boardLength
   let n = 1
@@ -106,17 +115,7 @@ export function remainingBoards(knownCards: number, boardLength: number): number
  */
 export function sampleMainPotShares(holes: readonly (readonly Card[])[], board: readonly Card[], subset: readonly number[], samples: number, seed: number): number[] {
   if (!Number.isInteger(samples) || samples < 1) throw new Error('sampleMainPotShares: samples must be a positive integer')
-  // Validates the input the same way as the exact version (cheap: one subset, river board not needed).
-  if (holes.length < 2) throw new Error('mainPotShares needs at least two players')
-  if (![0, 3, 4, 5].includes(board.length)) throw new Error(`mainPotShares: a board has 0, 3, 4 or 5 cards, got ${board.length}`)
-  for (const h of holes) if (h.length !== 2) throw new Error('mainPotShares: every player needs two hole cards')
-  const known = [...holes.flat(), ...board]
-  const bad = known.find((c) => !isCard(c))
-  if (bad !== undefined) throw new Error(`mainPotShares got a malformed card: ${bad}`)
-  if (new Set(known).size !== known.length) throw new Error(`mainPotShares got duplicate cards: ${known.join(' ')}`)
-  if (subset.length < 2 || new Set(subset).size !== subset.length || subset.some((i) => !Number.isInteger(i) || i < 0 || i >= holes.length)) {
-    throw new Error(`mainPotShares: bad subset ${subset.join(',')}`)
-  }
+  const known = validateDeal(holes, board, [subset])
 
   const code = (c: Card) => cardCode(c[0]!, c[1]!)
   const used = new Set(known)

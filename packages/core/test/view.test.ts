@@ -71,7 +71,7 @@ describe('table view', () => {
     }
   })
 
-  it('never modifies the view it is given, and carries the equity annotation until the next hand', async () => {
+  it('never modifies the view it is given, and keeps the equity annotation until the hand ends', async () => {
     const events = await tournament('view-5')
     let v = emptyView()
     for (const e of events.slice(0, 40)) {
@@ -85,10 +85,23 @@ describe('table view', () => {
     expect(annotated.equityEstimated).toBe(true)
     expect(withEquity(v, null, true).equityEstimated).toBe(false)
     expect(v.equity).toBeNull()
-    const nextHand = events.findIndex((e, i) => i >= 40 && e.type === 'hand_started')
+    const handEnd = events.findIndex((e, i) => i >= 40 && e.type === 'hand_ended')
     let w = annotated
-    for (const e of events.slice(40, nextHand)) w = applyEvent(w, e)
+    for (const e of events.slice(40, handEnd)) w = applyEvent(w, e)
     expect(w.equity).toEqual({ jev: 0.5, pill: 0.5 })
-    expect(applyEvent(w, events[nextHand]!)).toMatchObject({ equity: null, equityEstimated: false })
+    expect(applyEvent(w, events[handEnd]!)).toMatchObject({ equity: null, equityEstimated: false })
+  })
+
+  it("keeps each hand's own seat order, and closes an open hand when the game stops mid-hand", async () => {
+    const events = await tournament('view-6')
+    const started = events.find((e): e is Extract<GameEvent, { type: 'hand_started' }> => e.type === 'hand_started')!
+    const firstTurn = events.findIndex((e) => e.type === 'turn_started')
+    const v = buildView(events.slice(0, firstTurn + 1))
+    expect(v.hand!.seatOrder).toEqual(started.seats.map((s) => s.playerId))
+    expect(v.hand!.toAct).not.toBeNull()
+    const crashed = applyEvent(withEquity(v, { jev: 1 }), {
+      type: 'game_ended', reason: 'interrupted', winner: null, stacks: {}, eliminated: [], handsPlayed: 0, gameId: 'g', seq: 9999, ts: 0,
+    })
+    expect(crashed).toMatchObject({ status: 'ended', equity: null, hand: { ended: true, toAct: null, options: null } })
   })
 })

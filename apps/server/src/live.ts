@@ -75,7 +75,7 @@ export class LiveController {
       budgetUsd: this.deps.budgetUsd,
       ...(this.deps.meta ? { meta: this.deps.meta } : {}),
       signal: abort.signal,
-      onEvent: (e) => this.deps.hub.publish(publicEvent(e, true)),
+      onEvent: (e) => this.deps.hub.publish(publicEvent(e, false)),
       onListenerError: (e) => this.deps.log?.(`feed error: ${String(e)}`),
       ...(this.deps.sleep ? { sleep: this.deps.sleep } : {}),
     })

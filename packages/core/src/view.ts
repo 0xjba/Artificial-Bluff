@@ -45,6 +45,8 @@ export interface DecisionView {
 
 export interface HandView {
   handId: string | null
+  /** Player ids in this hand's seat order (buttonIndex indexes it; study hands reseat every hand). */
+  seatOrder: string[]
   buttonIndex: number
   smallBlind: number
   bigBlind: number
@@ -72,7 +74,8 @@ export interface TableView {
   result: { reason: EndReason; winner: string | null; stacks: Record<string, number> } | null
   /**
    * Each live player's true chance of winning the main pot from here (all hole cards known), set by the
-   * server with `withEquity` whenever the board or the live players change; null until computed.
+   * server with `withEquity` whenever the board or the live players change; null until computed, and
+   * cleared by the reducer when the hand ends (so every client clears it at the same event).
    */
   equity: Record<string, number> | null
   /** True when `equity` is a sampled estimate (early streets) rather than exact. */
@@ -88,12 +91,13 @@ export function emptyView(): TableView {
 /**
  * Folds one event into the view and returns the new view (the input is not modified). Pure and fast,
  * so the server (snapshots) and the browser (live updates) build identical views from the same events.
+ * A stream must start at its game_started event (it names the seats); events for unknown players throw.
  */
 export function applyEvent(prev: TableView, e: GameEvent): TableView {
   const v: TableView = {
     ...prev,
     seats: prev.seats.map((s) => ({ ...s })),
-    hand: prev.hand ? { ...prev.hand, board: [...prev.hand.board], awards: [...prev.hand.awards] } : null,
+    hand: prev.hand ? { ...prev.hand, board: [...prev.hand.board], awards: [...prev.hand.awards], seatOrder: [...prev.hand.seatOrder] } : null,
     lastSeq: e.seq,
   }
   const seat = (id: string) => {
@@ -154,6 +158,7 @@ export function applyEvent(prev: TableView, e: GameEvent): TableView {
       }
       v.hand = {
         handId: e.handId,
+        seatOrder: e.seats.map((s) => s.playerId),
         buttonIndex: e.buttonIndex,
         smallBlind: e.smallBlind,
         bigBlind: e.bigBlind,
@@ -235,12 +240,22 @@ export function applyEvent(prev: TableView, e: GameEvent): TableView {
         v.hand.toAct = null
         v.hand.options = null
       }
+      v.equity = null
+      v.equityEstimated = false
       v.handsPlayed++
       return v
     case 'game_ended':
       for (const [id, stack] of Object.entries(e.stacks)) seat(id).stack = stack
       v.status = 'ended'
       v.result = { reason: e.reason, winner: e.winner, stacks: { ...e.stacks } }
+      // A game that stopped mid-hand (a crash) closes the open hand too.
+      if (v.hand && !v.hand.ended) {
+        v.hand.ended = true
+        v.hand.toAct = null
+        v.hand.options = null
+      }
+      v.equity = null
+      v.equityEstimated = false
       return v
     default:
       return v

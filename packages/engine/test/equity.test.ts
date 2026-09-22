@@ -96,8 +96,9 @@ describe('mainPotShares', () => {
     const headsUp = sampleMainPotShares(holes, cards('Jh 5c 2s'), [1, 4], 20_000, 3)
     const exactHeadsUp = mainPotSharesBySubset(holes, cards('Jh 5c 2s'), [[1, 4]])[0]!
     headsUp.forEach((v, i) => expect(Math.abs(v - exactHeadsUp[i]!)).toBeLessThan(0.015))
+    expect(sampleMainPotShares(holes, cards('Jh 5c 2s'), [0, 1, 2, 3, 4], 20_000, 8)).not.toEqual(sampled) // another seed, another sample
     expect(() => sampleMainPotShares(holes, [], [0, 1], 0, 1)).toThrow(/samples/)
-    expect(() => sampleMainPotShares(holes, [], [0], 10, 1)).toThrow(/bad subset/)
+    expect(() => sampleMainPotShares(holes, [], [0], 10, 1)).toThrow(/at least two players/)
   })
 
   it('counts the boards still to come', () => {
@@ -105,5 +106,7 @@ describe('mainPotShares', () => {
     expect(remainingBoards(10, 0)).toBe(850_668) // five players preflop: C(42, 5)
     expect(remainingBoards(13, 3)).toBe(741) // five players on the flop: C(39, 2)
     expect(remainingBoards(15, 5)).toBe(1)
+    expect(() => remainingBoards(10, 2)).toThrow(/bad input/)
+    expect(() => remainingBoards(3, 0)).toThrow(/bad input/)
   })
 })

@@ -1,4 +1,4 @@
-import { buildView, EventStore, runTournamentGame, type GameEvent } from '@ab/core'
+import { applyEvent, buildView, emptyView, EventStore, runTournamentGame, withEquity, type GameEvent, type TableView } from '@ab/core'
 import { liveTurboConfig } from '@ab/engine'
 import { CallingStation, MockLlm, TagBot } from '@ab/players'
 import { describe, expect, it } from 'vitest'
@@ -26,11 +26,47 @@ describe('Hub', () => {
     const sent = got.filter((m): m is Extract<FeedMessage, { type: 'event' }> => m.type === 'event').map((m) => m.event)
     expect(sent).toEqual(events)
     const { view } = hub.current()
-    expect({ ...view, equity: null, equityEstimated: false }).toEqual(buildView(events))
+    expect(view).toEqual(buildView(events)) // the game has ended: no equity left on either side
     // A late subscriber starts from the same view.
     const late: FeedMessage[] = []
     hub.subscribe((m) => late.push(m))
     expect(late).toEqual([{ type: 'snapshot', channel: hub.current().channel, view }])
+  })
+
+  it('keeps a connected client exactly in step with the hub, equity included', async () => {
+    const hub = new Hub()
+    let client: TableView = emptyView()
+    let mismatches = 0
+    hub.subscribe((m) => {
+      if (m.type === 'snapshot') client = m.view
+      else if (m.type === 'event') client = applyEvent(client, m.event)
+      else client = withEquity(client, m.equity, m.estimated)
+    })
+    const store = new EventStore()
+    const players = [new MockLlm('jev'), new TagBot('pill'), new MockLlm('block'), new CallingStation('drip'), new MockLlm('nimbus')]
+    hub.begin({ mode: 'live', title: 'LIVE', gameId: 'g' })
+    await runTournamentGame({
+      gameId: 'g', players, tournament: { ...liveTurboConfig('step'), maxHands: 8 }, store, decisionTimeoutMs: 1000, budgetUsd: 100,
+      onEvent: (e) => {
+        hub.publish(e)
+        if (JSON.stringify(client) !== JSON.stringify(hub.current().view)) mismatches++
+      },
+    })
+    expect(mismatches).toBe(0)
+  })
+
+  it('does not send an event twice to someone who subscribes while it is being broadcast', () => {
+    const hub = new Hub()
+    hub.begin({ mode: 'live', title: 'LIVE', gameId: 'g' })
+    const late: string[] = []
+    let added = false
+    hub.subscribe((m) => {
+      if (m.type !== 'event' || added) return
+      added = true
+      hub.subscribe((m) => late.push(m.type))
+    })
+    hub.publish({ type: 'game_started', kind: 'live', configHash: 'h', players: [{ id: 'a', kind: 'bot', model: 'bot/tag' }], gameId: 'g', seq: 1, ts: 0 })
+    expect(late).toEqual(['snapshot']) // the snapshot already includes the event
   })
 
   it('annotates true equity whenever the board or the live players change', async () => {
