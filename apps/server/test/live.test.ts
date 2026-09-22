@@ -62,6 +62,20 @@ describe('LiveController', () => {
     expect(store.game(gameId)!.status).toBe('interrupted')
   })
 
+  it('waits (without spinning) while slow players are being prepared', async () => {
+    const slow = () => new Promise<ReturnType<typeof mockPlayers>>((resolve) => setTimeout(() => resolve(mockPlayers()), 30))
+    const { live } = controller({ makePlayers: slow })
+    const started = live.start()
+    const idle = live.idle()
+    let ticked = false
+    await new Promise((r) => setTimeout(r, 10)).then(() => (ticked = true)) // would never fire if idle() spun
+    expect(ticked).toBe(true)
+    await started
+    live.stop()
+    await idle
+    expect(live.gameId).toBeNull()
+  })
+
   it('frees the table if the players cannot be made', async () => {
     let fail = true
     const { live } = controller({

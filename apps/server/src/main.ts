@@ -22,12 +22,16 @@ console.log(`artificialBluff server on ${app.url} (${config.mock ? 'MOCK: free' 
 console.log(`players: ${players.specs.map((s) => `${s.id}=${'model' in s ? s.model : s.kind}`).join(', ')}`)
 console.log(config.adminToken ? 'admin API on: POST /api/admin/games with Authorization: Bearer $ADMIN_TOKEN' : 'admin API off (set ADMIN_TOKEN to start games)')
 
-let signals = 0
+let firstSignalAt = 0
 const shutdown = (signal: string) => {
-  if (++signals > 1) {
+  // Ctrl-C reaches this process twice (from the terminal and forwarded by tsx): a repeat within a
+  // second is the same keypress, not a request to quit at once.
+  if (firstSignalAt) {
+    if (Date.now() - firstSignalAt < 1000) return
     console.log('quitting now')
     process.exit(130)
   }
+  firstSignalAt = Date.now()
   console.log(`${signal}: stopping after the hand in progress… (again to quit now)`)
   app.close().then(
     () => process.exit(0),

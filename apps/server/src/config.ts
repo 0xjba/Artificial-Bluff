@@ -65,7 +65,7 @@ export function parseServerConfig(env: Env, argv: readonly string[] = []): Serve
     liveBudgetUsd: number(env, 'LIVE_BUDGET_USD', 1, 0.01, 100),
     paceMs: number(env, 'PACE_MS', 2500, 0, 60_000, true),
     decisionTimeoutMs: number(env, 'DECISION_TIMEOUT_MS', 20_000, 1000, 300_000, true),
-    replayPaceMs: number(env, 'REPLAY_PACE_MS', 1500, 0, 60_000, true),
+    replayPaceMs: number(env, 'REPLAY_PACE_MS', 1500, 10, 60_000, true), // 0 would replay in a tight loop
     cooldownMs: number(env, 'COOLDOWN_MS', 30_000, 0, 600_000, true),
     allowedOrigin: origin(env, 'ALLOWED_ORIGIN'),
     maxClients: number(env, 'MAX_CLIENTS', 500, 1, 100_000, true),

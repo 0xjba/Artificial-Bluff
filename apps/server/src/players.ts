@@ -28,7 +28,7 @@ export interface LivePlayers {
  */
 export async function prepareLivePlayers(
   opts: { lineupPath: string; mock: boolean; env: PlayerEnv },
-  catalog: () => Promise<Map<string, CatalogModel>> = () => fetchModelCatalog(),
+  catalog: () => Promise<Map<string, CatalogModel>> = () => fetchModelCatalog((url) => fetch(url, { signal: AbortSignal.timeout(15_000) })),
 ): Promise<LivePlayers> {
   if (opts.mock) {
     const path = existsSync(opts.lineupPath) ? opts.lineupPath : EXAMPLE_LINEUP

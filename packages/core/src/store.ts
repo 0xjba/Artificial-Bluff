@@ -183,11 +183,14 @@ export class EventStore {
       .immediate()
   }
 
-  /** Marks games left 'running' by a crash as 'interrupted'. Call on server start. Returns their ids. */
-  interruptRunningGames(now = Date.now()): string[] {
-    const rows = this.db
-      .prepare("UPDATE games SET status = 'interrupted', ended_at = ? WHERE status = 'running' RETURNING id")
-      .all(now) as Array<{ id: string }>
+  /**
+   * Marks games left 'running' by a crash as 'interrupted' and returns their ids. Pass `kind` to touch
+   * only that kind: the live server must never interrupt a study another process is running.
+   */
+  interruptRunningGames(now = Date.now(), kind?: GameKind): string[] {
+    const rows = (kind
+      ? this.db.prepare("UPDATE games SET status = 'interrupted', ended_at = ? WHERE status = 'running' AND kind = ? RETURNING id").all(now, kind)
+      : this.db.prepare("UPDATE games SET status = 'interrupted', ended_at = ? WHERE status = 'running' RETURNING id").all(now)) as Array<{ id: string }>
     return rows.map((r) => r.id).sort()
   }
 
@@ -228,10 +231,11 @@ export class EventStore {
     return { append: (body) => this.append(gameId, body, now()) }
   }
 
-  events(gameId: string, afterSeq = 0): GameEvent[] {
+  /** A game's events in order, after `afterSeq`, at most `limit` of them (all by default). */
+  events(gameId: string, afterSeq = 0, limit = -1): GameEvent[] {
     const rows = this.db
-      .prepare('SELECT seq, ts, body_json FROM events WHERE game_id = ? AND seq > ? ORDER BY seq')
-      .all(gameId, afterSeq) as Array<{ seq: number; ts: number; body_json: string }>
+      .prepare('SELECT seq, ts, body_json FROM events WHERE game_id = ? AND seq > ? ORDER BY seq LIMIT ?')
+      .all(gameId, afterSeq, limit) as Array<{ seq: number; ts: number; body_json: string }>
     return rows.map((r) => ({ ...(JSON.parse(r.body_json) as EventBody), gameId, seq: r.seq, ts: r.ts }) as GameEvent)
   }
 

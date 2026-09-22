@@ -35,6 +35,7 @@ describe('EventStore', () => {
     ])
     expect(store.events('g1', 1)).toHaveLength(1)
     expect(store.events('g1')[1]).toEqual({ ...decision(), gameId: 'g1', seq: 2, ts: 3000 })
+    expect(store.events('g1', 0, 1).map((e) => e.seq)).toEqual([1])
   })
 
   it('denormalizes decisions and sums game cost', () => {
@@ -55,8 +56,12 @@ describe('EventStore', () => {
     store.createGame('a', 'live', {})
     store.createGame('b', 'live', {})
     store.setStatus('b', 'ended')
-    expect(store.interruptRunningGames()).toEqual(['a'])
+    store.createGame('s', 'study', {})
+    // The live server interrupts only live games: a study may be running in another process.
+    expect(store.interruptRunningGames(Date.now(), 'live')).toEqual(['a'])
     expect(store.game('a')!.status).toBe('interrupted')
+    expect(store.game('s')!.status).toBe('running')
+    expect(store.interruptRunningGames()).toEqual(['s'])
     expect(store.games('live').map((g) => g.id)).toEqual(['a', 'b'])
   })
 

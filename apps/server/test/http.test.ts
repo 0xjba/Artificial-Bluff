@@ -1,7 +1,13 @@
+import { EventStore } from '@ab/core'
+import { mkdtempSync, writeFileSync } from 'node:fs'
+import { connect } from 'node:net'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { startApp, type App } from '../src/app'
 import { parseServerConfig, type ServerConfig } from '../src/config'
 import type { FeedMessage } from '../src/hub'
+import { sseWriter } from '../src/http'
 import { mockPlayers } from './fixtures'
 
 const TOKEN = 'test-admin-token-0123456789'
@@ -70,6 +76,59 @@ describe('HTTP API', () => {
     const missing = await fetch(`${a.url}/api/nope`)
     expect(missing.status).toBe(404)
     expect(missing.headers.get('x-content-type-options')).toBe('nosniff')
+  })
+
+  it('answers a request target Node accepts but URL rejects with 400, and keeps running', async () => {
+    const a = await app()
+    const { port } = new URL(a.url)
+    const reply = await new Promise<string>((resolve, reject) => {
+      const socket = connect(Number(port), '127.0.0.1', () => socket.write('GET //[ HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n'))
+      let data = ''
+      socket.on('data', (d) => (data += d))
+      socket.on('end', () => resolve(data))
+      socket.on('error', reject)
+    })
+    expect(reply).toMatch(/^HTTP\/1\.1 400/)
+    expect((await fetch(`${a.url}/api/health`)).status).toBe(200)
+  })
+
+  it('disconnects a spectator who falls too far behind', () => {
+    let destroyed = false
+    const written: string[] = []
+    const res = { writableEnded: false, destroyed: false, writableLength: 0, write: (c: string) => written.push(c) > 0, destroy: () => void (destroyed = true) }
+    const send = sseWriter(res as never, 1000)
+    send({ type: 'equity', channelId: 'c', handId: null, equity: null, estimated: false })
+    expect(written).toHaveLength(1)
+    res.writableLength = 5000 // the client stopped reading
+    expect(() => send({ type: 'equity', channelId: 'c', handId: null, equity: null, estimated: false })).toThrow(/too far behind/)
+    expect(destroyed).toBe(true)
+  })
+
+  it('serves a finished game in pages', async () => {
+    const a = await app()
+    const { gameId } = await (await admin(a, '/api/admin/games')).json()
+    a.live.stop()
+    await a.live.idle()
+    const all = a.store.events(gameId)
+    const page = await (await fetch(`${a.url}/api/games/${gameId}/events?after=${all.length - 3}`)).json()
+    expect(page.events.map((e: { seq: number }) => e.seq)).toEqual(all.slice(-3).map((e) => e.seq))
+    expect(page.next).toBeNull()
+    expect((await fetch(`${a.url}/api/games/${gameId}/events?after=-1`)).status).toBe(400)
+  })
+
+  it('refuses a second server on the same database, and leaves running studies alone', async () => {
+    const dbPath = join(mkdtempSync(join(tmpdir(), 'ab-app-')), 'live.db')
+    const seed = new EventStore(dbPath)
+    seed.createGame('crashed-live', 'live', {})
+    seed.createGame('study-in-progress', 'study', {})
+    seed.close()
+    const first = await app({ dbPath })
+    expect(first.store.game('crashed-live')!.status).toBe('interrupted')
+    expect(first.store.game('study-in-progress')!.status).toBe('running') // another process may be running it
+    // A second server process (simulated: another running process holds the lock) is refused.
+    writeFileSync(`${dbPath}.server.lock`, String(process.ppid))
+    await expect(app({ dbPath })).rejects.toThrow(/another live server/)
+    writeFileSync(`${dbPath}.server.lock`, String(process.pid))
   })
 
   it('guards the admin API: off without a token, 401 with a wrong one', async () => {

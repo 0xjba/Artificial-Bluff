@@ -9,7 +9,8 @@ import { createHttpServer } from './http'
 import { Hub } from './hub'
 import { LiveController } from './live'
 import type { LivePlayers } from './players'
-import { replayQueue } from './replay'
+import { acquireServerLock } from './lock'
+import { replayQueue, type ReplayCache } from './replay'
 
 export interface App {
   server: Server
@@ -26,9 +27,11 @@ export interface App {
 /** Wires the store, hub, live table, director and HTTP API together and starts listening. */
 export async function startApp(config: ServerConfig, players: LivePlayers, log: (line: string) => void = console.log): Promise<App> {
   if (config.dbPath !== ':memory:') mkdirSync(dirname(config.dbPath), { recursive: true })
+  const release = acquireServerLock(config.dbPath)
   const store = new EventStore(config.dbPath)
-  const interrupted = store.interruptRunningGames()
-  if (interrupted.length) log(`marked ${interrupted.length} game(s) left running by a crash as interrupted: ${interrupted.join(', ')}`)
+  // Only live games: a study in the same database may be running in another process.
+  const interrupted = store.interruptRunningGames(Date.now(), 'live')
+  if (interrupted.length) log(`marked ${interrupted.length} live game(s) left running by a crash as interrupted: ${interrupted.join(', ')}`)
 
   const hub = new Hub()
   const live = new LiveController({
@@ -41,7 +44,8 @@ export async function startApp(config: ServerConfig, players: LivePlayers, log: 
     meta: { lineup: players.specs, mock: config.mock },
     log,
   })
-  const director = new Director({ hub, live, queue: () => replayQueue(store), replayPaceMs: config.replayPaceMs, cooldownMs: config.cooldownMs })
+  const replays: ReplayCache = new Map()
+  const director = new Director({ hub, live, queue: () => replayQueue(store, {}, replays), replayPaceMs: config.replayPaceMs, cooldownMs: config.cooldownMs, log })
   const server = createHttpServer({ config, hub, store, live, log })
   await new Promise<void>((resolve) => server.listen(config.port, config.host, resolve))
   director.start()
@@ -59,6 +63,7 @@ export async function startApp(config: ServerConfig, players: LivePlayers, log: 
       })
       await live.idle()
       store.close()
+      release()
     })())
   return { server, hub, live, director, store, url, close }
 }

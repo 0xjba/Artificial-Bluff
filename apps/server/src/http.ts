@@ -8,6 +8,8 @@ import { isOver, publicGame } from './public'
 
 export interface HttpDeps {
   config: Pick<ServerConfig, 'adminToken' | 'allowedOrigin' | 'maxClients' | 'mock'>
+  /** Unsent bytes a spectator may fall behind by before being disconnected (a paused tab, a stalled network). */
+  maxBufferedBytes?: number
   hub: Hub
   store: EventStore
   live: LiveController
@@ -23,6 +25,24 @@ export function tokenMatches(given: string, expected: string): boolean {
   return timingSafeEqual(a, b)
 }
 
+/** Most events per page of /api/games/:id/events. */
+export const EVENTS_PAGE_LIMIT = 5000
+
+/**
+ * A hub subscriber writing to one SSE response. A client that stops reading is disconnected once more
+ * than `maxBuffered` bytes are waiting, so one slow spectator can't make the server buffer without limit.
+ */
+export function sseWriter(res: Pick<ServerResponse, 'write' | 'destroy' | 'writableEnded' | 'destroyed' | 'writableLength'>, maxBuffered: number): (m: FeedMessage) => void {
+  return (m) => {
+    if (res.writableEnded || res.destroyed) throw new Error('closed')
+    if (res.writableLength > maxBuffered) {
+      res.destroy()
+      throw new Error('spectator too far behind')
+    }
+    res.write(`data: ${JSON.stringify(m)}\n\n`)
+  }
+}
+
 function send(res: ServerResponse, status: number, body: unknown): void {
   res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' })
   res.end(JSON.stringify(body))
@@ -35,12 +55,14 @@ function send(res: ServerResponse, status: number, body: unknown): void {
  * - GET  /api/feed              Server-Sent Events: a snapshot, then events and equity updates
  * - GET  /api/games             finished and running games (configs withheld while running)
  * - GET  /api/games/:id         one game
- * - GET  /api/games/:id/events  every event of a game that is over for good (see isOver)
+ * - GET  /api/games/:id/events  events of a game that is over for good (see isOver), in pages:
+ *                                ?after=<seq> (default 0), up to 5,000 per page; `next` is the next ?after
  * - POST /api/admin/games       start a live game (Authorization: Bearer ADMIN_TOKEN)
  * - POST /api/admin/games/stop  stop the live game after the current hand
  */
 export function createHttpServer(deps: HttpDeps): Server {
   const heartbeatMs = deps.heartbeatMs ?? 15_000
+  const maxBuffered = deps.maxBufferedBytes ?? 1_000_000
 
   const cors = (req: IncomingMessage, res: ServerResponse) => {
     const origin = req.headers.origin
@@ -73,11 +95,11 @@ export function createHttpServer(deps: HttpDeps): Server {
       'X-Accel-Buffering': 'no',
     })
     res.write('retry: 3000\n\n')
-    const unsubscribe = deps.hub.subscribe((m: FeedMessage) => {
-      if (res.writableEnded || res.destroyed) throw new Error('closed')
-      res.write(`data: ${JSON.stringify(m)}\n\n`)
-    })
-    const heartbeat = setInterval(() => res.write(': ping\n\n'), heartbeatMs)
+    const unsubscribe = deps.hub.subscribe(sseWriter(res, maxBuffered))
+    const heartbeat = setInterval(() => {
+      if (res.writableLength > maxBuffered) res.destroy()
+      else res.write(': ping\n\n')
+    }, heartbeatMs)
     const close = () => {
       clearInterval(heartbeat)
       unsubscribe()
@@ -89,9 +111,15 @@ export function createHttpServer(deps: HttpDeps): Server {
   return createServer((req, res) => {
     res.setHeader('X-Content-Type-Options', 'nosniff')
     cors(req, res)
-    const url = new URL(req.url ?? '/', 'http://localhost')
-    const path = url.pathname.replace(/\/+$/, '') || '/'
     const method = req.method ?? 'GET'
+    let url: URL
+    try {
+      // Node accepts request targets that URL rejects (e.g. "//["): answer 400, never throw.
+      url = new URL(req.url ?? '/', 'http://localhost')
+    } catch {
+      return send(res, 400, { error: 'bad request' })
+    }
+    const path = url.pathname.replace(/\/+$/, '') || '/'
     try {
       if (method === 'OPTIONS') {
         if (deps.config.allowedOrigin && req.headers.origin === deps.config.allowedOrigin) {
@@ -124,7 +152,11 @@ export function createHttpServer(deps: HttpDeps): Server {
         if (!row) return send(res, 404, { error: 'no such game' })
         if (!game[2]) return send(res, 200, publicGame(row))
         if (!isOver(row)) return send(res, 409, { error: 'the game is not over yet (running, or a study that can still resume)' })
-        return send(res, 200, { game: publicGame(row), events: deps.store.events(row.id) })
+        const after = Number(url.searchParams.get('after') ?? 0)
+        if (!Number.isInteger(after) || after < 0) return send(res, 400, { error: 'after must be a whole number' })
+        const events = deps.store.events(row.id, after, EVENTS_PAGE_LIMIT)
+        const next = events.length === EVENTS_PAGE_LIMIT ? events.at(-1)!.seq : null
+        return send(res, 200, { game: publicGame(row), events, next })
       }
       if (method === 'POST' && path === '/api/admin/games') {
         if (!admin(req, res)) return
