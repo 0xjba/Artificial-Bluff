@@ -3,6 +3,21 @@ import type { PlayerKind } from '@ab/players'
 
 export type GameKind = 'live' | 'study'
 
+/** Where a study hand sits in the duplicate schedule. */
+export interface DuplicateInfo {
+  groupIndex: number
+  rotation: number
+  /** Base seating order of the group (multiplier k, or 0 for a seeded shuffle). */
+  order: number
+  /** Deck seed shared by the group's rotations. */
+  seed: number
+  /** 1 for the first try; a hand interrupted (crash, budget cap) is replayed with the next attempt. */
+  attempt: number
+}
+
+/** Why a study stopped: CI target met, all groups played, budget reached, or stopped early. */
+export type StudyEndReason = 'ci_target' | 'max_groups' | 'budget_cap' | 'interrupted'
+
 export interface PlayerInfo {
   id: string
   kind: PlayerKind
@@ -69,6 +84,8 @@ export type EventBody =
       bigBlind: number
       seats: Array<{ playerId: string; stack: number; position: Position }>
       posts: Array<{ playerId: string; blind: 'sb' | 'bb'; amount: number }>
+      /** Study hands only. */
+      duplicate?: DuplicateInfo
     }
   | { type: 'cards_dealt'; handId: string | null; holes: Record<string, Card[]> }
   | { type: 'turn_started'; handId: string | null; playerId: string; options: Array<{ id: OptionId; label: string }> }
@@ -88,6 +105,33 @@ export type EventBody =
       stacks: Record<string, number>
       eliminated: string[]
       handsPlayed: number
+    }
+  | {
+      type: 'study_checkpoint'
+      /**
+       * The check's boundary: groups 0..groups-1 (a multiple of checkEvery, or maxGroups). Checks run at
+       * every boundary in order, whatever the concurrency or resumes, and each is logged once.
+       */
+      groups: number
+      blocks: number
+      costUsd: number
+      /** 95% Student t CI of bb/100 per player; null where not yet defined (fewer than 2 blocks). */
+      players: Array<{ playerId: string; bb100: number | null; low: number | null; high: number | null; halfWidth: number | null }>
+      /** Whether the stopping rule was met here (it then ends the study, even after a budget cap). */
+      stop: boolean
+    }
+  | {
+      type: 'study_ended'
+      reason: StudyEndReason
+      /** Seed groups completed in order from group 0. */
+      groupsCompleted: number
+      /**
+       * Groups the results use: the stopping boundary for 'ci_target' (hands still in flight when
+       * the rule was met are not included), otherwise groupsCompleted cut to whole neighbour blocks.
+       */
+      analysedGroups: number
+      handsPlayed: number
+      costUsd: number
     }
 
 export type EventType = EventBody['type']

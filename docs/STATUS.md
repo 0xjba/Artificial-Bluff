@@ -1,12 +1,13 @@
 # artificialBluff — Status & Tracker
 
 Living document. Update it whenever a task finishes, a decision is made, or a todo appears.
-Last updated: 2026-09-21
+Last updated: 2026-09-22
 
 ## Where things are
 
 | What | Where |
 |---|---|
+| GitHub remote (`origin`) | https://github.com/0xjba/Artificial-Bluff (master + feat/plan-3a-study pushed 2026-09-22) |
 | Design spec (approved) | `docs/superpowers/specs/2026-09-21-artificialbluff-design.md` |
 | Plan 1: monorepo + engine | `docs/superpowers/plans/2026-09-21-plan-1-engine.md` |
 | Plan 2: players, runner, event log | `docs/superpowers/plans/2026-09-21-plan-2-players-runner.md` |
@@ -23,7 +24,7 @@ Last updated: 2026-09-21
 |---|---|---|
 | 1 | Monorepo + game engine (`packages/engine`) | ✅ Merged to master (9de0579), 99 tests |
 | 2 | Players (Jev, LLM, bots, mock), table runner, SQLite event log | ✅ Merged to master (b94a7be), 181 tests |
-| 3 | Study runner (duplicate, budget cap, resume, CI stop) + report/charts | 3a study runner: plan written & verified in scratch (201 tests), executing on `feat/plan-3a-study`; 3b analysis + report: not written |
+| 3 | Study runner (duplicate, budget cap, resume, CI stop) + report/charts | 3a study runner: ✅ built and reviewed on `feat/plan-3a-study` (220 tests), ready to merge; 3b analysis + report: not written |
 | 4 | Live server (WebSocket, replays, admin start) + web (Broadcast UI) + mascots (bloub) | Not written yet |
 
 ### Plan 1 task progress
@@ -56,17 +57,18 @@ Last updated: 2026-09-21
 
 ### Plan 3a task progress
 
-- [ ] Task 1: Study hands in the core event stream (duplicate info, study_ended)
-- [ ] Task 2: Study package and config
-- [ ] Task 3: Bootstrap CIs
-- [ ] Task 4: Study runner (progress, results, prereg, run)
-- [ ] Task 5: pnpm study CLI + example studies (expect engine 104, players 44, core 34, study 19)
+- [x] Task 1: Study hands in the core event stream (9226d6e; spec ✅ diff)
+- [x] Task 2: Study package and config (6c6ec35; spec ✅ diff)
+- [x] Task 3: CIs (f8dfb58 + fix f0b5424; spec ✅; opus review → Student t CIs, ≥10-block minimum, checkpoint events, strict config)
+- [x] Task 4: Study runner (f7c2b56 + fixes 5df0df9, 76ca712; spec ✅; opus review + re-review → data-only check schedule, claimGame, analysedGroups)
+- [x] Task 5: pnpm study CLI + example studies (80b8083; spec ✅)
+- [x] Final branch review (opus): merge after fixes → fixed in eae9624 + a02dff0 (explicit --live, strict args, Ctrl-C in mock runs, stored line-up on resume, status uses analysedGroups, exit codes, docs); re-review: **ready to merge** (engine 104, players 44, core 35, study 37)
 
 ## Key decisions (summary; spec is authoritative)
 
 - TypeScript pnpm monorepo; official Jev TS SDK `@typesafe-ai/sdk`.
 - Fairness: identical observation for all players, code pre-computes arithmetic, no equity hints (ablation later).
-- Study: duplicate format, 100 bb cash hands, bb/100 with bootstrap CIs, CI-based stop, budget cap ~$25, pre-registered config hash.
+- Study: duplicate format, 100 bb cash hands, bb/100 with Student t CIs over neighbour blocks (bootstrap sensitivity), CI-based stop, budget cap ~$25, pre-registered config hash.
 - Live: on-demand turbo tournament (3,000 chips, blinds up every 8 hands, stop at hand 120), ~$0.50/game, per-game cap, replays when idle.
 - Line-up: Jev + 2 frontier + 1 small/fast + 1 open-weight LLM via OpenRouter; all in config.
 - Shared action menu of realistic sizes shown as chip amounts.
@@ -89,7 +91,7 @@ Last updated: 2026-09-21
 - Known, deliberate menu behaviours (Task 6 review): caller count can undercount after an incomplete all-in re-raise (rare, still sensible); the SB completing counts as a limper for opening sizes.
 - Tune later: simulated live tournaments with simple bots last ~45 hands median (p90 ~80, never hit the 120 cap) vs spec's ~60-80. Re-check with real Jev/LLM players; slow blinds (e.g. every 10 hands) if games are too short. (Task 7 review)
 - Plan 2 runner: thread a hand id from nextHandConfig through HandResult so recordHand can reject a replayed result from a different hand (Task 7 review residual).
-- Plan 3: bootstrap by whole neighbour blocks; compute block size with neighbourBlockSize(players.length), never hardcode 4. (Task 8 review)
+- Plan 3 (done): CIs over whole neighbour blocks; compute block size with neighbourBlockSize(players.length), never hardcode 4. (Task 8 review)
 - Plan 2 (final review recs): add engine helpers `positions(state)` (BTN/SB/BB/UTG/CO, heads-up aware) and observation arithmetic (to call, pot odds, eff. stack bb, SPR, timeout default check-else-fold); runner must derive street/board events by diffing (one action can deal flop+turn+river in a run-out; a hand can complete inside createHand); thread hand id.
 - Plan 2 tests: add a test that restores a JSON round-tripped state from the event log and continues the hand with applyAction; property test could include sub-1bb stacks. (final review minor)
 - Plan 4 (Task 8 review): GameRow.config holds master seeds — never send a running game's config to spectators; add a redaction helper.
@@ -112,6 +114,15 @@ Last updated: 2026-09-21
 - Scratch bloub preview (custom colours, Mascots.vue) lived in the session scratchpad; recreate in Plan 4.
 
 ## Execution log
+
+- 2026-09-21: Plan 3a Task 1-3 stats follow-up committed (f0b5424, byte-identical to reference). Task 4 committed (f7c2b56, spec ✅). Opus review of Task 4: approve with fixes → deterministic check schedule (every boundary in order; resume from last checkpoint; results pinned to the stop boundary via study_ended.analysedGroups), ci_target wins over budget_cap, claimGame + --takeover (no double runs), prereg must match config, budget overshoot documented, dead format check removed, 7 new tests. Prototyped in reference: engine 104, players 44, core 35, study 35. Follow-up fix to be applied on branch next, then Task 5.
+- 2026-09-21: Task 5 committed (80b8083, identical to reference). Opus re-review of Task 4 fixes: approve with fixes → read progress after claimGame; early return uses study_ended.analysedGroups; minGroups multiple of checkEvery. Not done (by design): checking Player kind/model against the pre-registered seat (tests deliberately use bots in mock seats; the CLI builds players from the same line-up). Reference: core 35, study 35.
+- TODO (after-merge polish, final re-review): `run --live` on a finished study should return before the REAL RUN line/createPlayers; ignore a second SIGINT within ~100 ms of the first (tsx re-sends SIGINT after 30 ms during slow sync steps).
+- TODO (from final review, deferred): mock seats all play the same TAG strategy, so mock rehearsals always give 0 ± 0 (give mocks varied styles); fixed-size studies that meet the CI report ci_target rather than max_groups (cosmetic); --takeover trusts the user (could store pid/host); main study at $25 will likely end on budget_cap (~200 groups) — choose target/budget knowingly before pre-registering.
+- TODO (minor, from review): budget-cap-then-ci_target test; stronger concurency-skip test (checkEvery 4, ~200 groups).
+- TODO (minor, from review): record code version (git SHA) with a study without breaking resume (e.g. in game_started, not the prereg hash); explain in the report that in-flight hands after a CI stop are logged but not analysed.
+
+- 2026-09-21: Decision (from stats review of Plan 3a): stopping rule and published CIs use Student t over neighbour blocks (bootstrap only as sensitivity check); CI rule never fires before 10 blocks (40 groups) unless fixed-size; every check logged; pairwise claims need paired contrasts + Holm (Plan 3b). Flag to user.
 
 - 2026-09-21: Plan 2 built on feat/plan-2-players — 11 tasks, each spec (diff vs verified reference) + quality reviewed (opus for the fairness-critical ones). Reviews caught: short-stack toCall/pot-odds and drifting SPR, bot folding aces, AA=KK, LLM truncation/reasoning-token/percentage-rescaling/win-wording issues, Jev asymmetric retries + unsourced price, SQLITE_BUSY lost events with concurrent writers, non-canonical config hashes, runner crash paths and latency skew, stuck 'running' games, soft budget cap, API keys visible on player objects.
 
