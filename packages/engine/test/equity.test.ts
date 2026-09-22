@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { Card } from '../src/cards'
-import { mainPotShares, mainPotSharesBySubset } from '../src/equity'
+import { mainPotShares, mainPotSharesBySubset, remainingBoards, sampleMainPotShares } from '../src/equity'
 import { evaluateHand } from '../src/evaluate'
 
 const cards = (s: string) => (s ? (s.split(' ') as Card[]) : [])
@@ -83,5 +83,27 @@ describe('mainPotShares', () => {
     expect(() => mainPotSharesBySubset(holes, board, [[0]])).toThrow(/at least two/)
     expect(() => mainPotSharesBySubset(holes, board, [[0, 0]])).toThrow(/bad subset/)
     expect(() => mainPotSharesBySubset(holes, board, [[0, 9]])).toThrow(/bad subset/)
+  })
+
+  it('estimates shares by seeded sampling, close to the exact answer and reproducible', () => {
+    const holes = [cards('As Kd'), cards('Qh Qc'), cards('7s 6s'), cards('2d 2h'), cards('Jc Tc')]
+    const exact = mainPotSharesBySubset(holes, cards('Jh 5c 2s'), [[0, 1, 2, 3, 4]])[0]!
+    const sampled = sampleMainPotShares(holes, cards('Jh 5c 2s'), [0, 1, 2, 3, 4], 20_000, 7)
+    sampled.forEach((v, i) => expect(Math.abs(v - exact[i]!)).toBeLessThan(0.015))
+    expect(sampled.reduce((a, b) => a + b, 0)).toBeCloseTo(1, 12)
+    expect(sampleMainPotShares(holes, cards('Jh 5c 2s'), [0, 1, 2, 3, 4], 20_000, 7)).toEqual(sampled)
+    // Folded hands stay dead: the subset's shares match exact enumeration over the same live deck.
+    const headsUp = sampleMainPotShares(holes, cards('Jh 5c 2s'), [1, 4], 20_000, 3)
+    const exactHeadsUp = mainPotSharesBySubset(holes, cards('Jh 5c 2s'), [[1, 4]])[0]!
+    headsUp.forEach((v, i) => expect(Math.abs(v - exactHeadsUp[i]!)).toBeLessThan(0.015))
+    expect(() => sampleMainPotShares(holes, [], [0, 1], 0, 1)).toThrow(/samples/)
+    expect(() => sampleMainPotShares(holes, [], [0], 10, 1)).toThrow(/bad subset/)
+  })
+
+  it('counts the boards still to come', () => {
+    expect(remainingBoards(4, 0)).toBe(1_712_304) // heads-up preflop: C(48, 5)
+    expect(remainingBoards(10, 0)).toBe(850_668) // five players preflop: C(42, 5)
+    expect(remainingBoards(13, 3)).toBe(741) // five players on the flop: C(39, 2)
+    expect(remainingBoards(15, 5)).toBe(1)
   })
 })
