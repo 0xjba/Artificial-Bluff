@@ -161,6 +161,7 @@ Last updated: 2026-09-22
 
 ## Execution log
 
+- 2026-09-22: UI polish on branch `feat/ui-polish` (e7f8704, 422 tests): SVG card faces (corner indices, pips, court frames), plain-English action log grouped by hand (filled from game start on join), live time shift (seek bar + hand steps, past plays on until caught up, dimmed LIVE button jumps back; `/api/games/:id/events` now serves running games with seeds masked), no duplicate LIVE title, seat bar reads "Win 36%". In review. Next: merge, then VPS deploy files (Docker/compose/Caddy/guide); smoke test waits for the user's keys in `.env`. Possible follow-up: same seek bar on /replays pages.
 - 2026-09-22 (user decisions): real runs — smoke test only (5 hands, cap $0.25) once keys are in .env, then ASK before the smoke study (~$1) and main study (~$25). Deployment: user's own VPS (Docker + docker-compose + Caddy HTTPS + setup guide). Smoke line-up: lineups/live.example.json (copied to lineups/live.json). UI requests: proper card faces (corner indices + pips), live time-shift seek bar with dimmed LIVE button to jump back, remove duplicate LIVE text, readable action log, label the seat % (true win chance).
 
 - 2026-09-22: Plan 4c merged to master and pushed. All planned pieces done (engine, players, study, report, live server, mascots, web). Next candidates: real smoke run (needs keys + go-ahead), deployment, deferred TODOs.

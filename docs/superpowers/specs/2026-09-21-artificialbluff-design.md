@@ -206,8 +206,11 @@ Per-decision cost, tokens and latency leave out auto-played decisions. `pnpm stu
 **Server states:** `idle → live → ended → idle`; one live table in v1. `pnpm live [--mock]` (Plan 4a; `tsx`, no build).
 - `POST /api/admin/games` with `Authorization: Bearer ADMIN_TOKEN` starts a live game (hidden admin button or curl);
   `POST /api/admin/games/stop` ends it after the hand in progress. Admin API off unless `ADMIN_TOKEN` is set.
-- Deck seed: 16 random bytes per live game (never derived from the public game id). A running game's config and
-  events are withheld (`/api/games/:id` config null, `/events` 409) and published once it is over.
+- Deck seed: 16 random bytes per live game (never derived from the public game id). A running game's config is
+  withheld (`/api/games/:id` config null) and published once it is over. A live game's events so far are readable (the
+  feed already showed them; no seeds), so live viewers can seek back ("time shift": a seek bar
+  and hand steps; the past plays on at replay pace until it catches up; the LIVE tag dims meanwhile and jumps back). A study's events stay withheld (409) until it is over
+  for good: every rotation of a duplicate group is dealt the same cards.
 - Idle: replays through the same event stream, labelled "REPLAY": past live games + an auto-picked highlight reel of
   study hands (biggest pots, all-ins, largest Jev-vs-LLM win-probability disagreements).
 - Per-game cost cap: game ends after the current hand; chip leader wins; UI shows "budget cap reached".
