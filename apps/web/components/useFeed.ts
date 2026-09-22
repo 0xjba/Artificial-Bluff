@@ -54,19 +54,23 @@ export function useFeed(url: string): FeedState & { connection: Connection } {
     }
   }, [url])
 
-  // Joining a live game (or reconnecting, which resets the history): fetch its events so far, so viewers
-  // can seek back to before they arrived.
+  // Joining a programme (or reconnecting, which resets the history): fetch the game's events so far,
+  // so viewers can seek back to before they arrived.
   const channelId = state.channel?.id
-  const liveGame = state.channel?.mode === 'live' ? state.channel.gameId : null
+  // Live or replay: both play a game whose earlier events can be fetched, so the seek bar can reach
+  // back past the point where this viewer joined.
+  const gameId = state.channel?.gameId ?? null
+  const joinedAt = state.joinedAt
   const snapshots = state.snapshots
   useEffect(() => {
-    if (!channelId || !liveGame) return
+    if (!channelId || !gameId) return
     const abort = new AbortController()
-    void loadHistory(url, liveGame, abort.signal).then((events) => {
-      if (!abort.signal.aborted && events) dispatch({ type: 'history', channelId, events })
+    void loadHistory(url, gameId, abort.signal).then((events) => {
+      // Never past where the programme has reached: a replay's later events are its ending.
+      if (!abort.signal.aborted && events) dispatch({ type: 'history', channelId, events: events.filter((e) => e.seq <= joinedAt) })
     })
     return () => abort.abort()
-  }, [url, channelId, liveGame, snapshots])
+  }, [url, channelId, gameId, snapshots, joinedAt])
   return { ...state, connection }
 }
 

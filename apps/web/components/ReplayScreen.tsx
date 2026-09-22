@@ -1,8 +1,9 @@
 'use client'
-import type { GameEvent } from '@ab/core/view'
+import type { GameEvent } from '@ab/core/browser'
 import { characterFor } from '@ab/mascot'
 import type { FeedMessage } from '@ab/server'
 import { useEffect, useReducer, useRef, useState } from 'react'
+import { cachedTableEquity } from '../lib/equity'
 import { initialFeed, reduceFeed, type FeedState } from '../lib/feed'
 import { Broadcast } from './Broadcast'
 
@@ -27,14 +28,14 @@ export function ReplayScreen({ title, events, fromSeq }: { title: string; events
       a.type === 'reset'
         ? { type: 'snapshot', channel: { ...CHANNEL, title }, view: initialFeed().view }
         : { type: 'event', channelId: 'replay', event: a.event }
-    return reduceFeed(s, m, name)
+    // Nobody computes the true chances for a replay, so this screen works them out itself.
+    return reduceFeed(s, m, name, cachedTableEquity)
   }, undefined, () => reduceFeed(initialFeed(), { type: 'snapshot', channel: { ...CHANNEL, title }, view: initialFeed().view }, name))
   const [index, setIndex] = useState(start)
   const [playing, setPlaying] = useState(true)
   const [speed, setSpeed] = useState(1)
   /** How many events have been applied: pausing or changing speed must never apply one twice. */
   const applied = useRef(0)
-
   // A deep link to one hand: apply everything before it at once, without pauses or sounds.
   useEffect(() => {
     if (applied.current >= start) return
@@ -76,5 +77,5 @@ export function ReplayScreen({ title, events, fromSeq }: { title: string; events
       </span>
     </span>
   )
-  return <Broadcast channel={state.channel} view={state.view} log={state.log} decisionEquity={null} controls={controls} />
+  return <Broadcast channel={state.channel} view={state.view} log={state.log} decisionEquity={state.decisionEquity} controls={controls} />
 }

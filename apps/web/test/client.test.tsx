@@ -73,6 +73,16 @@ describe('ReplayScreen', () => {
     expect(replayPause(events.find((e) => e.type === 'decision')!)).toBe(1400)
   })
 
+  it('shows the true chance beside what the model said (nobody computes equity for a replay)', async () => {
+    const events = await mockGame(2)
+    vi.useFakeTimers()
+    mount(<ReplayScreen title="t" events={events} />)
+    for (let i = 0; i < 40; i++) act(() => vi.advanceTimersByTime(3000))
+    const claims = [...host.querySelectorAll('.claims > div')].map((d) => d.querySelector('b')!.textContent)
+    expect(claims[0]).toMatch(/^\d+%$/) // AI SAID
+    expect(claims[2]).toMatch(/^\d+%$/) // REALITY: worked out by the screen itself
+  })
+
   it('shows Ended when the replay is over', async () => {
     const events = (await mockGame(1)).slice(0, 5)
     vi.useFakeTimers()

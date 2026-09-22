@@ -1,6 +1,7 @@
 'use client'
 import { characterFor } from '@ab/mascot'
 import { useEffect, useRef, useState } from 'react'
+import { cachedTableEquity } from '../lib/equity'
 import { reduceFeed, type FeedState } from '../lib/feed'
 import { feedAt, handAt, handStarts, nextHand, prevHand, seekable } from '../lib/timeshift'
 import { Broadcast } from './Broadcast'
@@ -43,7 +44,7 @@ export function LiveScreen({ feedUrl }: { feedUrl: string }) {
         setPast((p) => {
           const next = p && historyRef.current[p.pos]
           if (!p || !next) return null
-          return { ...p, pos: p.pos + 1, state: reduceFeed({ ...p.state, history: [] }, { type: 'event', channelId: channel.id, event: next }, name) }
+          return { ...p, pos: p.pos + 1, state: reduceFeed({ ...p.state, history: [] }, { type: 'event', channelId: channel.id, event: next }, name, cachedTableEquity) }
         }),
       shown ? replayPause(shown) : 0,
     )
@@ -56,7 +57,7 @@ export function LiveScreen({ feedUrl }: { feedUrl: string }) {
   const seekTo = (pos: number | null) => {
     if (!channel || pos === null || pos >= history.length) return setPast(null)
     const playing = past?.playing ?? true
-    setPast({ channelId: channel.id, snapshot: feed.snapshots, pos, state: feedAt(channel, history, pos, name), playing })
+    setPast({ channelId: channel.id, snapshot: feed.snapshots, pos, state: feedAt(channel, history, pos, name, cachedTableEquity), playing })
   }
   const pos = past?.pos ?? history.length
 
@@ -82,7 +83,7 @@ export function LiveScreen({ feedUrl }: { feedUrl: string }) {
       channel={channel}
       view={shown.view}
       log={shown.log}
-      decisionEquity={past ? null : feed.decisionEquity}
+      decisionEquity={shown.decisionEquity}
       connection={feed.connection}
       seek={seek}
       explainer

@@ -1,5 +1,6 @@
 import { buildView } from '@ab/core/view'
 import { describe, expect, it } from 'vitest'
+import { cachedTableEquity } from '../lib/equity'
 import { initialFeed, reduceFeed } from '../lib/feed'
 import { feedAt, handAt, handStarts, mergeHistory, nextHand, prevHand } from '../lib/timeshift'
 import { mockGame } from './fixtures'
@@ -34,6 +35,18 @@ describe('time shift', () => {
     expect(at.log.length).toBeGreaterThan(0)
     expect(at.log.at(-1)!.seq).toBeLessThanOrEqual(events[59]!.seq)
     expect(at.channel).toEqual(channel)
+  })
+
+  it('works out the true chances of the past too, and only once per board', async () => {
+    const events = await mockGame(3)
+    const decision = events.findIndex((e, i) => i > 30 && e.type === 'decision')
+    const at = feedAt(channel, events, decision + 1, name, cachedTableEquity)
+    expect(at.decisionEquity).toBeGreaterThan(0) // REALITY, against what that seat said
+    expect(Object.keys(at.view.equity ?? {}).length).toBeGreaterThan(1) // and a win chance per live seat
+    // Dragging rebuilds the screen over and over: the second pass must be cached, not recomputed.
+    const once = Date.now()
+    feedAt(channel, events, decision + 1, name, cachedTableEquity)
+    expect(Date.now() - once).toBeLessThan(60)
   })
 
   it('steps between hands', async () => {

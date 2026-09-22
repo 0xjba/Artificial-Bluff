@@ -1054,8 +1054,9 @@ button.tag.live {
     font-size: 13px;
   }
   .seat-id small {
-    font-size: 8px;
-    letter-spacing: 0.02em;
+    /* Just small enough that the longest position, FIRST TO ACT, is never cut on a phone. */
+    font-size: 7.5px;
+    letter-spacing: 0;
   }
   .seat-id .stack {
     font-size: 12.5px;
