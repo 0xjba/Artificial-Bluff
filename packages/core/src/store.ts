@@ -1,8 +1,9 @@
 import Database from 'better-sqlite3'
 import { createHash } from 'node:crypto'
 import type { EventBody, EventSink, GameEvent, GameKind } from './events'
+import type { GameStatus, GameStore } from './game-store'
 
-export type GameStatus = 'running' | 'ended' | 'interrupted'
+export type { GameStatus } from './game-store'
 
 export interface GameRow {
   id: string
@@ -107,7 +108,7 @@ const MIGRATIONS: string[] = [
 export const SCHEMA_VERSION = MIGRATIONS.length
 
 /** SQLite event log. Every game is an ordered event stream; decisions are also denormalized for analysis. */
-export class EventStore {
+export class EventStore implements GameStore {
   readonly db: Database.Database
 
   constructor(path = ':memory:') {
