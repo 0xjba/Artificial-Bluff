@@ -5,6 +5,7 @@ import type { ServerConfig } from './config'
 import type { FeedMessage, Hub } from './hub'
 import { LiveBusyError, type LiveController } from './live'
 import { isOver, publicEvent, publicGame } from './public'
+import { handIndex, modelsTable, type SummaryCache } from './summary'
 
 export interface HttpDeps {
   config: Pick<ServerConfig, 'adminToken' | 'allowedOrigin' | 'maxClients' | 'mock'>
@@ -55,12 +56,17 @@ function send(res: ServerResponse, status: number, body: unknown): void {
  * - GET  /api/feed              Server-Sent Events: a snapshot, then events and equity updates
  * - GET  /api/games             finished and running games (configs withheld while running)
  * - GET  /api/games/:id         one game
- * - GET  /api/games/:id/events  events of a live game so far, or of a study once it is over, in pages:
+ * - GET  /api/models           what each model has done across the finished live games
+ * - GET  /api/hands/:id        every hand of a game, newest first, with tags and a headline
+ * - GET  /api/games/:id/events events of a live game so far, or of a study once it is over, in pages:
  *                                ?after=<seq> (default 0), up to 5,000 per page; `next` is the next ?after
  * - POST /api/admin/games       start a live game (Authorization: Bearer ADMIN_TOKEN)
  * - POST /api/admin/games/stop  stop the live game after the current hand
  */
 export function createHttpServer(deps: HttpDeps): Server {
+  // Analysed games, so /api/models and /api/hands don't re-score the log on every request. Only
+  // finished games are cached: a running one still changes.
+  const summaries: SummaryCache = new Map()
   const heartbeatMs = deps.heartbeatMs ?? 15_000
   const maxBuffered = deps.maxBufferedBytes ?? 1_000_000
 
@@ -145,6 +151,17 @@ export function createHttpServer(deps: HttpDeps): Server {
             return rest
           })
         return send(res, 200, { games })
+      }
+      if (method === 'GET' && path === '/api/models') {
+        return send(res, 200, modelsTable(deps.store, summaries))
+      }
+      const hands = path.match(/^\/api\/hands\/([A-Za-z0-9._:-]+)$/)
+      if (method === 'GET' && hands) {
+        const row = deps.store.game(hands[1]!)
+        if (!row) return send(res, 404, { error: 'no such game' })
+        // A study's hands stay secret until it is over: its decks repeat across rotations.
+        if (!isOver(row) && row.kind !== 'live') return send(res, 409, { error: 'the study is not over yet (it can still be resumed)' })
+        return send(res, 200, { game: publicGame(row), hands: handIndex(deps.store, row.id, isOver(row) ? summaries : new Map()) })
       }
       const game = path.match(/^\/api\/games\/([A-Za-z0-9._:-]+)(\/events)?$/)
       if (method === 'GET' && game) {
