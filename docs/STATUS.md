@@ -29,7 +29,7 @@ Last updated: 2026-09-22
 | 1 | Monorepo + game engine (`packages/engine`) | ✅ Merged to master (9de0579), 99 tests |
 | 2 | Players (Jev, LLM, bots, mock), table runner, SQLite event log | ✅ Merged to master (b94a7be), 181 tests |
 | 3 | Study runner (duplicate, budget cap, resume, CI stop) + report/charts | 3a study runner: ✅ merged (04bc98f), 220 tests; 3b analysis + report: ✅ merged (0d46196), 258 tests |
-| 4 | 4a live server (SSE feed, replays, admin start/stop); 4b mascots (bloub engine, shapes, React component); 4c web (Broadcast UI) | 4a: ✅ merged, 306 tests; 4b: ✅ merged, 397 tests; 4c: plan written & verified in scratch (408 tests), executing on `feat/plan-4c-web` |
+| 4 | 4a live server (SSE feed, replays, admin start/stop); 4b mascots (bloub engine, shapes, React component); 4c web (Broadcast UI) | 4a: ✅ merged, 306 tests; 4b: ✅ merged, 397 tests; 4c: ✅ built and reviewed on `feat/plan-4c-web` (412 tests), ready to merge |
 
 ### Plan 1 task progress
 
@@ -108,7 +108,7 @@ Last updated: 2026-09-22
 - [x] Task 2: Web scaffold + pure logic (8aa85b1; spec ✅)
 - [x] Task 3: Broadcast screen components (34befb8; spec ✅)
 - [x] Task 4: Pages, styles, replays, research, about (645ac91; spec ✅; build clean; browser walkthrough on the repo build ✅)
-- [ ] Final branch review (opus): merge after fixes → replay double-apply fixed, sounds by line identity + audio unlock, feed reconnect with backoff (3-state), report folders + validation, rewrites limited to public API (+ API_URL at build), replay fetch timeout + id check + error.tsx, plain-English fallback notices (spec §9), quieter aria-live, eliminated at game end, sandboxed CSP, ignore next-dev AGENTS/CLAUDE.md (fix pending; web 15, total 412)
+- [x] Final branch review (opus): merge after fixes → fixed in 7a71bea + b7fddfe; re-review: **ready to merge** (412 tests; build clean)
 
 ## Key decisions (summary; spec is authoritative)
 
@@ -160,6 +160,8 @@ Last updated: 2026-09-22
 - Scratch bloub preview (custom colours, Mascots.vue) lived in the session scratchpad; replaced by Plan 4b's `pnpm --filter @ab/mascot preview` → docs/brand/mascots.html.
 
 ## Execution log
+
+- TODO (Plan 4c re-review, minor): ReplayScreen restart when index is already 0 doesn't re-apply game_started (practically unreachable; add a generation counter).
 
 - TODO (Plan 4c review, deferred): /research charts (links to the full HTML report for now); running cost on seats (scoreboard has it); error boundary around applyEvent for unknown future event types; badge truncation at phone width; Jev comet replays on a mid-hand join.
 
