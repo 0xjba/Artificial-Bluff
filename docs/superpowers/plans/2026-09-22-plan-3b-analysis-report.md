@@ -20,12 +20,14 @@
 - **Outcome A (headline calibration):** a decision's outcome is the player's share of the **main pot** (the first `pot_awarded` of the hand): 1 if they won it alone, 1/k if split k ways, 0 if they lost it or folded at **any** point in the hand. Side pots are ignored.
 - **Outcome C (second chart):** the player's expected main-pot share at the moment of the decision, against the players still in the hand, by exact enumeration of every remaining board, given **every dealt hole card** (folded hands' cards are dead: they can't come on the board). Later actions and board luck don't count.
 - **Speed:** preflop with 5 players is ~850,000 boards. Duplicate rotations deal the same cards, and every live set of a deal is a subset of its players, so `scoreDecisions` enumerates each (deal, board) once and scores all needed subsets in that pass, with a cache keyed by the deal in canonical (card) order. A 200-hand study analyses in ~12 s; vitest runs the engine slower than `tsx`, so the enumeration tests take a few seconds.
-- **Per-action outcome:** a fold is right if all-in equity (outcome C) was below the pot odds `toCall / (pot + toCall)`; any other action is right if the player's stack didn't shrink from just before it to the end of the hand. Calibration of the stated `confidence` against this 0/1 outcome, overall and per action type.
+- **Per-action outcome:** folds and calls are scored by all-in equity (outcome C) against the pot odds of the pot the player could actually win, `toCall / (winnablePot + toCall)` (the same winnable pot the players were shown): a fold is right below them, a call at or above them. Checks and raises have no equity rule: they are right if the player's stack didn't shrink from just before the action to the end of the hand. Calibration of the stated `confidence` against this 0/1 outcome is reported **per action type only, never pooled** (the rules and base rates differ; pooling would reward passive play). (Review finding.)
 - **Confidence is not one metric:** Jev's is derived from its option probabilities (TypeSafe's definition), the LLMs' is self-reported. The report labels each player's source and says to compare each player with itself.
 - **Calibration metrics:** reliability curve with 10 equal-width bins (p = 1 goes in the top bin), Brier score (mean squared error; outcomes may be fractional), ECE (bin-size-weighted mean |mean stated − mean outcome|). Fallback decisions are excluded from calibration (they have no stated probabilities) and counted under fallbacks.
 - **bb/100 and contrasts:** per-player 95% Student t CIs over neighbour blocks (from Plan 3a) plus the bootstrap sensitivity CI. Pairwise claims use the focus player (the first `jev` seat of the real config) minus each other player, per block, with a t CI, two-sided paired t test and Holm step-down adjustment; "significant" = Holm p < 0.05.
 - **Which hands:** for each (group, rotation) in the analysed groups, the valid attempt (reached `hand_ended`, not cut off by the budget cap; the first such attempt). Analysed groups = `study_ended.analysedGroups` once the study has ended, else the completed prefix cut to whole blocks. Cost in the header is everything the study spent, including cut-off hands.
-- **Play style:** VPIP (voluntary preflop call or raise), PFR (preflop raise), AF (postflop bets+raises ÷ calls; undefined with no calls), WTSD (showdowns ÷ hands seen to the flop). Bets are logged as raises (`currentBet` was 0).
+- **Play style:** VPIP (voluntary preflop call or raise), PFR (preflop raise), both over hands with a preflop decision (walks don't count), AF (postflop bets+raises ÷ calls; undefined with no calls), WTSD (showdowns ÷ hands seen to the flop). Bets are logged as raises (`currentBet` was 0).
+- **Per-decision cost, tokens and latency** leave out auto-played decisions (a seat skipped after repeated failures is logged at 0 ms and $0, which would flatter a flaky model); timeouts count at the time limit. The headline fallback rate is model-output failures only (invalid, empty, refused, truncated); provider errors and timeouts are listed separately.
+- **Hands are grouped by game and hand id**, so logs of several games can be analysed together.
 - **HTML safety:** every string from the log or config is escaped; the page has no scripts, links or external requests.
 
 ## File map
@@ -381,17 +383,18 @@ export function scripted(
   }
 }
 
-/** Plays one hand of 50/100 blinds, 10,000 chip stacks, button at seat 0, with a fixed deal. */
+/** Plays one hand of 50/100 blinds, 10,000 chip stacks (unless given), button at seat 0, with a fixed deal. */
 export async function playFixedHand(
   players: Player[],
   holes: string[][],
   board: string[],
   handId = 'h1',
   sink = memorySink(),
+  stacks: number[] = players.map(() => 10_000),
 ): Promise<GameEvent[]> {
   await playHand({
     config: {
-      seats: players.map((p) => ({ id: p.id, stack: 10_000 })),
+      seats: players.map((p, i) => ({ id: p.id, stack: stacks[i]! })),
       buttonIndex: 0,
       smallBlind: 50,
       bigBlind: 100,
@@ -478,6 +481,36 @@ describe('extractHands', () => {
     ])
   })
 
+  it('takes the main pot as the first pot awarded, with a short all-in stack and a side pot', async () => {
+    // a (BTN, 10,000) shoves; b (SB, 1,000) calls all-in with aces; c (BB, 10,000) calls with kings.
+    // b wins the 3,000 main pot; c wins the 18,000 side pot from a's queens.
+    const shover = scripted('a', () => 'all_in')
+    const events = await playFixedHand([shover, caller('b'), caller('c')], [['Qh', 'Qd'], ['Ah', 'Ad'], ['Kh', 'Kd']], board, 'h1', memorySink(), [10_000, 1_000, 10_000])
+    const [hand] = extractHands(events)
+    expect(hand!.mainPotWinners).toEqual(['b'])
+    expect(hand!.net).toEqual({ a: -10_000, b: 2_000, c: 8_000 })
+    const byPlayer = new Map(hand!.decisions.map((d) => [d.playerId, d]))
+    expect(byPlayer.get('b')!.mainPotShare).toBe(1)
+    expect(byPlayer.get('c')!.mainPotShare).toBe(0) // won only the side pot
+    // b can only win chips up to its own 1,000: 1,000 from a, 50 of its own, 100 from c.
+    expect(byPlayer.get('b')).toMatchObject({ toCall: 950, pot: 10_150, winnablePot: 1_150 })
+    // All-in run-out: every decision was preflop, everyone saw the flop and the showdown.
+    expect(hand!.decisions.every((d) => d.street === 'preflop' && d.board.length === 0)).toBe(true)
+    expect(hand!.sawFlop).toEqual(['a', 'b', 'c'])
+    expect(hand!.showdown).toEqual(['a', 'b', 'c'])
+    expect(hand!.board).toEqual(board)
+  })
+
+  it('keeps hands of different games apart even when their hand ids match', async () => {
+    const one = await playFixedHand([caller('a'), caller('b')], [['Ah', 'Ad'], ['Kh', 'Kd']], board, 'hand-1')
+    const two = (await playFixedHand([caller('a'), caller('b')], [['Kh', 'Kd'], ['Ah', 'Ad']], board, 'hand-1')).map((e) => ({ ...e, gameId: 'other' }) as GameEvent)
+    const hands = extractHands([...one, ...two])
+    expect(hands.map((h) => [h.handId, h.mainPotWinners])).toEqual([
+      ['hand-1', ['a']],
+      ['hand-1', ['b']],
+    ])
+  })
+
   it('reads player kinds and models from game_started', () => {
     const info = playerInfo([
       { type: 'game_started', kind: 'study', configHash: 'h', players: [{ id: 'jev', kind: 'jev', model: 'jev-1.13.0' }], gameId: 'g', seq: 1, ts: 0 },
@@ -513,6 +546,11 @@ export interface DecisionRecord {
   chipsIn: number
   /** Pot before the action (every chip committed this hand, current street included). */
   pot: number
+  /**
+   * The part of the pot this player can win: every seat's chips up to what this player will have in
+   * after calling (the excess goes back to its owner). Pot odds use it, as the players were shown.
+   */
+  winnablePot: number
   toCall: number
   /** The player's stack just before this decision. */
   stackBefore: number
@@ -564,18 +602,20 @@ type HandEvent = Extract<GameEvent, { handId: string | null }>
 
 /**
  * Rebuilds complete hands from an event log (events of several hands may interleave, as in a study
- * with parallel tables). Hands without an id, or that never reached hand_ended, are skipped.
+ * with parallel tables; events of several games are kept apart by game id). Hands without an id, or
+ * that never reached hand_ended, are skipped.
  */
 export function extractHands(events: readonly GameEvent[]): HandRecord[] {
-  const byHand = new Map<string, HandEvent[]>()
+  const byHand = new Map<string, { handId: string; events: HandEvent[] }>()
   for (const e of events) {
     if (!('handId' in e) || e.handId === null) continue
-    const list = byHand.get(e.handId)
-    if (list) list.push(e)
-    else byHand.set(e.handId, [e])
+    const key = `${e.gameId}\u0000${e.handId}`
+    const entry = byHand.get(key)
+    if (entry) entry.events.push(e)
+    else byHand.set(key, { handId: e.handId, events: [e] })
   }
   const hands: HandRecord[] = []
-  for (const [handId, list] of byHand) {
+  for (const { handId, events: list } of byHand.values()) {
     const hand = buildHand(handId, list)
     if (hand) hands.push(hand)
   }
@@ -589,7 +629,8 @@ function buildHand(handId: string, events: HandEvent[]): HandRecord | null {
   if (!started || started.type !== 'hand_started' || !dealt || dealt.type !== 'cards_dealt' || !ended || ended.type !== 'hand_ended') return null
 
   const order = started.seats.map((s) => s.playerId)
-  const stacks = new Map(started.seats.map((s) => [s.playerId, s.stack]))
+  const startStacks = new Map(started.seats.map((s) => [s.playerId, s.stack]))
+  const stacks = new Map(startStacks)
   for (const post of started.posts) stacks.set(post.playerId, stacks.get(post.playerId)! - post.amount)
   const position = new Map(started.seats.map((s) => [s.playerId, s.position]))
   const folded = new Set<string>()
@@ -605,6 +646,9 @@ function buildHand(handId: string, events: HandEvent[]): HandRecord | null {
       if (e.street === 'flop') sawFlop = order.filter((id) => !folded.has(id))
     } else if (e.type === 'decision') {
       const stackBefore = stacks.get(e.playerId)!
+      const committed = (id: string) => startStacks.get(id)! - stacks.get(id)!
+      const reach = committed(e.playerId) + e.toCall
+      const winnablePot = order.reduce((sum, id) => sum + Math.min(committed(id), reach), 0)
       drafts.push({
         handId,
         index: drafts.length,
@@ -616,6 +660,7 @@ function buildHand(handId: string, events: HandEvent[]): HandRecord | null {
         actionType: e.action.type,
         chipsIn: e.chipsIn,
         pot: e.pot,
+        winnablePot,
         toCall: e.toCall,
         stackBefore,
         board: [...board],
@@ -673,7 +718,7 @@ export * from './hands'
 - [ ] **Step 4: Run tests and typecheck**
 
 Run: `pnpm --filter @ab/analysis exec vitest run && pnpm --filter @ab/analysis typecheck`
-Expected: PASS (5 tests); typecheck clean.
+Expected: PASS (7 tests); typecheck clean.
 
 - [ ] **Step 5: Commit**
 
@@ -697,7 +742,7 @@ git -c user.email=jobinb6444@gmail.com -c user.name=0xjba commit -m "feat(analys
 ```ts
 import { mainPotShares, mainPotSharesBySubset, type Card } from '@ab/engine'
 import { describe, expect, it } from 'vitest'
-import { extractHands } from '../src/hands'
+import { extractHands, type DecisionRecord } from '../src/hands'
 import { actionGood, scoreDecisions, type ShareCache } from '../src/outcomes'
 import { playFixedHand, scripted } from './helpers'
 
@@ -725,6 +770,25 @@ describe('outcome C: expected main-pot share at the decision', () => {
     expect(first + mirrored).toBeCloseTo(1, 12)
   })
 
+  it('scores two live sets of one deal and board in the same pass', async () => {
+    // a opens, b folds, c calls: preflop decisions see {a, b, c} and then {a, c}.
+    const opener = scripted('a', (o) => (o.street === 'preflop' ? 'open_3bb' : undefined))
+    const folder = scripted('b', () => 'fold')
+    const [hand] = extractHands(await playFixedHand([opener, folder, caller('c')], [['Ah', 'Kd'], ['Qh', 'Qd'], ['7s', '6s']], board))
+    const holes = [cards('Ah Kd'), cards('Qh Qd'), cards('7s 6s')]
+    const [all, headsUp] = mainPotSharesBySubset(holes, [], [[0, 1, 2], [0, 2]])
+    const scored = scoreDecisions([hand!])
+    const pre = scored.filter((d) => d.street === 'preflop')
+    expect(pre.map((d) => [d.playerId, d.live.length])).toEqual([
+      ['a', 3],
+      ['b', 3],
+      ['c', 2],
+    ])
+    expect(pre[0]!.expectedShare).toBeCloseTo(all![0]!, 12)
+    expect(pre[1]!.expectedShare).toBeCloseTo(all![1]!, 12)
+    expect(pre[2]!.expectedShare).toBeCloseTo(headsUp![1]!, 12)
+  })
+
   it("treats a folded player's cards as dead", async () => {
     // a (button, facing the big blind) folds two aces; b's later equity must not count on an ace coming.
     const folder = scripted('a', () => 'fold')
@@ -740,14 +804,15 @@ describe('outcome C: expected main-pot share at the decision', () => {
 
 describe('per-action outcome', () => {
   it('scores a fold by all-in equity against the pot odds, other actions by the chips that followed', async () => {
-    // b folds a weak hand to a flop bet (right); c calls the flop bet with kings and loses to aces (wrong),
-    // but its turn and river checks cost nothing more, so they count as fine.
+    // b folds a weak hand to a flop bet (right, by equity); c calls the flop bet with kings behind aces
+    // (wrong, by equity). Checks are scored by the chips that followed: c's preflop and flop checks led
+    // to chips lost, its turn and river checks cost nothing more.
     const bettor = scripted('a', (o) => (o.street === 'flop' ? 'pot_50' : undefined))
     const folder = scripted('b', (o) => (o.street === 'flop' ? 'fold' : undefined))
     const [hand] = extractHands(await playFixedHand([bettor, folder, caller('c')], [['Ah', 'Ad'], ['3h', '8d'], ['Kh', 'Kd']], board))
     const scored = scoreDecisions([hand!])
     const fold = scored.find((d) => d.actionType === 'fold')!
-    expect(fold.expectedShare).toBeLessThan(fold.toCall / (fold.pot + fold.toCall))
+    expect(fold.expectedShare).toBeLessThan(fold.toCall / (fold.winnablePot + fold.toCall))
     expect(fold.actionGood).toBe(1)
     expect(scored.filter((d) => d.playerId === 'c').map((d) => [d.street, d.actionType, d.actionGood])).toEqual([
       ['preflop', 'check', 0],
@@ -760,7 +825,27 @@ describe('per-action outcome', () => {
     // The same fold with the aces instead would have been wrong.
     expect(actionGood(fold, 0.9)).toBe(0)
   })
+
+  it('scores calls by equity too, and uses the pot the player can actually win', () => {
+    const base = scoreDecisionsStub()
+    // Facing a 950 all-in call with only 1,150 winnable (a short stack), 30% equity is not enough to call...
+    const shortCall = { ...base, actionType: 'call' as const, toCall: 950, pot: 10_150, winnablePot: 1_150 }
+    expect(actionGood(shortCall, 0.3)).toBe(0) // pot odds 950 / 2,100 = 45%
+    expect(actionGood(shortCall, 0.5)).toBe(1)
+    // ...and folding it is right, although the raw pot (10,150) would suggest 9% odds.
+    expect(actionGood({ ...shortCall, actionType: 'fold' }, 0.3)).toBe(1)
+  })
 })
+
+/** A minimal decision record for scoring rules (only the fields actionGood reads matter). */
+function scoreDecisionsStub(): DecisionRecord {
+  return {
+    handId: 'x', index: 0, playerId: 'p', street: 'preflop', position: 'SB', model: 'm', optionId: 'call', actionType: 'call',
+    chipsIn: 0, pot: 0, winnablePot: 0, toCall: 0, stackBefore: 0, board: [], live: ['p', 'q'], winProbability: null, confidence: null,
+    optionProbabilities: null, latencyMs: 0, inputTokens: 0, outputTokens: 0, reasoningTokens: 0, costUsd: 0, retries: 0,
+    fallback: false, fallbackKind: null, mainPotShare: 0, stackChange: 0,
+  }
+}
 ```
 
 - [ ] **Step 2: Run it to verify it fails**
@@ -784,9 +869,11 @@ export interface ScoredDecision extends DecisionRecord {
    */
   expectedShare: number
   /**
-   * Per-action outcome: 1 if the action worked out, else 0. A fold is scored by all-in equity: it was
-   * right if the expected share was below the pot odds, toCall / (pot + toCall). Any other action was
-   * right if the player's stack did not shrink from just before it to the end of the hand.
+   * Per-action outcome: 1 if the action was right, else 0. Folds and calls are scored by all-in equity
+   * (outcome C) against the pot odds toCall / (winnablePot + toCall): a fold was right below them, a
+   * call at or above them. Checks and raises have no such rule; they count as right if the player's
+   * stack did not shrink from just before the action to the end of the hand, so later streets feed
+   * into their score. Only ever compare this within one action type.
    */
   actionGood: 0 | 1
 }
@@ -823,7 +910,9 @@ function subsetOf(c: Canonical, d: DecisionRecord): { subset: number[]; key: str
 
 /** Per-action outcome (see ScoredDecision.actionGood). */
 export function actionGood(d: DecisionRecord, share: number): 0 | 1 {
-  if (d.actionType === 'fold') return share < d.toCall / (d.pot + d.toCall) ? 1 : 0
+  const potOdds = d.toCall / (d.winnablePot + d.toCall)
+  if (d.actionType === 'fold') return share < potOdds ? 1 : 0
+  if (d.actionType === 'call') return share >= potOdds ? 1 : 0
   return d.stackChange >= 0 ? 1 : 0
 }
 
@@ -872,7 +961,7 @@ export * from './outcomes'
 - [ ] **Step 4: Run tests and typecheck**
 
 Run: `pnpm --filter @ab/analysis exec vitest run && pnpm --filter @ab/analysis typecheck`
-Expected: PASS (9 tests); typecheck clean.
+Expected: PASS (13 tests); typecheck clean.
 
 - [ ] **Step 5: Commit**
 
@@ -1002,7 +1091,23 @@ describe('playerMetrics', () => {
     const c = playerMetrics(extractHands(events), 'c')
     expect(c.fallbacks).toEqual({ model: 3, infra: 0, timeout: 0, auto: 1 }) // after 3 in a row the seat is auto-played
     expect(c.fallbackRate).toBe(1)
+    expect(c.modelFallbackRate).toBe(0.75)
     expect(c.costUsd).toBeCloseTo(0.003, 12) // auto-played decisions make no call
+    // Per-decision figures cover the 3 answered decisions only: the auto one (0 ms, $0) would flatter them.
+    expect(c.costPerDecisionUsd).toBeCloseTo(0.001, 12)
+    expect(c.meanInputTokens).toBe(0)
+  })
+
+  it('leaves walks out of VPIP and PFR', async () => {
+    const board = ['2c', '7d', '9h', 'Js', '4c']
+    const deal = [['Ah', 'Ad'], ['Kh', 'Kd'], ['3h', '8s']]
+    // Hand 1: a and b fold, c (big blind) wins a walk without deciding anything.
+    const walk = await playFixedHand([scripted('a', () => 'fold'), scripted('b', () => 'fold'), scripted('c', () => undefined)], deal, board, 'w')
+    // Hand 2: a raises, c calls it.
+    const played = await playFixedHand([scripted('a', (o) => (o.street === 'preflop' ? 'open_3bb' : undefined)), scripted('b', () => 'fold'), scripted('c', () => undefined)], deal, board, 'p')
+    const c = playerMetrics(extractHands([...walk, ...played]), 'c')
+    expect(c.hands).toBe(2)
+    expect(c.style.vpip).toBe(1) // 1 of 1 hand with a preflop decision, not 1 of 2
   })
 })
 ```
@@ -1086,9 +1191,9 @@ export function quantile(values: readonly number[], q: number): number | null {
 }
 
 export interface PlayStyle {
-  /** Share of hands the player voluntarily put chips in preflop (call or raise). */
+  /** Share of hands the player voluntarily put chips in preflop (call or raise); walks don't count. */
   vpip: number | null
-  /** Share of hands the player raised preflop. */
+  /** Share of hands the player raised preflop; walks don't count. */
   pfr: number | null
   /** Aggression factor: postflop bets and raises per postflop call. */
   af: number | null
@@ -1106,13 +1211,18 @@ export interface PlayerMetrics {
   meanInputTokens: number | null
   meanOutputTokens: number | null
   meanReasoningTokens: number | null
-  /** Latency per decision in ms (timeouts count at the time limit). */
+  /**
+   * Latency, tokens and cost per decision are over answered decisions: auto-played ones (the seat was
+   * skipped after repeated failures, logged at 0 ms and $0) are left out. Timeouts count at the limit.
+   */
   latencyP50Ms: number | null
   latencyP95Ms: number | null
   latencyMeanMs: number | null
   fallbacks: Record<FallbackKind, number>
   /** Share of decisions that fell back to check/fold, any kind. */
   fallbackRate: number | null
+  /** Share of decisions that fell back because of the model's own output (invalid, empty, refused, truncated). */
+  modelFallbackRate: number | null
   /** Share of decisions that needed a retry. */
   retryRate: number | null
   style: PlayStyle
@@ -1125,10 +1235,12 @@ const mean = (xs: readonly number[]) => (xs.length ? xs.reduce((s, x) => s + x, 
 export function playerMetrics(hands: readonly HandRecord[], playerId: string): PlayerMetrics {
   const seated = hands.filter((h) => h.seats.some((s) => s.playerId === playerId))
   const decisions = seated.flatMap((h) => h.decisions.filter((d) => d.playerId === playerId))
+  const answered = decisions.filter((d) => d.fallbackKind !== 'auto')
   const costUsd = decisions.reduce((s, d) => s + d.costUsd, 0)
   const fallbacks: Record<FallbackKind, number> = { model: 0, infra: 0, timeout: 0, auto: 0 }
   for (const d of decisions) if (d.fallbackKind) fallbacks[d.fallbackKind]++
 
+  let preflopHands = 0
   let vpip = 0
   let pfr = 0
   let aggressive = 0
@@ -1138,6 +1250,7 @@ export function playerMetrics(hands: readonly HandRecord[], playerId: string): P
   for (const h of seated) {
     const mine = h.decisions.filter((d) => d.playerId === playerId)
     const pre = mine.filter((d) => d.street === 'preflop')
+    if (pre.length) preflopHands++ // a walk (no preflop decision) is not a chance to play
     if (pre.some((d) => d.actionType === 'call' || d.actionType === 'raise')) vpip++
     if (pre.some((d) => d.actionType === 'raise')) pfr++
     for (const d of mine) {
@@ -1156,18 +1269,19 @@ export function playerMetrics(hands: readonly HandRecord[], playerId: string): P
     hands: seated.length,
     decisions: decisions.length,
     costUsd,
-    costPerDecisionUsd: ratio(costUsd, decisions.length),
+    costPerDecisionUsd: ratio(costUsd, answered.length),
     costPer100HandsUsd: seated.length ? (costUsd / seated.length) * 100 : null,
-    meanInputTokens: mean(decisions.map((d) => d.inputTokens)),
-    meanOutputTokens: mean(decisions.map((d) => d.outputTokens)),
-    meanReasoningTokens: mean(decisions.map((d) => d.reasoningTokens)),
-    latencyP50Ms: quantile(decisions.map((d) => d.latencyMs), 0.5),
-    latencyP95Ms: quantile(decisions.map((d) => d.latencyMs), 0.95),
-    latencyMeanMs: mean(decisions.map((d) => d.latencyMs)),
+    meanInputTokens: mean(answered.map((d) => d.inputTokens)),
+    meanOutputTokens: mean(answered.map((d) => d.outputTokens)),
+    meanReasoningTokens: mean(answered.map((d) => d.reasoningTokens)),
+    latencyP50Ms: quantile(answered.map((d) => d.latencyMs), 0.5),
+    latencyP95Ms: quantile(answered.map((d) => d.latencyMs), 0.95),
+    latencyMeanMs: mean(answered.map((d) => d.latencyMs)),
     fallbacks,
     fallbackRate: ratio(decisions.filter((d) => d.fallback).length, decisions.length),
+    modelFallbackRate: ratio(fallbacks.model, decisions.length),
     retryRate: ratio(decisions.filter((d) => d.retries > 0).length, decisions.length),
-    style: { vpip: ratio(vpip, seated.length), pfr: ratio(pfr, seated.length), af: ratio(aggressive, calls), wtsd: ratio(showdowns, sawFlop) },
+    style: { vpip: ratio(vpip, preflopHands), pfr: ratio(pfr, preflopHands), af: ratio(aggressive, calls), wtsd: ratio(showdowns, sawFlop) },
   }
 }
 ```
@@ -1183,7 +1297,7 @@ export * from './metrics'
 - [ ] **Step 4: Run tests and typecheck**
 
 Run: `pnpm --filter @ab/analysis exec vitest run && pnpm --filter @ab/analysis typecheck`
-Expected: PASS (15 tests); typecheck clean.
+Expected: PASS (20 tests); typecheck clean.
 
 - [ ] **Step 5: Commit**
 
@@ -1603,8 +1717,10 @@ export interface PlayerCalibration {
   winA: Calibration
   /** Stated win probability vs outcome C (expected main-pot share at the decision). */
   winC: Calibration
-  /** Confidence vs whether the chosen action worked out, overall and per action type. */
-  action: Calibration
+  /**
+   * Confidence vs whether the chosen action was right, per action type. Never pooled: the rules differ
+   * by type (equity for folds and calls, later chips for checks and raises) and so do their base rates.
+   */
   actionByType: Record<'fold' | 'check' | 'call' | 'raise', Calibration>
 }
 
@@ -1690,7 +1806,6 @@ export function analyseStudy(store: EventStore, config: StudyConfig, opts: { foc
       confidenceSource: CONFIDENCE_SOURCE[info.get(playerId)?.kind ?? ''] ?? 'unknown',
       winA: calibration(win.map((d) => ({ p: d.winProbability!, o: d.mainPotShare }))),
       winC: calibration(win.map((d) => ({ p: d.winProbability!, o: d.expectedShare }))),
-      action: calibration(conf.map((d) => ({ p: d.confidence!, o: d.actionGood }))),
       actionByType: { fold: actionOf('fold'), check: actionOf('check'), call: actionOf('call'), raise: actionOf('raise') },
     }
   }
@@ -1723,11 +1838,12 @@ export function analyseStudy(store: EventStore, config: StudyConfig, opts: { foc
     metrics: config.lineup.map((s) => playerMetrics(hands, s.id)),
     calibration: config.lineup.map((s) => calibrationOf(s.id)),
     notes: [
+      'VPIP and PFR leave out walks (hands with no preflop decision). AF is postflop bets and raises per call (undefined with no calls); WTSD is showdowns per hand seen to the flop.',
       'bb/100: 95% Student t CIs over neighbour blocks of seed groups (df = blocks - 1); the percentile bootstrap CI is a sensitivity check. Per-player CIs are marginal: claims about pairs rest on the Holm-corrected paired contrasts.',
       'Calibration A (headline): stated win probability vs the share of the main pot actually won (1, 1/k for a k-way split, 0 after any fold). Calibration C: vs the expected main-pot share at the decision from all hole cards (exact enumeration), which removes later actions and board luck.',
-      "Per-action calibration: confidence vs whether the action worked out. A fold counts as right if all-in equity was below the pot odds; any other action if the player's stack didn't shrink from that point to the end of the hand.",
+      "Per-action calibration, by action type only: confidence vs whether the action was right. Folds and calls are scored by all-in equity (outcome C) against the pot odds of the pot the player could win: a fold is right below them, a call at or above them. This treats the hand as if it went to showdown now and ignores players still to act, a standard approximation. Checks and raises have no such rule: they count as right if the player's stack didn't shrink from that point to the end of the hand, so later streets feed into their score.",
       "Confidence means different things: Jev's is derived from its option probabilities, the LLMs' is self-reported. Compare each player with itself, not the two kinds with each other.",
-      'Decisions that fell back to check/fold (timeouts, invalid output, provider errors) are excluded from calibration and counted under fallbacks. Latency includes them (a timeout counts at the time limit).',
+      "Decisions that fell back to check/fold (timeouts, invalid output, provider errors) are excluded from calibration and counted under fallbacks; only invalid, empty, refused or truncated output counts against the model itself. Latency, tokens and cost per decision include timeouts (at the time limit) but not auto-played decisions (a seat skipped after repeated failures).",
       'Cost: LLMs as reported per call by OpenRouter; Jev as input tokens x the published price (see the pre-registration).',
     ],
   }
@@ -1833,10 +1949,13 @@ describe('renderReportHtml', () => {
     expect(html).toContain('JEV · mock/jev')
     expect(html).toContain('Holm')
     expect(html).toContain('No win probabilities stated: BLOCK · bot/calling-station, NIMBUS · bot/calling-station.')
-    // Two CI charts; A and C charts for the three seats stating win probabilities; action charts for the
-    // two mocks (the TAG bot states a win probability but no confidence).
-    expect(html.match(/<svg /g)!.length).toBe(2 + 3 + 3 + 2)
-    expect(html).toContain('No confidence stated: PILL · bot/tag, BLOCK · bot/calling-station, NIMBUS · bot/calling-station.')
+    // Two CI charts; A and C charts for the three seats stating win probabilities (the mocks and the TAG
+    // bot); per-action charts for each action type a confident player (the two mocks) took.
+    const actionCharts = (['fold', 'call', 'check', 'raise'] as const).reduce((n, t) => n + r.calibration.filter((c) => c.actionByType[t].n > 0).length, 0)
+    expect(actionCharts).toBeGreaterThan(0)
+    expect(html.match(/<svg /g)!.length).toBe(2 + 3 + 3 + actionCharts)
+    expect(html).toContain('Folds: right if all-in equity was below the pot odds')
+    expect(html).toContain('Model-output fallbacks')
     expect(html).not.toMatch(/<script|<link|src=|href=/) // nothing external, nothing executable
   })
 
@@ -1947,6 +2066,7 @@ main{max-width:1080px;margin:0 auto;padding:24px 16px 64px}
 h1,h2{font-family:"Barlow Condensed",Barlow,system-ui,sans-serif;letter-spacing:.02em}
 h1{font-size:34px;margin:0 0 4px}h1 span{color:var(--brass)}
 h2{font-size:22px;margin:40px 0 12px;border-bottom:1px solid var(--rule);padding-bottom:6px}
+h3{font-size:16px;margin:24px 0 8px;color:var(--muted);font-weight:600}
 .sub{color:var(--muted);margin:0 0 24px}
 .meta{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:8px}
 .meta div{background:var(--panel);border:1px solid var(--rule);border-radius:6px;padding:8px 10px}
@@ -1963,6 +2083,7 @@ svg .lbl{fill:var(--cream);font-size:13px}svg .tick{fill:var(--muted);font-size:
 figure.rel{margin:0}figcaption{font-size:13px;color:var(--muted);margin-top:4px}figcaption b{color:var(--cream)}
 .yes{color:var(--brass);font-weight:600}.no{color:var(--muted)}
 .note{color:var(--muted)}ul.notes li{margin-bottom:6px}
+td span.note{white-space:normal;display:inline-block;min-width:240px;text-align:left}
 details{background:var(--panel);border:1px solid var(--rule);border-radius:6px;padding:8px 12px}
 pre{white-space:pre-wrap;word-break:break-all;font-size:12px;color:var(--muted)}
 `
@@ -2066,19 +2187,23 @@ export function renderReportHtml(report: StudyReport): string {
   }
   const calA = grid((c) => c.winA, 'No win probabilities stated')
   const calC = grid((c) => c.winC, 'No win probabilities stated')
-  const calAction = grid((c) => c.action, 'No confidence stated')
+  const ACTIONS = [
+    ['fold', 'Folds: right if all-in equity was below the pot odds'],
+    ['call', 'Calls: right if all-in equity met the pot odds'],
+    ['check', "Checks: right if the player's stack didn't shrink afterwards"],
+    ['raise', "Bets and raises: right if the player's stack didn't shrink afterwards"],
+  ] as const
+  const calAction = ACTIONS.map(([type, title]) => `<h3>${esc(title)}</h3>${grid((c) => c.actionByType[type], 'No confident actions of this type')}`).join('')
   const calTable = rowsWithFocus(
     table(
-      ['Player', 'Win A: Brier', 'ECE', 'Win C: Brier', 'ECE', 'Action: Brier', 'ECE', 'n', 'Confidence is'],
+      ['Player', 'Win A: Brier', 'ECE', 'Win C: Brier', 'ECE', 'n', 'Confidence is'],
       report.calibration.map((c) => [
         name(c.playerId),
         num(c.winA.brier, 3),
         num(c.winA.ece, 3),
         num(c.winC.brier, 3),
         num(c.winC.ece, 3),
-        num(c.action.brier, 3),
-        num(c.action.ece, 3),
-        String(c.action.n),
+        String(c.winA.n),
         `<span class="note">${esc(c.confidenceSource)}</span>`,
       ]),
     ),
@@ -2096,8 +2221,8 @@ export function renderReportHtml(report: StudyReport): string {
   )
 
   const fallbacks = table(
-    ['Player', 'Fallback rate', 'Invalid output', 'Provider / network', 'Timeout', 'Auto-played', 'Needed a retry'],
-    report.metrics.map((m) => [name(m.playerId), pct(m.fallbackRate, 2), String(m.fallbacks.model), String(m.fallbacks.infra), String(m.fallbacks.timeout), String(m.fallbacks.auto), pct(m.retryRate, 2)]),
+    ['Player', 'Model-output fallbacks', 'All fallbacks', 'Invalid output', 'Provider / network', 'Timeout', 'Auto-played', 'Needed a retry'],
+    report.metrics.map((m) => [name(m.playerId), pct(m.modelFallbackRate, 2), pct(m.fallbackRate, 2), String(m.fallbacks.model), String(m.fallbacks.infra), String(m.fallbacks.timeout), String(m.fallbacks.auto), pct(m.retryRate, 2)]),
   )
   const style = table(
     ['Player', 'VPIP', 'PFR', 'Aggression (AF)', 'Went to showdown'],
@@ -2126,10 +2251,10 @@ export function renderReportHtml(report: StudyReport): string {
 ${calA}
 <p class="note">Second chart (C): against the expected main-pot share at the moment of the decision, from all hole cards (exact enumeration), which removes later actions and board luck.</p>
 ${calC}
-<h2>5. Per-action calibration</h2>
-<p class="note">Confidence against whether the chosen action worked out. Jev's confidence and the LLMs' are different quantities (see the last column): compare each player with itself.</p>
-${calAction}
 ${calTable}
+<h2>5. Per-action calibration</h2>
+<p class="note">Confidence against whether the chosen action was right, one action type at a time (the rules and base rates differ, so they are never pooled). Jev's confidence and the LLMs' are different quantities (see the table above): compare each player with itself.</p>
+${calAction}
 <p class="note">Brier score by action type:</p>
 ${byType}
 <h2>6. Reliability</h2>${fallbacks}
@@ -2571,7 +2696,7 @@ reports/
 - [ ] **Step 4: Run everything, then a free report**
 
 Run: `pnpm test && pnpm typecheck`
-Expected: PASS (engine 110, players 44, core 35, analysis 15, study 47); typecheck clean.
+Expected: PASS (engine 110, players 44, core 35, analysis 20, study 47); typecheck clean.
 
 Then (free):
 ```bash

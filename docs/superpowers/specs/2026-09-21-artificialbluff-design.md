@@ -195,9 +195,10 @@ Budget and concurrency are not part of the pre-registration (they only decide ho
 **Outputs:** static HTML report, CSV/JSON of every decision, and the same charts on the site's `/research` page:
 results (bb/100 ± CI, Holm-corrected paired contrasts of Jev vs each model), cost ($/decision, $/100 hands), latency
 (p50/p95), win-probability calibration (reliability curves with 10 bins, Brier, ECE; outcomes A and C), per-action
-calibration (confidence vs whether the action worked out: a fold is right if all-in equity was below the pot odds,
-any other action if the player's stack didn't shrink from that point to the end of the hand), invalid/fallback rate
-by kind, play style (VPIP, PFR, AF, WTSD). `pnpm study report <study.json> [--mock]` writes `report.html`
+calibration (confidence vs whether the action was right, reported per action type only: folds and calls by all-in
+equity against the pot odds of the winnable pot, checks and raises by whether the player's stack shrank afterwards),
+invalid/fallback rate by kind (headline: model-output failures), play style (VPIP and PFR without walks, AF, WTSD).
+Per-decision cost, tokens and latency leave out auto-played decisions. `pnpm study report <study.json> [--mock]` writes `report.html`
 (self-contained), `report.json`, `decisions.csv` and `decisions.json` (Plan 3b; pure functions in `@ab/analysis`).
 
 ## 7. Live server, replays, site

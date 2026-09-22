@@ -67,14 +67,14 @@ Last updated: 2026-09-22
 
 ### Plan 3b task progress
 
-- [ ] Task 1: Exact main-pot equity in the engine (expect engine 110)
-- [ ] Task 2: Analysis package and hand records, outcome A (analysis 5)
-- [ ] Task 3: Outcome C and per-action score (analysis 9)
-- [ ] Task 4: Calibration and player metrics (analysis 15)
-- [ ] Task 5: Valid hand ids + paired contrasts with Holm (study 40)
-- [ ] Task 6: Report model + CSV export (study 44)
+- [x] Task 1: Exact main-pot equity in the engine (2cda785; spec ✅)
+- [x] Task 2: Analysis package and hand records, outcome A (0c8fd2e; spec ✅)
+- [x] Task 3: Outcome C and per-action score (e34cf53; spec ✅)
+- [x] Task 4: Calibration and player metrics (b8fa9bb; spec ✅). Opus review of Tasks 1-4: approve with fixes → auto decisions out of latency/cost, calls scored by equity, per-action calibration per type only, winnable-pot odds, group by game, VPIP without walks, model-only fallback rate, 7 tests (follow-up fix pending)
+- [x] Task 5: Valid hand ids + paired contrasts with Holm (5a083ad; spec ✅)
+- [x] Task 6: Report model + CSV export (a80ed5a; spec ✅; report.ts follow-up with the review fix)
 - [ ] Task 7: HTML report (study 46)
-- [ ] Task 8: pnpm study report (study 47; total 251)
+- [ ] Task 8: pnpm study report (study 47; analysis 20; total 256)
 
 ## Key decisions (summary; spec is authoritative)
 
@@ -126,6 +126,8 @@ Last updated: 2026-09-22
 - Scratch bloub preview (custom colours, Mascots.vue) lived in the session scratchpad; recreate in Plan 4.
 
 ## Execution log
+
+- 2026-09-22: Opus review of Plan 3b Tasks 1-4 (equity, outcomes A/C, calibration math confirmed correct). Adopted: calls scored by equity vs winnable-pot odds (mirror of folds); per-action calibration published per action type only (pooling rewards passive play); auto-played decisions excluded from latency/tokens/cost per decision; headline fallback rate = model-output failures; VPIP/PFR exclude walks; hands grouped by game+hand id. Reference: analysis 20, study 47 (256 total).
 
 - 2026-09-22: Plan 3a merged to master (04bc98f) and pushed with the branch to github.com/0xjba/Artificial-Bluff. Plan 3b written from a verified scratch reference (251 tests). Decisions: outcome C treats folded hands' cards as dead (exact equity given every dealt card); per-action score = fold right if equity < pot odds, other actions right if stack didn't shrink to hand end; exact preflop equity is batched per (deal, board) over live subsets (75 s → 12 s for 200 hands); focus player for contrasts = first jev seat.
 
