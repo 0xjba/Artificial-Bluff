@@ -173,6 +173,28 @@ describe('HTTP API', () => {
     expect(done.events.at(-1)).toMatchObject({ type: 'game_ended', reason: 'interrupted' })
   })
 
+  it('summarises the models and lists a game\'s hands', async () => {
+    const a = await app()
+    const started = await admin(a, '/api/admin/games')
+    const { gameId } = await started.json()
+    await readFeed(a, (m) => m.filter((x) => x.type === 'event' && (x as { event: { type: string } }).event.type === 'hand_ended').length >= 2)
+    // While the game runs its hands are listed (they are on the feed anyway), but no model table yet.
+    const live = await (await fetch(`${a.url}/api/hands/${gameId}`)).json()
+    expect(live.hands.length).toBeGreaterThan(0)
+    expect(live.hands[0]).toMatchObject({ gameId, number: live.hands.length })
+    expect(await (await fetch(`${a.url}/api/models`)).json()).toMatchObject({ games: 0, seats: [] })
+    expect((await fetch(`${a.url}/api/hands/nope`)).status).toBe(404)
+
+    await admin(a, '/api/admin/games/stop')
+    await a.live.idle()
+    const table = await (await fetch(`${a.url}/api/models`)).json()
+    expect(table.games).toBe(1)
+    expect(table.seats).toHaveLength(5)
+    expect(table.seats[0]).toMatchObject({ playerId: expect.any(String), model: expect.any(String) })
+    const done = await (await fetch(`${a.url}/api/hands/${gameId}`)).json()
+    expect(done.hands.every((h: { headline: string }) => h.headline.length > 10)).toBe(true)
+  })
+
   it('allows the configured browser origin only', async () => {
     const a = await app({ allowedOrigin: 'http://localhost:3000' })
     const ok = await fetch(`${a.url}/api/state`, { headers: { Origin: 'http://localhost:3000' } })

@@ -1,49 +1,58 @@
 'use client'
 import type { SeatView, TableView } from '@ab/core/view'
-import { characterFor, cueFor, Mascot } from '@ab/mascot'
-import { chips, ms, pct, shortModel } from '../lib/format'
+import { characterFor, cueFor, EYE_INK, Mascot } from '@ab/mascot'
+import { chips, pct, positionName, shortAction } from '../lib/format'
 import { seatMoment } from '../lib/moments'
 import { PlayingCard } from './PlayingCard'
 
-/** What the seat's win bar means (spectators see every hand; the players never see this). */
-export const EQUITY_HELP = 'Chance this player wins the hand from here, worked out by the broadcast from everyone\'s cards. The players can\'t see it.'
+/** What a seat card says it did last. */
+function lastWord(seat: SeatView): string {
+  if (seat.status === 'out') return 'Out'
+  if (seat.status === 'folded') return 'Folded'
+  return seat.lastAction ? shortAction(seat.lastAction.label) : ''
+}
 
-const STATUS: Record<SeatView['status'], string> = { active: '', folded: 'FOLDED', all_in: 'ALL-IN', out: 'OUT' }
+/** What the seat's win chance line reads (on narrow screens, where the players panel is hidden). */
+function winWord(view: TableView, seat: SeatView): string {
+  if (seat.status === 'folded') return 'Folded'
+  if (seat.status === 'out') return 'Out'
+  const e = view.equity?.[seat.playerId]
+  return e === undefined ? '–' : `${view.equityEstimated ? '≈' : ''}${pct(e)}`
+}
 
-/** One seat: mascot, character name, model badge, stack, cards, last action, latency, true equity. */
+/** One seat on the felt: mascot, name, position, stack, cards and what it just did. */
 export function Seat({ view, seat, index }: { view: TableView; seat: SeatView; index: number }) {
   const who = characterFor(seat.playerId, index)
   const { moment, jevDecided, key } = seatMoment(view, seat.playerId)
-  const toAct = view.hand?.toAct === seat.playerId
-  const equity = view.equity?.[seat.playerId]
+  const acting = view.hand?.toAct === seat.playerId
+  const dim = seat.status === 'folded' || seat.status === 'out'
   return (
-    <div className={`seat${toAct ? ' to-act' : ''}${seat.status === 'folded' || seat.status === 'out' ? ' dim' : ''}${seat.kind === 'jev' ? ' jev' : ''}`}>
-      <div className="seat-top">
-        <div className="seat-mascot">
-          <Mascot shape={who.shape} cue={cueFor(moment, jevDecided)} cueKey={key} size={64} paper="#0E3029" title={`${who.name}, ${moment.replace('_', ' ')}`} />
-          {seat.position === 'BTN' ? <span className="dealer" title="dealer button">D</span> : null}
+    <div className={`seat-card${acting ? ' acting' : ''}${dim ? ' dim' : ''}`} style={{ '--seat': who.color } as React.CSSProperties}>
+      <div className="seat-head">
+        <div className="mascot-box">
+          <Mascot shape={who.shape} cue={cueFor(moment, jevDecided)} cueKey={key} size={46} ink={who.color} paper={EYE_INK} title={`${who.name}, ${moment.replace('_', ' ')}`} />
+          {seat.position === 'BTN' ? (
+            <span className="dealer" title="dealer button">
+              D
+            </span>
+          ) : null}
         </div>
         <div className="seat-id">
-          <div className="seat-name">
-            <b>{who.name}</b> <span className="badge" title={seat.model}>{shortModel(seat.model)}</span>
-          </div>
-          <div className="seat-stack">
-            {chips(seat.stack)} <small>{seat.position ?? ''}</small> {STATUS[seat.status] ? <em>{STATUS[seat.status]}</em> : null}
-            {seat.bet > 0 ? <span className="bet" title="chips bet this street">{chips(seat.bet)}</span> : null}
-          </div>
+          <b>{who.name}</b>
+          <small>{positionName(seat.position).toUpperCase()}</small>
+          <span className="stack">{chips(seat.stack)}</span>
         </div>
       </div>
-      <div className="seat-row">
-        <span className="seat-cards">{seat.hole ? seat.hole.map((c) => <PlayingCard key={c} code={c} small />) : null}</span>
-        <span className="last">{seat.lastAction ? seat.lastAction.label : '–'}</span>
-        <span className="latency" title="how long the last decision took">{ms(seat.lastLatencyMs)}</span>
+      <div className="seat-foot">
+        <span className="seat-cards">
+          {seat.hole && !dim ? seat.hole.map((c) => <PlayingCard key={c} code={c} small />) : [0, 1].map((i) => <span key={i} className="card gone">–</span>)}
+        </span>
+        <span className={`act${acting ? ' now' : ''}`}>{acting ? 'Thinking…' : lastWord(seat)}</span>
       </div>
-      {equity !== undefined ? (
-        <div className="equity" title={EQUITY_HELP + (view.equityEstimated ? ' ≈ means estimated by dealing out many random boards.' : '')}>
-          <span style={{ width: `${Math.round(equity * 100)}%` }} />
-          <b>{`Win ${view.equityEstimated ? '≈' : ''}${pct(equity)}`}</b>
-        </div>
-      ) : null}
+      <div className="seat-win" title="Chance this player wins the hand from here, from everyone's cards. The players can't see it.">
+        <span>Win chances</span>
+        <b>{winWord(view, seat)}</b>
+      </div>
     </div>
   )
 }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { DECISIONS_PER_SEAT, decisionUsd, estimateGameUsd, FEATURED, jevDecisionUsd, loadCatalog, supportedModels, type CatalogEntry } from '../lib/byo/models'
+import { DECISIONS_PER_SEAT_PER_HAND, decisionUsd, estimateGameUsd, FEATURED, jevDecisionUsd, loadCatalog, supportedModels, type CatalogEntry } from '../lib/byo/models'
 
 const entry = (id: string, prompt: string, completion: string, params = ['structured_outputs', 'response_format', 'temperature'], extra: Partial<CatalogEntry> = {}): CatalogEntry => ({
   id,
@@ -32,11 +32,12 @@ describe('supported OpenRouter models', () => {
     expect(FEATURED).toContain('meta-llama/llama-4-maverick')
   })
 
-  it('estimates a game: every paid seat up to DECISIONS_PER_SEAT decisions', () => {
+  it('estimates a game from its hands: paid seats only', () => {
     const models = new Map(supportedModels(catalog).map((m) => [m.id, m]))
-    const usd = estimateGameUsd([{ kind: 'jev' }, { kind: 'llm', model: 'acme/cheap' }, { kind: 'bot' }], models)
-    expect(usd).toBeCloseTo(DECISIONS_PER_SEAT * (jevDecisionUsd() + decisionUsd(catalog[1]!)), 12)
-    expect(estimateGameUsd([{ kind: 'llm', model: 'nope/unknown' }], models)).toBe(0)
+    const usd = estimateGameUsd([{ kind: 'jev' }, { kind: 'llm', model: 'acme/cheap' }, { kind: 'bot' }, { kind: 'empty' }], models, 40)
+    expect(usd).toBeCloseTo(40 * DECISIONS_PER_SEAT_PER_HAND * (jevDecisionUsd() + decisionUsd(catalog[1]!)), 12)
+    expect(estimateGameUsd([{ kind: 'llm', model: 'nope/unknown' }], models, 40)).toBe(0)
+    expect(estimateGameUsd([{ kind: 'bot' }, { kind: 'bot' }], models, 40)).toBe(0)
   })
 
   it('loads the public catalog', async () => {

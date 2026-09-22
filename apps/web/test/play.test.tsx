@@ -67,11 +67,12 @@ describe('/play', () => {
     expect((host.querySelector('[aria-label="seat 2 model"]') as HTMLInputElement).value).toBe('anthropic/claude-sonnet-5')
     expect(text()).toContain('connect OpenRouter (or paste a key) for the model seats')
     expect(text()).toContain('add a TypeSafe key for the Jev seat')
-    expect(text()).toContain('Relayed:') // the Jev relay is explained next to the TypeSafe key
-    expect(button('Start the game')!.disabled).toBe(true)
+    expect(text()).toContain('OPENROUTER KEY NEEDED')
+    expect(text()).toContain('TYPESAFE KEY NEEDED') // the Jev relay is explained next to the TypeSafe key
+    expect(button('Deal the first hand')!.disabled).toBe(true)
     choose('OpenRouter key', 'sk-or-test')
     choose('TypeSafe key', 'ts-test')
-    expect(button('Start the game')!.disabled).toBe(false)
+    expect(button('Deal the first hand')!.disabled).toBe(false)
     expect(host.querySelectorAll('#play-models option')).toHaveLength(5)
   })
 
@@ -79,9 +80,9 @@ describe('/play', () => {
     await mount()
     for (let i = 1; i <= 5; i++) choose(`seat ${i} player`, 'bot')
     expect(text()).toContain('PEBBLE') // seat 1 without Jev
-    expect(text()).not.toContain('Relayed:')
-    expect(text()).toContain('Rough estimate: $0 for a whole game')
-    await act(async () => button('Start the game')!.click())
+    expect(text()).not.toContain('TYPESAFE')
+    expect(text()).toContain('≈ $0')
+    await act(async () => button('Deal the first hand')!.click())
     for (let i = 0; i < 50 && !button('New table'); i++) await settle()
     expect(host.querySelector('.broadcast')).not.toBeNull()
     expect(host.querySelectorAll('.log li').length).toBeGreaterThan(0)
@@ -89,7 +90,7 @@ describe('/play', () => {
     expect(text()).toContain('spent ≈ $0 of $1')
     expect(localStorage.length).toBe(0)
     act(() => button('New table')!.click())
-    expect(text()).toContain('Run your own table')
+    expect(text()).toContain('Deal your own line-up')
   })
 
   it('still runs tables without model seats when the model list fails, and can retry it', async () => {
@@ -99,7 +100,7 @@ describe('/play', () => {
     expect(text()).toContain("OpenRouter's model list didn't load")
     for (let i = 2; i <= 5; i++) choose(`seat ${i} player`, 'bot')
     choose('TypeSafe key', 'ts-test')
-    expect(button('Start the game')!.disabled).toBe(false) // Jev and bots need no model list
+    expect(button('Deal the first hand')!.disabled).toBe(false) // Jev and bots need no model list
     catalogUp = true
     await act(async () => button('Retry')!.click())
     await settle()
@@ -146,11 +147,11 @@ describe('/play', () => {
   it('stops after the hand in progress', async () => {
     await mount(40)
     for (let i = 1; i <= 5; i++) choose(`seat ${i} player`, 'bot')
-    await act(async () => button('Start the game')!.click())
+    await act(async () => button('Deal the first hand')!.click())
     await act(async () => button('Stop after this hand')!.click())
     for (let i = 0; i < 400 && !button('New table'); i++) await act(async () => await new Promise((r) => setTimeout(r, 10)))
     expect(button('New table')).toBeDefined()
-    expect(host.querySelectorAll('.log li.hand')).toHaveLength(1) // the hand in progress finished, no other began
+    expect(host.querySelectorAll('.hand-head')).toHaveLength(1) // the hand in progress finished, no other began
     expect(text()).toContain('(interrupted)')
   })
 })

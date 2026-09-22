@@ -6,7 +6,7 @@ import { usd } from '../../lib/format'
 import { initialFeed, reduceFeed, type FeedState } from '../../lib/feed'
 import { beginSignIn, finishSignIn, forgetKeys, loadKeys, saveKeys } from '../../lib/byo/keys'
 import { loadCatalog, supportedModels, type CatalogEntry, type ModelOption, type SeatChoice } from '../../lib/byo/models'
-import { checkSetup, DEFAULT_SEATS, LocalTable, TABLE_PACE_MS } from '../../lib/byo/table'
+import { checkSetup, DEFAULT_GAME, DEFAULT_SEATS, LocalTable, PACES } from '../../lib/byo/table'
 import { Broadcast } from '../Broadcast'
 import { PlaySetup, type SetupState } from './PlaySetup'
 
@@ -14,11 +14,11 @@ const name = (id: string) => characterFor(id).name
 /** The seats and cap, kept for this tab across the round trip to OpenRouter's sign-in page. */
 const DRAFT = 'artificialBluff.playDraft'
 
-const trimmed = (seats: SeatChoice[]): SeatChoice[] => seats.map((s) => (s.kind === 'llm' ? { kind: 'llm', model: s.model.trim() } : s))
+const trimmed = (seats: SeatChoice[]): SeatChoice[] => seats.map((s) => (s.kind === 'llm' ? { kind: 'llm' as const, model: s.model.trim() } : s))
 
 /** /play: set up a table with your own keys, then watch it on the broadcast screen. */
-export function PlayScreen({ paceMs = TABLE_PACE_MS }: { paceMs?: number }) {
-  const [setup, setSetup] = useState<SetupState>({ seats: DEFAULT_SEATS, openrouterKey: '', typesafeKey: '', remember: false, budgetUsd: 1 })
+export function PlayScreen({ paceMs }: { paceMs?: number }) {
+  const [setup, setSetup] = useState<SetupState>({ seats: DEFAULT_SEATS, openrouterKey: '', typesafeKey: '', remember: false, budgetUsd: 1, game: DEFAULT_GAME })
   const [catalog, setCatalog] = useState<CatalogEntry[] | null>(null)
   const [catalogError, setCatalogError] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -72,7 +72,7 @@ export function PlayScreen({ paceMs = TABLE_PACE_MS }: { paceMs?: number }) {
 
   const models: ModelOption[] | null = useMemo(() => (catalog ? supportedModels(catalog) : null), [catalog])
   const modelMap = useMemo(() => new Map((models ?? []).map((m) => [m.id, m])), [models])
-  const tableSetup = { seats: trimmed(setup.seats), openrouterKey: setup.openrouterKey || null, typesafeKey: setup.typesafeKey || null, budgetUsd: setup.budgetUsd }
+  const tableSetup = { seats: trimmed(setup.seats), openrouterKey: setup.openrouterKey || null, typesafeKey: setup.typesafeKey || null, budgetUsd: setup.budgetUsd, game: setup.game }
   // Model seats need OpenRouter's list; tables of Jev and bots don't.
   const needsCatalog = tableSetup.seats.some((s) => s.kind === 'llm')
   const problems = needsCatalog && !catalog ? [catalogError ? "OpenRouter's model list didn't load" : 'loading the model list…'] : checkSetup(tableSetup, modelMap)
@@ -99,7 +99,7 @@ export function PlayScreen({ paceMs = TABLE_PACE_MS }: { paceMs?: number }) {
         models: modelMap,
         relayBase: `${window.location.origin}/api/typesafe`,
         referer: window.location.origin,
-        paceMs,
+        ...(paceMs === undefined ? {} : { paceMs }),
       },
       dispatch,
     )
@@ -122,7 +122,7 @@ export function PlayScreen({ paceMs = TABLE_PACE_MS }: { paceMs?: number }) {
 
   const signIn = () => {
     try {
-      sessionStorage.setItem(DRAFT, JSON.stringify({ seats: setup.seats, budgetUsd: setup.budgetUsd }))
+      sessionStorage.setItem(DRAFT, JSON.stringify({ seats: setup.seats, budgetUsd: setup.budgetUsd, game: setup.game }))
     } catch {
       setError('Sign-in needs this browser to allow site storage; paste a key instead.')
       return

@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react'
 import { reduceFeed, type FeedState } from '../lib/feed'
 import { feedAt, handAt, handStarts, nextHand, prevHand, seekable } from '../lib/timeshift'
 import { Broadcast } from './Broadcast'
+import { SeekBar } from './SeekBar'
 import { replayPause } from './ReplayScreen'
 import { useFeed } from './useFeed'
 
@@ -51,38 +52,26 @@ export function LiveScreen({ feedUrl }: { feedUrl: string }) {
 
   // Seeking needs the whole game from its start with nothing missing (the backlog may still be loading).
   const canSeek = channel?.mode === 'live' && seekable(history)
-  const seek = (pos: number | null) => {
+  const seekTo = (pos: number | null) => {
     if (!channel || pos === null || pos >= history.length) return setPast(null)
     const playing = past?.playing ?? true
     setPast({ channelId: channel.id, snapshot: feed.snapshots, pos, state: feedAt(channel, history, pos, name), playing })
   }
   const pos = past?.pos ?? history.length
-  const first = handStarts(history)[0] ?? 1
 
-  const controls = canSeek ? (
-    <span className="controls timeshift">
-      <button type="button" title="Previous hand" aria-label="previous hand" onClick={() => seek(prevHand(history, pos))}>
-        ⏮
-      </button>
-      {past ? (
-        <button type="button" onClick={() => setPast((p) => p && { ...p, playing: !p.playing })}>
-          {past.playing ? 'Pause' : 'Play'}
-        </button>
-      ) : null}
-      <button type="button" title="Next hand" aria-label="next hand" disabled={!past} onClick={() => seek(nextHand(history, pos))}>
-        ⏭
-      </button>
-      <input
-        type="range"
-        className="seek"
-        aria-label="seek through the game"
-        min={first}
-        max={history.length}
-        value={Math.max(first, pos)}
-        onChange={(e) => seek(Number(e.target.value))}
-      />
-      <span className="progress">{past ? `watching hand ${handAt(history, pos)} of ${handStarts(history).length}` : ''}</span>
-    </span>
+  const seek = canSeek ? (
+    <SeekBar
+      total={history.length}
+      pos={pos}
+      starts={handStarts(history)}
+      hand={{ at: handAt(history, pos), of: handStarts(history).length }}
+      behind={past !== null}
+      playing={past?.playing ?? true}
+      onSeek={seekTo}
+      onPrevHand={() => seekTo(prevHand(history, pos))}
+      onNextHand={() => seekTo(nextHand(history, pos))}
+      onTogglePlay={() => setPast((p) => p && { ...p, playing: !p.playing })}
+    />
   ) : null
 
   const shown = past?.state ?? feed
@@ -93,7 +82,8 @@ export function LiveScreen({ feedUrl }: { feedUrl: string }) {
       log={shown.log}
       decisionEquity={past ? null : feed.decisionEquity}
       connection={feed.connection}
-      controls={controls}
+      seek={seek}
+      explainer
       {...(channel?.mode === 'live' ? { live: { behind: past !== null, onGoLive: () => setPast(null) } } : {})}
     />
   )

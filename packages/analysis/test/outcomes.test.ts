@@ -17,6 +17,18 @@ describe('outcome C: expected main-pot share at the decision', () => {
     for (const d of scored.filter((x) => x.street === 'river')) expect(d.expectedShare).toBe(d.playerId === 'a' ? 1 : 0)
   })
 
+  it('can estimate instead of enumerating, for screens that need the whole log quickly', async () => {
+    const [hand] = extractHands(await playFixedHand([caller('a'), caller('b'), caller('c')], [['Ah', 'Ad'], ['Kh', 'Kd'], ['Qh', 'Qd']], board))
+    const exact = scoreDecisions([hand!])
+    const sampled = scoreDecisions([hand!], new Map(), { maxEvaluations: 1000, samples: 20_000, seedNamespace: 'test' })
+    const preflop = (xs: typeof exact) => xs.find((d) => d.street === 'preflop' && d.playerId === 'a')!.expectedShare
+    expect(preflop(sampled)).toBeCloseTo(preflop(exact), 2) // within a percentage point of the truth
+    expect(preflop(sampled)).not.toBe(preflop(exact)) // it really did sample
+    // Same seed, same estimate; and the river, where enumeration is trivial, stays exact.
+    expect(scoreDecisions([hand!], new Map(), { maxEvaluations: 1000, samples: 20_000, seedNamespace: 'test' }).map((d) => d.expectedShare)).toEqual(sampled.map((d) => d.expectedShare))
+    for (const d of sampled.filter((x) => x.street === 'river')) expect(d.expectedShare).toBe(d.playerId === 'a' ? 1 : 0)
+  })
+
   it('reuses one enumeration for the same cards in different seats', async () => {
     const cache: ShareCache = new Map()
     const [h1] = extractHands(await playFixedHand([caller('a'), caller('b')], [['Ah', 'Ad'], ['Kh', 'Kd']], board, 'h1'))
