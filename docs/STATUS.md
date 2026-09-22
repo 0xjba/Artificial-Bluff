@@ -104,10 +104,11 @@ Last updated: 2026-09-22
 
 ### Plan 4c task progress
 
-- [ ] Task 1: Browser-safe @ab/core/view + latency total (core 39)
-- [ ] Task 2: Web scaffold + pure logic (web 5)
-- [ ] Task 3: Broadcast screen components (web 9, incl. end-to-end feed test)
-- [ ] Task 4: Pages, styles, replays, research, about (web 11; total 408; build + manual check)
+- [x] Task 1: Browser-safe @ab/core/view + latency total (b8005dc; spec ✅)
+- [x] Task 2: Web scaffold + pure logic (8aa85b1; spec ✅)
+- [x] Task 3: Broadcast screen components (34befb8; spec ✅)
+- [x] Task 4: Pages, styles, replays, research, about (645ac91; spec ✅; build clean; browser walkthrough on the repo build ✅)
+- [ ] Final branch review (opus)
 
 ## Key decisions (summary; spec is authoritative)
 
