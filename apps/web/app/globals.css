@@ -767,6 +767,14 @@ button.tag.live {
   color: var(--dim);
   text-wrap: pretty;
 }
+/* And what the measured one actually counts, since a percentage alone says little. */
+.claims-note {
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--dim);
+  text-wrap: pretty;
+}
 .claims b.true {
   color: var(--gold);
 }

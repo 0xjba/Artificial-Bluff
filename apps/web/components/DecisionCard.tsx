@@ -38,19 +38,24 @@ export function DecisionCard({ view, decisionEquity }: { view: TableView; decisi
         <div title="The chance of winning this hand that the player claimed, just before it acted.">
           <span>IT SAID</span>
           <b>{pct(d.winProbability)}</b>
-          <small>its own win chance</small>
+          <small>the player&apos;s own guess</small>
         </div>
         <div title={jev ? "How much of Jev's probability sat on the option it chose." : 'How sure the player said it was that this was the right move.'}>
           <span>CONFIDENCE</span>
           <b>{pct(d.confidence)}</b>
-          <small>{jev ? 'weight on this option' : 'in this move'}</small>
+          <small>{jev ? 'weight on this option' : 'that the move is right'}</small>
         </div>
         <div title="Arithmetic, not opinion: the share of the ways the remaining cards can fall in which this player wins the pot, given every hand at the table. Sampled when there are too many to count one by one.">
           <span>REALITY</span>
           <b className="true">{pct(decisionEquity)}</b>
-          <small>counted: how often it wins</small>
+          <small>the maths, not a guess</small>
         </div>
       </div>
+      <p className="claims-note">
+        {decisionEquity === null
+          ? 'Reality is counted by the engine: every way the remaining cards can fall, given each hand at the table. No player is ever shown it.'
+          : `Deal the rest of the cards every possible way and this hand wins ${pct(decisionEquity)} of those finishes. The engine counts them; no player is ever shown it.`}
+      </p>
       {d.fallback ? <p className="warn">{fallbackNotice(d.fallbackKind, d.fallbackReason)}</p> : null}
       {probs ? (
         <ul className="probs" aria-label="option probabilities">
