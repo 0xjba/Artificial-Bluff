@@ -88,7 +88,7 @@ Last updated: 2026-09-22
 - [x] Task 6: Live controller + director (4627e06; spec ✅)
 - [x] Task 7: Live line-up (aaba4d3; spec ✅)
 - [x] Task 8: HTTP API, app, pnpm live (4e40cea; spec ✅; 298 tests; free mock server checked end to end)
-- [ ] Final branch review (opus): merge after fixes → malformed URL 400 (was a crash), Ctrl-C double signal, SSE back-pressure (1 MB), single-server db lock + interrupt only live games, director survives errors, paged events, replay cache, stopped live games replayed, REPLAY_PACE_MS ≥ 10, catalog timeout, idle() no spin (fix pending; expect server 42, total 306)
+- [x] Final branch review (opus): merge after fixes → malformed URL 400 (was a crash), Ctrl-C double signal, SSE back-pressure (1 MB), single-server db lock + interrupt only live games, director survives errors, paged events, replay cache, stopped live games replayed, REPLAY_PACE_MS ≥ 10, catalog timeout, idle() no spin (fixed in 1a551fe; server 42, total 306; free mock server SIGINT checked end to end — exit 0, game row interrupted with final game_ended event, lock file released)
 
 ## Key decisions (summary; spec is authoritative)
 
