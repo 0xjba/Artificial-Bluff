@@ -83,11 +83,12 @@ Last updated: 2026-09-22
 - [x] Task 1: Seeded equity estimate in the engine (6b29863; spec ✅)
 - [x] Task 2: Table view reducer in core (faca4e0; spec ✅)
 - [x] Task 3: Server package, config, public views (72fb48a; spec ✅)
-- [x] Task 4: Hub + true-equity annotations (96142e9; spec ✅). Opus review of Tasks 1-4: approve with fixes → reducer clears equity at hand end (client == hub, tested), isOver (interrupted study keeps its seed secret), reels regroup interleaved study hands, strict MOCK/number/origin config, game_ended closes open hand, hand seatOrder, subscriber-copy broadcast, shared engine validator (follow-up pending)
+- [x] Task 4: Hub + true-equity annotations (96142e9; spec ✅). Opus review of Tasks 1-4: approve with fixes → reducer clears equity at hand end (client == hub, tested), isOver (interrupted study keeps its seed secret), reels regroup interleaved study hands, strict MOCK/number/origin config, game_ended closes open hand, hand seatOrder, subscriber-copy broadcast, shared engine validator (fixed in b5ffb3e)
 - [x] Task 5: Replays and highlights (37fb80b; spec ✅)
 - [x] Task 6: Live controller + director (4627e06; spec ✅)
-- [ ] Task 7: Live line-up (server 28)
-- [ ] Task 8: HTTP API, app, pnpm live (server 34; total 298)
+- [x] Task 7: Live line-up (aaba4d3; spec ✅)
+- [x] Task 8: HTTP API, app, pnpm live (4e40cea; spec ✅; 298 tests; free mock server checked end to end)
+- [ ] Final branch review (opus)
 
 ## Key decisions (summary; spec is authoritative)
 
