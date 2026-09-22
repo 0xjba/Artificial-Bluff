@@ -28,7 +28,7 @@ Last updated: 2026-09-22
 | 1 | Monorepo + game engine (`packages/engine`) | ✅ Merged to master (9de0579), 99 tests |
 | 2 | Players (Jev, LLM, bots, mock), table runner, SQLite event log | ✅ Merged to master (b94a7be), 181 tests |
 | 3 | Study runner (duplicate, budget cap, resume, CI stop) + report/charts | 3a study runner: ✅ merged (04bc98f), 220 tests; 3b analysis + report: ✅ merged (0d46196), 258 tests |
-| 4 | 4a live server (SSE feed, replays, admin start/stop); 4b mascots (bloub engine, shapes, React component); 4c web (Broadcast UI) | 4a: ✅ merged, 306 tests; 4b: ✅ built and reviewed on `feat/plan-4b-web` (397 tests), ready to merge; 4c: not written |
+| 4 | 4a live server (SSE feed, replays, admin start/stop); 4b mascots (bloub engine, shapes, React component); 4c web (Broadcast UI) | 4a: ✅ merged, 306 tests; 4b: ✅ merged, 397 tests; 4c: not written |
 
 ### Plan 1 task progress
 
@@ -151,6 +151,8 @@ Last updated: 2026-09-22
 - Scratch bloub preview (custom colours, Mascots.vue) lived in the session scratchpad; replaced by Plan 4b's `pnpm --filter @ab/mascot preview` → docs/brand/mascots.html.
 
 ## Execution log
+
+- 2026-09-22: Plan 4b merged to master. Next: Plan 4c (Broadcast web UI).
 
 - Notes for Plan 4c (Plan 4b re-review): reduced-motion viewers see a brief animation before the resting pose (hydration-safe default); a restarted one-shot snaps (no blend); an explicit cueKey must change whenever the cue does; one stale frame on unfreeze.
 
