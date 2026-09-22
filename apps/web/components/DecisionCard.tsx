@@ -30,24 +30,25 @@ export function DecisionCard({ view, decisionEquity }: { view: TableView; decisi
     <section className="decision" style={{ '--seat': who.color } as React.CSSProperties}>
       {/* Screen readers hear one short line per decision, not the whole panel. */}
       <span className="sr-only" aria-live="polite">{`${who.name}: ${d.label}`}</span>
-      <h2>
-        LAST DECISION <b>{who.name}</b> <span className="action">{d.label}</span>
-      </h2>
+      <h2>LAST DECISION</h2>
+      <p className="who-did">
+        <b>{who.name}</b> <span className="action">{d.label}</span>
+      </p>
       <div className="claims">
         <div title="The chance of winning this hand that the player claimed, just before it acted.">
           <span>IT SAID</span>
           <b>{pct(d.winProbability)}</b>
           <small>its own win chance</small>
         </div>
-        <div title="The real chance of winning from here, worked out from every player's cards. No player is ever told it.">
-          <span>TRUE</span>
-          <b className="true">{pct(decisionEquity)}</b>
-          <small>from every card</small>
-        </div>
         <div title={jev ? "How much of Jev's probability sat on the option it chose." : 'How sure the player said it was that this was the right move.'}>
           <span>CONFIDENCE</span>
           <b>{pct(d.confidence)}</b>
           <small>{jev ? 'weight on this option' : 'in this move'}</small>
+        </div>
+        <div title="Arithmetic, not opinion: the share of the ways the remaining cards can fall in which this player wins the pot, given every hand at the table. Sampled when there are too many to count one by one.">
+          <span>REALITY</span>
+          <b className="true">{pct(decisionEquity)}</b>
+          <small>counted: how often it wins</small>
         </div>
       </div>
       {d.fallback ? <p className="warn">{fallbackNotice(d.fallbackKind, d.fallbackReason)}</p> : null}
