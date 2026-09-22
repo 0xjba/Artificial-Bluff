@@ -1,4 +1,4 @@
-import { applyEvent, emptyView, withEquity, type GameEvent, type TableView } from '@ab/core/view'
+import { applyEvent, emptyView, equityKey, withEquity, type GameEvent, type TableView } from '@ab/core/browser'
 import type { Channel, FeedMessage } from '@ab/server'
 import { logLine, type LogLine } from './log'
 
@@ -15,19 +15,30 @@ export interface FeedState {
   history: GameEvent[]
   /** Snapshots received (a reconnect sends one for the same channel): the history is reloaded after each. */
   snapshots: number
+  /**
+   * The programme's last event when this viewer joined. The backlog is fetched only up to here: a
+   * replay's game is already finished, and loading past this point would show its ending early.
+   */
+  joinedAt: number
 }
 
 /** The programme's earlier events, fetched after joining (merged with those the feed has brought since). */
 export type HistoryMessage = { type: 'history'; channelId: string; events: GameEvent[] }
 
-export const initialFeed = (): FeedState => ({ channel: null, view: emptyView(), log: [], decisionEquity: null, history: [], snapshots: 0 })
+export const initialFeed = (): FeedState => ({ channel: null, view: emptyView(), log: [], decisionEquity: null, history: [], snapshots: 0, joinedAt: 0 })
+
+/** Works out the true chances on screen, for a programme nobody is computing them for (a replay). */
+export type EquitySource = (view: TableView) => { equity: Record<string, number>; estimated: boolean } | null
 
 /**
  * Folds one feed message into the client state. A snapshot replaces everything (new programme or
  * reconnect); events and equity for another channel are ignored (they raced a programme change).
+ * `equityFor` is for programmes the server doesn't send equity for: it is applied in the same step as
+ * the event that changed the board, so the next decision is compared against it.
  */
-export function reduceFeed(state: FeedState, message: FeedMessage | HistoryMessage, name: (id: string) => string): FeedState {
-  if (message.type === 'snapshot') return { channel: message.channel, view: message.view, log: [], decisionEquity: null, history: [], snapshots: state.snapshots + 1 }
+export function reduceFeed(state: FeedState, message: FeedMessage | HistoryMessage, name: (id: string) => string, equityFor?: EquitySource): FeedState {
+  if (message.type === 'snapshot')
+    return { channel: message.channel, view: message.view, log: [], decisionEquity: null, history: [], snapshots: state.snapshots + 1, joinedAt: message.view.lastSeq }
   if (!state.channel || message.channelId !== state.channel.id) return state
   if (message.type === 'history') {
     const history = mergeHistory(message.events, state.history)
@@ -38,9 +49,14 @@ export function reduceFeed(state: FeedState, message: FeedMessage | HistoryMessa
   const e = message.event
   const decisionEquity = e.type === 'decision' ? (state.view.equity?.[e.playerId] ?? null) : state.decisionEquity
   const line = logLine(e, name, state.view)
+  let view = applyEvent(state.view, e)
+  if (equityFor && equityKey(view) !== equityKey(state.view)) {
+    const worked = equityKey(view) === null ? null : equityFor(view)
+    view = withEquity(view, worked?.equity ?? null, worked?.estimated ?? false)
+  }
   return {
     ...state,
-    view: applyEvent(state.view, e),
+    view,
     log: line ? [...state.log, line].slice(-LOG_LIMIT) : state.log,
     decisionEquity: e.type === 'hand_started' ? null : decisionEquity,
     history: [...state.history, e],

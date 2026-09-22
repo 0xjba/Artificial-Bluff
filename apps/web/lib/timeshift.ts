@@ -1,14 +1,17 @@
 import type { GameEvent } from '@ab/core/view'
 import type { Channel } from '@ab/server'
-import { initialFeed, reduceFeed, type FeedState } from './feed'
+import { initialFeed, reduceFeed, type EquitySource, type FeedState } from './feed'
 
 export { mergeHistory } from './feed'
 
-/** The screen as it was after the first `n` events of the programme (equity isn't kept for the past). */
-export function feedAt(channel: Channel, events: GameEvent[], n: number, name: (id: string) => string): FeedState {
+/**
+ * The screen as it was after the first `n` events of the programme. The true chances are not in the
+ * history (the server sends them for the present only), so `equityFor` works them out again.
+ */
+export function feedAt(channel: Channel, events: GameEvent[], n: number, name: (id: string) => string, equityFor?: EquitySource): FeedState {
   let state = reduceFeed(initialFeed(), { type: 'snapshot', channel, view: initialFeed().view }, name)
   // History is dropped at each step: the past screen doesn't need it, and copying it would be quadratic.
-  for (const e of events.slice(0, n)) state = reduceFeed({ ...state, history: [] }, { type: 'event', channelId: channel.id, event: e }, name)
+  for (const e of events.slice(0, n)) state = reduceFeed({ ...state, history: [] }, { type: 'event', channelId: channel.id, event: e }, name, equityFor)
   return { ...state, history: [] }
 }
 
