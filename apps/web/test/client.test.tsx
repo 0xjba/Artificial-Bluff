@@ -113,6 +113,24 @@ describe('HandLog', () => {
     click('Show fewer')
     expect(log.classList.contains('expanded')).toBe(false)
   })
+
+  it('opens downward: the top of the log stays where it was, and the page moves by what the log did', async () => {
+    const events = await mockGame(3)
+    const lines = events.map((e, i) => logLine(e, (id) => id.toUpperCase(), buildView(events.slice(0, i)))).filter((l) => l !== null)
+    mount(<HandLog lines={lines} view={buildView(events)} />)
+    const log = host.querySelector('.log') as HTMLElement
+    // jsdom does no layout: the log's top is scripted, as the browser would move it when the box grows.
+    let top = 120
+    log.getBoundingClientRect = () => ({ top, bottom: top + 400, left: 0, right: 0, width: 0, height: 400, x: 0, y: top, toJSON: () => ({}) }) as DOMRect
+    const scrolled: number[] = []
+    vi.stubGlobal('scrollBy', (o: ScrollToOptions) => scrolled.push(o.top ?? 0))
+    const button = host.querySelector('.more-hands') as HTMLButtonElement
+    act(() => {
+      button.click()
+      top = 120 - 300 // anchoring held the button and pushed the log up by 300
+    })
+    expect(scrolled).toEqual([-300]) // scrolled back by exactly that: the top is where it was
+  })
 })
 
 describe('Broadcast sounds', () => {
