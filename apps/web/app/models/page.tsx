@@ -5,7 +5,7 @@ import Link from 'next/link'
 import { connection } from 'next/server'
 import { MascotBadge } from '../../components/MascotBadge'
 import { API_URL } from '../../lib/api'
-import { ms, pct, shortModel, signedChips, usd } from '../../lib/format'
+import { absPts, ms, pct, shortModel, signedChips, usd } from '../../lib/format'
 import styles from './models.module.css'
 
 export const metadata: Metadata = { title: 'Models · artificialBluff' }
@@ -21,7 +21,6 @@ async function loadModels(): Promise<ModelsTable | null> {
   }
 }
 
-const absPts = (pts: number | null) => (pts === null ? '–' : `${pts.toFixed(0)} pts`)
 const signedPts = (pts: number | null) => (pts === null ? '–' : `${pts > 0 ? '+' : pts < 0 ? '−' : ''}${Math.abs(pts).toFixed(0)} pts`)
 
 /** How a seat plays, in one line, from its measured style. */
@@ -72,7 +71,7 @@ export default async function Models() {
                 return (
                   <div className={styles.row} key={s.playerId} style={{ '--seat': who.color } as React.CSSProperties}>
                     <span className={styles.rank}>{i + 1}</span>
-                    <span className="face">
+                    <span className={styles.face}>
                       <MascotBadge playerId={s.playerId} index={i} size={28} />
                     </span>
                     <span className={styles.who}>
@@ -83,16 +82,25 @@ export default async function Models() {
                       </span>
                       <span className={styles.style}>{styleLine(s)}</span>
                     </span>
-                    <span className={`${styles.r} ${styles.chips} ${s.chipsWon < 0 ? 'down' : 'up'}`}>{signedChips(s.chipsWon)}</span>
-                    <span className={`${styles.r} ${styles.mono}`}>{s.hands}</span>
-                    <span className={styles.rate}>
+                    {/* data-k labels each figure on a phone, where the row becomes a card and the head row goes. */}
+                    <span data-k="CHIPS WON" className={`${styles.r} ${styles.chips} ${s.chipsWon < 0 ? 'down' : 'up'}`}>
+                      {signedChips(s.chipsWon)}
+                    </span>
+                    <span data-k="HANDS" className={`${styles.r} ${styles.mono}`}>
+                      {s.hands}
+                    </span>
+                    <span data-k="WIN RATE" className={styles.rate}>
                       <span className={styles.bar}>
                         <span style={{ width: `${Math.round((s.winRate ?? 0) * 100)}%` }} />
                       </span>
                       <span className={styles.mono}>{pct(s.winRate)}</span>
                     </span>
-                    <span className={`${styles.r} ${styles.mono}`}>{ms(s.latencyMeanMs)}</span>
-                    <span className={`${styles.r} ${styles.mono}`}>{absPts(s.errorPts)}</span>
+                    <span data-k="AVG TIME" className={`${styles.r} ${styles.mono}`}>
+                      {ms(s.latencyMeanMs)}
+                    </span>
+                    <span data-k="AVG ERROR" className={`${styles.r} ${styles.mono}`}>
+                      {absPts(s.errorPts)}
+                    </span>
                   </div>
                 )
               })}

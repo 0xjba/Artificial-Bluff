@@ -186,7 +186,8 @@ describe('screen pieces', () => {
     const view = withEquity(buildView(events.slice(0, cut + 1)), { jev: 0.36, pill: 0.64 }, true)
     const html = renderToStaticMarkup(<Broadcast channel={{ mode: 'live', title: 'LIVE' }} view={view} log={[]} decisionEquity={null} />)
     expect(html.match(/Win chances/g)!.length).toBe(view.seats.length * 2) // once per seat, once per panel row
-    expect(html).toContain('≈36%')
+    // The ≈ of an estimate is its own mark, so it can be set lighter than the number it qualifies.
+    expect(html).toContain('<i class="approx">≈</i>36%')
     expect(html).toContain('Chance this player wins the hand')
   })
 })

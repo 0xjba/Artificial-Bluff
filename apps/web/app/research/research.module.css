@@ -424,3 +424,124 @@
     font-size: 34px;
   }
 }
+
+/* ---- the seats, so the study looks like the rest of the site ----
+   Paper page, site furniture: the same mascots, model chips and gold as the broadcast screens, in
+   the ink and cream this page is printed in. */
+.research-page .seats {
+  display: grid;
+  /* Narrow enough that the five seats make one row on a laptop, with no empty cell beside them. */
+  grid-template-columns: repeat(auto-fit, minmax(158px, 1fr));
+  gap: 1px;
+  background: var(--paper-rule);
+  border: 1px solid var(--paper-rule);
+  border-radius: 14px;
+  overflow: hidden;
+}
+.research-page .seat {
+  display: grid;
+  grid-template-columns: 30px minmax(0, 1fr);
+  align-items: center;
+  gap: 4px 10px;
+  padding: 12px 13px;
+  background: var(--sheet);
+  border-top: 3px solid var(--gold);
+}
+.research-page .seat-who {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.research-page .seat-who b {
+  font-size: 15px;
+  letter-spacing: 0.01em;
+}
+.research-page .chip {
+  align-self: flex-start;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: 9.5px;
+  color: var(--ink-4);
+  border: 1px solid var(--paper-rule);
+  border-radius: 3px;
+  padding: 1px 5px;
+}
+.research-page .seat-error {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  padding-top: 7px;
+  border-top: 1px solid var(--paper-rule);
+}
+.research-page .seat-error b {
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: 13px;
+  color: var(--green);
+}
+.research-page .seat-error span {
+  font-size: 9px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink-4);
+}
+/* The site's gold, used where it reads on cream: as a rule above a figure, never as text. */
+.research-page .metrics div {
+  border-top: 3px solid var(--gold);
+}
+.research-page .kicker::after {
+  content: '';
+  display: inline-block;
+  width: 18px;
+  height: 2px;
+  margin: 0 0 3px 8px;
+  background: var(--gold);
+  vertical-align: middle;
+}
+
+/* ---- phones ---- */
+@media (max-width: 680px) {
+  .research-page .intro {
+    padding: 26px 16px 24px;
+    gap: 16px;
+  }
+  .research-page .intro h1 {
+    font-size: 30px;
+  }
+  .research-page .intro p {
+    font-size: 15px;
+    line-height: 1.6;
+  }
+  .research-page .hands-say,
+  .research-page .report {
+    padding: 28px 16px;
+  }
+  .research-page .inner {
+    gap: 20px;
+  }
+  .research-page h2 {
+    font-size: 22px;
+  }
+  .research-page p {
+    font-size: 14px;
+  }
+  .research-page .metrics {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .research-page .metrics .v {
+    font-size: 24px;
+  }
+  .research-page .seats {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .research-page .findings {
+    gap: 14px;
+  }
+  .research-footer {
+    padding: 22px 16px 28px;
+  }
+}

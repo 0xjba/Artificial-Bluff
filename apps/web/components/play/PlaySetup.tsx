@@ -260,7 +260,7 @@ export function PlaySetup(props: {
             {needsOpenRouter ? (
               <div className={styles['key-row']}>
                 <span className={styles.k}>OPENROUTER</span>
-                <button type="button" className={styles.signin} onClick={props.onSignIn}>
+                <button type="button" onClick={props.onSignIn}>
                   Sign in with OpenRouter
                 </button>
                 <input

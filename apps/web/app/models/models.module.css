@@ -248,3 +248,74 @@
   color: var(--muted);
 }
 
+
+/* ---- phones ----
+   The eight-column board has nowhere to go on a phone, so each seat becomes a card: name and model
+   first, then its figures in a labelled list (the labels come from the row's data-k attributes,
+   because the heading row is hidden). */
+@media (max-width: 680px) {
+  .models-head {
+    padding: 22px 16px 14px;
+  }
+  .models-head h1 {
+    font-size: 26px;
+  }
+  .models-head p {
+    font-size: 14px;
+  }
+  .models-scroll {
+    padding: 4px 16px 0;
+    overflow-x: visible;
+  }
+  .models-board {
+    min-width: 0;
+    gap: 10px;
+  }
+  .models-board .row-head {
+    display: none;
+  }
+  .models-board .row {
+    grid-template-columns: 26px 34px minmax(0, 1fr);
+    gap: 6px 9px;
+    padding: 12px;
+    border: 1px solid var(--rule);
+    border-radius: 14px;
+    background: var(--panel);
+  }
+  .models-board .face {
+    width: 34px;
+    height: 34px;
+    border-radius: 10px;
+  }
+  .models-board .row > [data-k] {
+    grid-column: 2 / -1;
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 10px;
+    text-align: left;
+    padding-top: 5px;
+    border-top: 1px solid #1a2421;
+  }
+  .models-board .row > [data-k]::before {
+    content: attr(data-k);
+    font-family: var(--font-mono), ui-monospace, monospace;
+    font-size: 9px;
+    letter-spacing: 0.1em;
+    color: var(--dim);
+  }
+  .models-board .row > [data-k].rate {
+    display: grid;
+    grid-template-columns: auto minmax(40px, 1fr) auto;
+    align-items: center;
+  }
+  .models-section,
+  .dossiers,
+  .models-foot {
+    padding-left: 16px;
+    padding-right: 16px;
+  }
+  .dossiers {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

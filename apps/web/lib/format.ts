@@ -25,6 +25,9 @@ export function card(c: string): { rank: string; suit: string; red: boolean } {
 /** A model id without its vendor prefix: "anthropic/claude-sonnet-5" → "claude-sonnet-5". */
 export const shortModel = (model: string) => model.split('/').at(-1) ?? model
 
+/** A distance in percentage points, unsigned: "12 pts". */
+export const absPts = (pts: number | null) => (pts === null ? '–' : `${pts.toFixed(0)} pts`)
+
 /** What a fallback means, in plain words (spec §9: an auto-played seat reads as a lost connection). */
 export function fallbackNotice(kind: string | null, reason: string | null): string {
   if (kind === 'auto') return reason?.includes('budget') ? 'budget cap reached' : 'connection lost: seat auto-played'
