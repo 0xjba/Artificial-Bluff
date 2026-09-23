@@ -1,63 +1,71 @@
-import type { ModelsTable } from '@ab/server'
+import { headline, paperFacts, type PaperFacts } from '@ab/study/paper'
 import type { Metadata } from 'next'
 import { connection } from 'next/server'
-import { ReportViewer } from '../../components/research/ReportViewer'
-import { SeatStrip } from '../../components/research/SeatStrip'
+import { PaperViewer } from '../../components/research/PaperViewer'
 import { WatchLive } from '../../components/research/WatchLive'
-import { API_URL } from '../../lib/api'
-import { usd } from '../../lib/format'
-import { listReports } from '../../lib/reports'
-import { NO_REPORT_PAGES, reportPages } from '../../lib/reportPages'
-import { researchHeadline, researchMetrics } from '../../lib/research'
+import { researchCaveat, researchTiles } from '../../lib/research'
+import { isRehearsal, latestStudy, listReports, paperPages, readDecisions, type ReportEntry } from '../../lib/reports'
 import styles from './research.module.css'
 
 export const metadata: Metadata = { title: 'Research · artificialBluff' }
 
-/** What every model has done across the finished live games (the live server does the arithmetic). */
-async function loadModels(): Promise<ModelsTable | null> {
-  try {
-    const res = await fetch(`${API_URL}/api/models`, { cache: 'no-store', signal: AbortSignal.timeout(20_000) })
-    if (!res.ok) return null
-    return (await res.json()) as ModelsTable
-  } catch {
-    return null
-  }
-}
-
+/** How the design choices hold whatever the numbers turn out to be: the three findings under the figures. */
 const FINDINGS = [
   {
-    h: 'Jev answers with a distribution',
-    p: 'Jev returns a probability for every option it was offered — fold, call, raise to a size — so the log records not just what it did but how close the second choice was. The other seats answer with one action, a win chance and a confidence.',
+    h: 'A distribution, not a sentence',
+    p: 'Jev answers every decision with a probability for each option it was offered, so the log records not just what it chose but how close the next choice was. The language models write one option, a win chance and a line of reasoning.',
   },
   {
-    h: 'Chips stay in code',
-    p: 'No model writes a number. The engine computes pots, stacks and side pots; models only choose from priced options, so a figure cannot be invented.',
+    h: 'Numbers stay in code',
+    p: 'No model writes a figure. The engine prices every option, settles every pot and side pot, and hands the models a menu to choose from, so a chip amount can never be invented or mistyped.',
   },
   {
-    h: 'Spectators see what players cannot',
-    p: 'True chances are computed from all hole cards for the broadcast only. No seat ever receives them, which is what makes the stated-against-true comparison fair.',
+    h: 'The truth is computed, not judged',
+    p: 'The true chance at each decision is worked out from every hole card at the table, which no player ever sees. Nobody grades the answers: the claim and the arithmetic sit side by side.',
   },
 ]
 
-export default async function Research() {
+/** What the study measures, named before there are numbers for any of it. */
+const MEASURES = [
+  'Time to a decision',
+  'Cost per decision',
+  'How far a stated win chance sits from the true odds',
+  'Which way each model leans',
+  'Folds and calls against the pot odds',
+  'Answers that fell back to check-or-fold',
+  'Chips per 100 hands, with intervals',
+  'Every decision re-scored from all the cards',
+]
+
+const TITLE = 'Stated confidence against true equity in AI-vs-AI Texas Hold’em'
+
+/** A study's report, its decisions reduced to the facts the page and the paper share, and its paper. */
+function evidence(entry: ReportEntry): { facts: PaperFacts; pages: number; base: string } {
+  return {
+    facts: paperFacts(entry.report, readDecisions(entry.dir)),
+    pages: paperPages(entry.dir),
+    base: `/research/${encodeURIComponent(entry.dir)}`,
+  }
+}
+
+export default async function Research({ searchParams }: { searchParams: Promise<{ preview?: string }> }) {
   await connection()
+  const { preview } = await searchParams
   const reports = listReports()
-  const latest = reports[0]
-  const table = await loadModels()
-  const metrics = table && table.hands > 0 ? researchMetrics(table) : []
-  const pages = latest ? reportPages(latest.report) : NO_REPORT_PAGES
-  const base = latest ? `/research/${encodeURIComponent(latest.dir)}` : null
-  const files = base
-    ? [
-        { href: `${base}/report.html`, label: 'Download report' },
-        { href: `${base}/report.json`, label: 'JSON' },
-        { href: `${base}/decisions.csv`, label: 'CSV' },
-      ]
-    : []
+  const study = latestStudy(reports)
+  // Development only: the layout can be seen on a rehearsal before a real study exists, clearly marked.
+  const rehearsal = !study && preview === 'rehearsal' && process.env.NODE_ENV !== 'production' ? (reports.find((e) => isRehearsal(e.report)) ?? null) : null
+  const shown = study ?? rehearsal
+  const ev = shown ? evidence(shown) : null
+  const f = ev?.facts
+  const others = f?.others.map((o) => o.label) ?? []
+  const when = shown ? new Date(shown.report.generatedAt).toLocaleDateString('en-GB', { month: 'long', year: 'numeric' }) : null
 
   return (
     <div className={`${styles['research-page']} research-light`}>
       <WatchLive />
+      {rehearsal ? <div className={styles.rehearsal}>Rehearsal on mock players: a preview of the layout, not results.</div> : null}
+
       <section className={styles.intro}>
         <span className={styles.kicker}>RESEARCH</span>
         <h1>I&apos;m Jobin Ayathil.</h1>
@@ -78,88 +86,75 @@ export default async function Research() {
         </div>
       </section>
 
-      <section className={styles['hands-say']}>
+      <section className={styles.measured}>
         <div className={styles.inner}>
-          <div className={styles.lead}>
-            <span className={styles.kicker}>WHAT THE HANDS SAY</span>
-            <h2>{table && table.hands > 0 ? researchHeadline(table) : 'No games have finished yet.'}</h2>
-            <p>
-              {metrics.length
-                ? "Every seat played the same hands under the same rules, and every decision was logged with the model's own stated win chance beside the true one."
-                : 'Once the first live game finishes, this section fills in from its event log. The study below is the pre-registered version, where every deal is replayed in each seat.'}
-            </p>
-          </div>
-
-          {metrics.length ? (
+          {f ? (
             <>
-              <div className={styles.metrics}>
-                {metrics.map((m) => (
-                  <div key={m.what}>
-                    <span className={styles.v}>{m.value}</span>
-                    <span className={styles.k}>{m.what}</span>
+              <div className={styles.lead}>
+                <span className={styles.kicker}>WHAT THE MEASUREMENTS SAY</span>
+                <h2>{headline(f)}</h2>
+                <p>
+                  {f.focus.kind === 'jev' ? 'Jev, TypeSafe’s typed-readout model,' : f.focus.label} played the same {f.study.hands.toLocaleString('en-US')} hands as{' '}
+                  {others.length > 1 ? `${others.slice(0, -1).join(', ')} and ${others.at(-1)}` : others[0]}, dealt so that every model plays every hand from every
+                  seat, and every decision was scored against the true odds worked out from all the cards.
+                </p>
+              </div>
+              <div className={styles.tiles}>
+                {researchTiles(f).map((t) => (
+                  <div className={styles.tile} key={t.what}>
+                    <span className={styles.v}>{t.value}</span>
+                    <span className={styles.k}>{t.what}</span>
                   </div>
                 ))}
               </div>
-              <SeatStrip table={table!} />
-              <p className={styles.caveat}>
-                Figures come from the event log of {table!.games} finished live {table!.games === 1 ? 'game' : 'games'} ({table!.hands} hands,{' '}
-                {table!.seats.length} seats) and are demo scale, not a study result: the sample is small, blinds rise throughout, and the line-up can change
-                between games. The report below is the pre-registered version, with the method, the equity computation and every limitation.
-              </p>
             </>
-          ) : null}
+          ) : (
+            <div className={styles.lead}>
+              <span className={styles.kicker}>WHAT WE&apos;RE MEASURING</span>
+              <h2>The first study is being run.</h2>
+              <p>
+                Jev, TypeSafe&apos;s typed-readout model, against four frontier language models, on duplicate deals so that luck in the cards cancels out, under a
+                protocol fixed before the first hand. The figures, the paper and its data appear here when it finishes. Until then there is nothing to report, so
+                nothing is shown.
+              </p>
+              <ul className={styles.measures}>
+                {MEASURES.map((m) => (
+                  <li key={m}>{m}</li>
+                ))}
+              </ul>
+            </div>
+          )}
 
           <div className={styles.findings}>
-            {FINDINGS.map((f) => (
-              <div key={f.h}>
-                <h3>{f.h}</h3>
-                <p>{f.p}</p>
-              </div>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      <section className={styles.report}>
-        <div className={styles.inner}>
-          <div className={styles.lead}>
-            <span className={styles.kicker}>TECHNICAL REPORT</span>
-            <h2>Measuring stated confidence against true equity in AI-vs-AI Texas Hold&apos;em</h2>
-            <p>
-              {latest
-                ? `A typed-readout decision model against general-purpose models under the same betting rules. ${latest.report.study.hands} hands, ${latest.report.players.length} seats, ${latest.report.study.decisions.toLocaleString('en-US')} logged decisions, ${usd(latest.report.study.costUsd)} spent. ${pages.length} pages.`
-                : `A typed-readout decision model against general-purpose models under the same betting rules. The report is generated from the study's event log; ${pages.length} pages once the first study has run.`}
-            </p>
-          </div>
-
-          <ReportViewer pages={pages} label={latest ? `${latest.report.study.id}.report` : 'artificial-bluff-report'} files={files} />
-
-          <div className={styles.sections}>
-            {pages.map((p) => (
-              <div key={p.n}>
-                <span className={styles.no}>{String(p.n).padStart(2, '0')}</span>
-                <div>
-                  <div className={styles.t}>{p.title}</div>
-                  <div className={styles.p}>PAGE {p.n}</div>
-                </div>
+            {FINDINGS.map((x) => (
+              <div key={x.h}>
+                <h3>{x.h}</h3>
+                <p>{x.p}</p>
               </div>
             ))}
           </div>
 
-          {reports.length > 1 ? (
-            <p className={styles.caveat}>
-              Earlier studies:{' '}
-              {reports.slice(1).map((e, i) => (
-                <span key={e.dir}>
-                  {i > 0 ? ', ' : ''}
-                  <a href={`/research/${encodeURIComponent(e.dir)}/report.html`}>{e.report.study.id}</a>
-                </span>
-              ))}
-            </p>
-          ) : null}
+          {f ? <p className={styles.caveat}>{researchCaveat(f)}</p> : null}
         </div>
       </section>
 
+      {ev && ev.pages > 0 ? (
+        <section className={styles.report}>
+          <div className={styles.inner}>
+            <div className={styles['report-lead']}>
+              <span className={styles.kicker}>TECHNICAL REPORT</span>
+              <h2>{TITLE}</h2>
+              <p>
+                A typed-readout decision model compared with general-purpose language models. Jobin Ayathil, {when}. {ev.pages} pages.
+              </p>
+            </div>
+            <PaperViewer src={`${ev.base}/paper.pdf`} download={`${ev.base}/paper.pdf`} pages={ev.pages} />
+            <p className={styles.data}>
+              The data behind every figure: <a href={`${ev.base}/decisions.csv`}>every decision (CSV)</a> · <a href={`${ev.base}/report.json`}>every number (JSON)</a>
+            </p>
+          </div>
+        </section>
+      ) : null}
     </div>
   )
 }

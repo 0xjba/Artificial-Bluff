@@ -1,5 +1,6 @@
 import { applyEvent, buildView, emptyView, type GameEvent, type TableView } from '@ab/core/view'
 import { describe, expect, it } from 'vitest'
+import { spread, stepFrom } from '../lib/spread'
 import { initialFeed, LOG_LIMIT, reduceFeed } from '../lib/feed'
 import { card, chips, fallbackNotice, ms, pct, shortModel, usd } from '../lib/format'
 import { logLine } from '../lib/log'
@@ -138,5 +139,26 @@ describe('feed', () => {
     expect(d('Raise to 1,300')).toBe('HEX raises to 1,300')
     expect(d('All-in 4,800')).toBe('HEX goes all-in (4,800)')
     expect(d('Fold', { fallback: true, fallbackKind: 'timeout', fallbackReason: 'timeout' })).toBe('HEX folds (timed out)')
+  })
+})
+
+
+describe('paper spreads', () => {
+  it('pages through a paper two at a time, and reaches a last page that stands alone', () => {
+    // Five pages: 1-2, 3-4, then 5 on its own. The last page used to be unreachable.
+    let first = 1
+    const seen: number[][] = []
+    for (let i = 0; i < 4; i++) {
+      seen.push(spread(first, 2, 5).pages)
+      first = stepFrom(first, 1, 2, 5)
+    }
+    expect(seen).toEqual([[1, 2], [3, 4], [5], [5]])
+    expect(spread(5, 2, 5)).toMatchObject({ canBack: true, canForward: false })
+    expect(spread(1, 2, 5)).toMatchObject({ canBack: false, canForward: true })
+    // One page at a time on a phone, from wherever the spread had got to.
+    expect(spread(3, 1, 5).pages).toEqual([3])
+    expect(spread(5, 1, 5)).toMatchObject({ pages: [5], canForward: false })
+    // Back from the end lands on the spread before it.
+    expect(spread(stepFrom(5, -1, 2, 5), 2, 5).pages).toEqual([3, 4])
   })
 })

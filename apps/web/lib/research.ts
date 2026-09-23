@@ -1,81 +1,84 @@
-import type { ModelsTable, SeatSummary } from '@ab/server'
-import { characterFor } from '@ab/mascot'
-import { ms, pct, usd } from './format'
+import { msOf, times, usdOf, type ModelFacts, type PaperFacts } from '@ab/study/paper'
 
-export interface Metric {
+export interface Tile {
   value: string
   what: string
 }
 
-const errorPts = (s: SeatSummary) => s.errorPts
-const best = <T>(xs: T[], by: (x: T) => number | null) => xs.filter((x) => by(x) !== null).sort((a, b) => by(a)! - by(b)!)[0] ?? null
-const worst = <T>(xs: T[], by: (x: T) => number | null) => xs.filter((x) => by(x) !== null).sort((a, b) => by(b)! - by(a)!)[0] ?? null
-const who = (s: SeatSummary) => characterFor(s.playerId).name
+/** A ratio is only a claim past this (the paper uses the same bar). */
+const CLAIM_RATIO = 1.5
 
-/**
- * A headline that only says what the numbers say: which seat stated the closest win chances, and
- * whether the cheapest seat is the same one.
- */
-export function researchHeadline(table: ModelsTable): string {
-  const honest = best(table.seats, errorPts)
-  const cheap = best(table.seats, (s) => s.costPerDecisionUsd)
-  if (!honest || !cheap) return 'Not enough hands yet to say anything.'
-  if (honest.playerId === cheap.playerId) return `The cheapest seat is also the one whose stated chances sit closest to the truth: ${who(honest)}.`
-  return `${who(honest)} states the chances closest to the truth; ${who(cheap)} costs the least per decision.`
+const pct = (x: number | null, d = 0) => (x === null ? '–' : `${(x * 100).toFixed(d)}%`)
+const pts = (x: number | null) => (x === null ? '–' : `${x.toFixed(1)} pts`)
+const range = (xs: Array<number | null>, fmt: (x: number) => string) => {
+  const v = xs.filter((x): x is number => x !== null)
+  if (!v.length) return '–'
+  const lo = Math.min(...v)
+  const hi = Math.max(...v)
+  return fmt(lo) === fmt(hi) ? fmt(lo) : `${fmt(lo)}–${fmt(hi)}`
+}
+/** Folds and calls together: each has an exact right answer given the pot odds. */
+const moveAccuracy = (m: ModelFacts) => {
+  const n = m.foldRight.n + m.callRight.n
+  return n ? ((m.foldRight.rate ?? 0) * m.foldRight.n + (m.callRight.rate ?? 0) * m.callRight.n) / n : null
 }
 
-/** A ratio is only worth a tile when the two seats really differ. */
-export const RATIO_WORTH_SHOWING = 1.5
+/**
+ * The measured figures at the top of the Research page, from the same facts the paper states, so the
+ * two can never disagree. Each is set against the other models; a ratio appears only past the bar the
+ * paper uses, and a chip result only when the pre-registered test found it.
+ */
+export function researchTiles(f: PaperFacts): Tile[] {
+  const jev = f.focus
+  const name = jev.kind === 'jev' ? 'Jev' : jev.label
+  const others = f.others
+  const tiles: Tile[] = []
 
-/** The figures under the headline, each straight from the event log. */
-export function researchMetrics(table: ModelsTable): Metric[] {
-  const honest = best(table.seats, errorPts)
-  const loud = worst(table.seats, errorPts)
-  const cheap = best(table.seats, (s) => s.costPerDecisionUsd)
-  const dear = worst(table.seats, (s) => s.costPerDecisionUsd)
-  const quick = best(table.seats, (s) => s.latencyMeanMs)
-  const slow = worst(table.seats, (s) => s.latencyMeanMs)
-  const decisions = table.seats.reduce((sum, s) => sum + s.decisions, 0)
-  const fallbacks = table.seats.reduce((sum, s) => sum + s.fallbacks, 0)
-  const metrics: Metric[] = []
-  if (honest) metrics.push({ value: `${errorPts(honest)!.toFixed(0)} pts`, what: `${who(honest)}'s stated win chance sits this far from the true one, on average` })
-  if (loud && loud.playerId !== honest?.playerId) metrics.push({ value: `${errorPts(loud)!.toFixed(0)} pts`, what: `the same for ${who(loud)}, the furthest from the truth` })
-  const leaner = worst(table.seats, (x) => (x.biasPts === null ? null : Math.abs(x.biasPts)))
-  if (leaner && leaner.biasPts !== null && Math.abs(leaner.biasPts) >= 3) {
-    metrics.push({
-      value: `${leaner.biasPts > 0 ? '+' : '−'}${Math.abs(leaner.biasPts).toFixed(0)} pts`,
-      what: `${who(leaner)} ${leaner.biasPts > 0 ? 'talks itself up' : 'talks itself down'} by this much on average, over and under cancelled`,
+  const faster = f.speed.timesFasterThanFastest
+  tiles.push(
+    faster !== null && faster >= CLAIM_RATIO && f.speed.fastestOther
+      ? { value: times(faster), what: `faster to a decision: ${msOf(jev.latencyP50Ms)} median against ${msOf(f.speed.fastestOther.latencyP50Ms)} for ${f.speed.fastestOther.label}, the fastest of the others` }
+      : { value: msOf(jev.latencyP50Ms), what: `median time to a decision, against ${range(others.map((o) => o.latencyP50Ms), (x) => msOf(x))} for the others` },
+  )
+
+  const cheaper = f.cost.timesCheaperThanCheapest
+  tiles.push(
+    cheaper !== null && cheaper >= CLAIM_RATIO && f.cost.cheapestOther
+      ? { value: times(cheaper), what: `cheaper per decision: ${usdOf(jev.costPerDecisionUsd)} against ${usdOf(f.cost.cheapestOther.costPerDecisionUsd)} for ${f.cost.cheapestOther.label}, the cheapest of the others` }
+      : { value: usdOf(jev.costPerDecisionUsd), what: `per decision, against ${range(others.map((o) => o.costPerDecisionUsd), (x) => usdOf(x))} for the others` },
+  )
+
+  tiles.push({ value: pts(jev.offTruthPts), what: `from the true odds, on average, when ${name} stated its chance of winning; ${range(others.map((o) => o.offTruthPts), (x) => x.toFixed(1))} pts for the others` })
+
+  const leaner = [jev, ...others].filter((m) => m.biasPts !== null).sort((a, b) => Math.abs(b.biasPts!) - Math.abs(a.biasPts!))[0]
+  if (leaner)
+    tiles.push({
+      value: `${leaner.biasPts! > 0 ? '+' : '−'}${Math.abs(leaner.biasPts!).toFixed(0)} pts`,
+      what: `${leaner.focus ? name : leaner.label} ${leaner.biasPts! > 0 ? 'overstated' : 'understated'} its chances on average, the most of any model`,
     })
-  }
-  if (cheap && dear && cheap.costPerDecisionUsd && dear.costPerDecisionUsd && cheap.playerId !== dear.playerId) {
-    const ratio = dear.costPerDecisionUsd / cheap.costPerDecisionUsd
-    metrics.push(
-      ratio >= RATIO_WORTH_SHOWING
-        ? {
-            value: `${ratio.toFixed(ratio < 10 ? 1 : 0)}×`,
-            what: `cheaper per decision: ${usd(cheap.costPerDecisionUsd)} for ${who(cheap)} against ${usd(dear.costPerDecisionUsd)} for ${who(dear)}`,
-          }
-        : { value: usd(cheap.costPerDecisionUsd), what: `per decision for ${who(cheap)}; every seat costs about the same` },
-    )
-  }
-  if (quick && slow && quick.latencyMeanMs && slow.latencyMeanMs && quick.playerId !== slow.playerId) {
-    const ratio = slow.latencyMeanMs / quick.latencyMeanMs
-    metrics.push(
-      ratio >= RATIO_WORTH_SHOWING
-        ? {
-            value: `${ratio.toFixed(1)}×`,
-            what: `faster to a decision: ${ms(quick.latencyMeanMs)} for ${who(quick)} against ${ms(slow.latencyMeanMs)} for ${who(slow)}`,
-          }
-        : { value: ms(quick.latencyMeanMs), what: `to a decision for ${who(quick)}; every seat answers at about the same speed` },
-    )
-  }
-  const hands = `${table.hands} ${table.hands === 1 ? 'hand' : 'hands'}`
-  metrics.push({ value: decisions.toLocaleString('en-US'), what: `decisions logged across ${hands}, each with the chance its model claimed` })
-  metrics.push({
-    value: `${fallbacks} of ${decisions.toLocaleString('en-US')}`,
-    what: 'decisions where a seat had to be played check-or-fold after a timeout or an invalid answer',
-  })
-  const leader = table.seats[0] // sorted by chips won
-  if (leader && leader.winRate !== null) metrics.push({ value: pct(leader.winRate), what: `of its hands won by ${who(leader)}, the seat that won the most chips` })
-  return metrics
+
+  tiles.push({ value: pct(moveAccuracy(jev)), what: `of ${name}’s folds and calls were right against the pot odds; ${range(others.map(moveAccuracy), (x) => pct(x))} for the others` })
+
+  tiles.push({ value: pct(jev.fallbackRate, 1), what: `of ${name}’s decisions fell back to check-or-fold (no answer, an invalid one, or a timeout); ${range(others.map((o) => o.fallbackRate), (x) => pct(x, 1))} for the others` })
+
+  const win = f.significantChipWins[0]
+  const loss = f.significantChipLosses[0]
+  const halfWidth = jev.bb100.low !== null && jev.bb100.high !== null ? (jev.bb100.high - jev.bb100.low) / 2 : null
+  tiles.push(
+    win?.vsFocus?.mean != null
+      ? { value: `+${win.vsFocus.mean.toFixed(0)} bb`, what: `per 100 hands over ${win.label}, significant after Holm’s correction` }
+      : loss?.vsFocus?.mean != null
+        ? { value: `−${Math.abs(loss.vsFocus.mean).toFixed(0)} bb`, what: `per 100 hands against ${loss.label}, significant after Holm’s correction` }
+        : { value: halfWidth === null ? '–' : `±${halfWidth.toFixed(0)} bb`, what: `per 100 hands is the interval on ${name}’s chips after ${f.study.hands.toLocaleString('en-US')} hands: no chip difference is significant yet` },
+  )
+
+  tiles.push({ value: f.decisions.toLocaleString('en-US'), what: `decisions scored against the true odds, worked out from every hole card, over ${f.study.hands.toLocaleString('en-US')} hands` })
+  return tiles
+}
+
+/** What the figures rest on, and what they do not show: the paragraph under the tiles. */
+export function researchCaveat(f: PaperFacts): string {
+  const name = f.focus.kind === 'jev' ? 'Jev' : f.focus.label
+  const chips = f.significantChipWins.length || f.significantChipLosses.length ? 'the chip results named above are significant after Holm’s correction, and no others are' : 'no chip difference is significant at this sample size, so none is claimed'
+  return `Measured on ${f.study.hands.toLocaleString('en-US')} hands in ${f.study.blocks} blocks of duplicate deals (every card order played from every seat), in study ${f.study.id}, pre-registered as ${f.study.configHash.slice(0, 12)}. Speed, cost and calibration rest on ${f.decisions.toLocaleString('en-US')} decisions and are reasonably precise; ${chips}. ${name}’s and the others’ figures come from the same hands under the same rules. The report below covers the method, every figure and every limitation.`
 }

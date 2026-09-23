@@ -1,4 +1,6 @@
 import type { Calibration, ScoredDecision } from '@ab/analysis'
+
+export type { ScoredDecision }
 import { esc } from './html'
 import type { StudyReport } from './report'
 
@@ -162,8 +164,8 @@ export function headline(f: PaperFacts): string {
 // ---- formatting ----
 const n1 = (x: number | null, d = 1) => (x === null ? '–' : x.toFixed(d))
 const pctOf = (x: number | null, d = 0) => (x === null ? '–' : `${(x * 100).toFixed(d)}%`)
-const msOf = (x: number | null) => (x === null ? '–' : x >= 1000 ? `${(x / 1000).toFixed(2)} s` : x < 1 ? '<1 ms' : `${Math.round(x)} ms`)
-const usdOf = (x: number | null) => {
+export const msOf = (x: number | null) => (x === null ? '–' : x >= 1000 ? `${(x / 1000).toFixed(2)} s` : x < 1 ? '<1 ms' : `${Math.round(x)} ms`)
+export const usdOf = (x: number | null) => {
   if (x === null) return '–'
   if (x === 0) return '$0'
   const digits = Math.min(10, Math.max(3, Math.ceil(-Math.log10(Math.abs(x))) + 2))

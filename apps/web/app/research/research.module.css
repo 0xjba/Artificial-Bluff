@@ -1,4 +1,7 @@
-/* ---- research (light page, from the design) ---- */
+/* ---- research ----
+   The paper page, in BennyFit's shape: the intro, what the measurements say (a headline, measured
+   tiles, three findings and what they rest on), and the technical report as a PDF read page by page.
+   Every number comes from a study real models played; a rehearsal is only ever shown as one. */
 .research-page {
   --paper: #f5f2e9;
   --paper-2: #faf8f2;
@@ -14,33 +17,6 @@
   background: var(--paper);
   color: var(--ink);
 }
-.research-page .kicker {
-  font-family: var(--font-mono), ui-monospace, monospace;
-  font-size: 10px;
-  letter-spacing: 0.2em;
-  color: var(--green);
-}
-.research-page .inner {
-  width: 100%;
-  max-width: 980px;
-  margin: 0 auto;
-  display: flex;
-  flex-direction: column;
-  gap: 30px;
-}
-.research-page .lead {
-  max-width: 720px;
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-}
-.research-page h2 {
-  margin: 0;
-  font-size: 30px;
-  line-height: 1.12;
-  letter-spacing: -0.01em;
-  max-width: 24ch;
-}
 .research-page p {
   margin: 0;
   color: var(--ink-3);
@@ -49,7 +25,58 @@
 .research-page a {
   color: var(--brown);
 }
-.research-page .intro {
+.kicker {
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: 10px;
+  letter-spacing: 0.2em;
+  color: var(--green);
+}
+/* The site's gold, where it reads on cream: as a rule beside the kicker, never as text. */
+.kicker::after {
+  content: '';
+  display: inline-block;
+  width: 18px;
+  height: 2px;
+  margin: 0 0 3px 8px;
+  background: var(--gold);
+  vertical-align: middle;
+}
+.rehearsal {
+  padding: 10px 26px;
+  background: #fbe9e7;
+  border-bottom: 1px solid #e8b4ae;
+  color: #8c1d18;
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-align: center;
+}
+.inner {
+  width: 100%;
+  max-width: 980px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 34px;
+}
+.lead {
+  max-width: 740px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  text-align: center;
+}
+.research-page h2 {
+  margin: 0;
+  font-size: 36px;
+  line-height: 1.12;
+  letter-spacing: -0.015em;
+}
+
+/* ---- intro (as written) ---- */
+.intro {
   padding: 60px 26px 44px;
   max-width: 760px;
   margin: 0 auto;
@@ -57,7 +84,7 @@
   flex-direction: column;
   gap: 22px;
 }
-.research-page .intro h1 {
+.intro h1 {
   margin: 0;
   font-size: 46px;
   line-height: 1.05;
@@ -68,7 +95,7 @@
   line-height: 1.65;
   color: var(--ink-2);
 }
-.research-page .intro .links {
+.links {
   display: flex;
   align-items: center;
   gap: 18px;
@@ -77,437 +104,204 @@
   font-size: 14px;
   font-weight: 600;
 }
-.research-page .hands-say {
+
+/* ---- what the measurements say ---- */
+.measured {
   border-top: 1px solid var(--paper-rule);
   background: var(--paper-2);
-  padding: 52px 26px;
+  padding: 56px 26px;
 }
-.research-page .metrics {
+.research-page .lead p {
+  font-size: 15px;
+  line-height: 1.6;
+}
+/* Big figures, no boxes: the number, then what it measured against what. */
+.tiles {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(290px, 1fr));
-  gap: 1px;
-  background: var(--paper-rule);
-  border: 1px solid var(--paper-rule);
-  border-radius: 14px;
-  overflow: hidden;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 30px 34px;
 }
-.research-page .metrics div {
-  background: var(--sheet);
-  padding: 20px;
+.tile {
   display: flex;
   flex-direction: column;
-  gap: 5px;
+  gap: 8px;
 }
-.research-page .metrics .v {
+.v {
   font-weight: 700;
-  font-size: 29px;
-  line-height: 1.05;
+  font-size: 38px;
+  line-height: 1;
+  letter-spacing: -0.02em;
   color: var(--ink);
+  font-variant-numeric: tabular-nums;
 }
-.research-page .metrics .k {
-  font-size: 13.5px;
+.k {
+  font-size: 13px;
   line-height: 1.5;
   color: var(--ink-3);
 }
-.research-page .caveat {
-  max-width: 760px;
-  font-size: 13px;
-  line-height: 1.6;
-  color: var(--ink-4);
-}
-.research-page .findings {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
-  gap: 18px;
-}
-.research-page .findings div {
+.measures {
+  margin: 4px 0 0;
+  padding: 0;
+  list-style: none;
   display: flex;
-  flex-direction: column;
-  gap: 9px;
-  padding-top: 16px;
-  border-top: 2px solid var(--ink);
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
 }
-.research-page .findings h3 {
-  margin: 0;
-  font-size: 17px;
-  line-height: 1.25;
+.measures li {
+  border: 1px solid var(--paper-rule);
+  border-radius: 999px;
+  padding: 5px 12px;
+  font-size: 12.5px;
+  color: var(--ink-2);
+  background: var(--sheet);
+}
+.findings {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 28px;
+  padding-top: 8px;
+}
+.findings h3 {
+  margin: 0 0 8px;
+  font-size: 15px;
 }
 .research-page .findings p {
-  font-size: 14px;
+  font-size: 13.5px;
   line-height: 1.6;
 }
-.research-page .report {
+.research-page .caveat {
+  font-size: 12.5px;
+  line-height: 1.6;
+  color: var(--ink-4);
   border-top: 1px solid var(--paper-rule);
-  padding: 52px 26px 64px;
-}
-.research-page .report .lead p {
-  font-size: 14.5px;
-  line-height: 1.6;
+  padding-top: 18px;
 }
 
-/* the reader */
-.reader {
-  border: 1px solid var(--paper-rule);
-  border-radius: 16px;
-  background: var(--paper-2);
-  overflow: hidden;
+/* ---- the technical report ---- */
+.report {
+  border-top: 1px solid var(--paper-rule);
+  padding: 56px 26px 64px;
 }
-.reader-bar {
-  padding: 13px 18px;
-  border-bottom: 1px solid var(--paper-rule);
+.report-lead {
+  max-width: 760px;
+  margin: 0 auto;
+  text-align: center;
   display: flex;
-  align-items: center;
+  flex-direction: column;
   gap: 12px;
-  flex-wrap: wrap;
 }
-.reader-bar .file {
-  font-family: var(--font-mono), ui-monospace, monospace;
-  font-size: 10px;
-  letter-spacing: 0.14em;
-  color: #5b6a62;
+.research-page .report-lead p {
+  font-size: 14px;
+  color: var(--ink-4);
 }
-.reader-bar .tools {
-  margin-left: auto;
+.paper {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.paper-frame {
+  min-height: 320px;
+  padding: 18px;
+  border: 1px solid var(--paper-rule);
+  border-radius: 14px;
+  background: #e9e5da;
+}
+.paper-pages {
+  display: flex;
+  justify-content: center;
+  gap: 16px;
+}
+.paper-page {
+  display: block;
+  background: #fff;
+  box-shadow:
+    0 1px 2px rgba(20, 37, 31, 0.12),
+    0 8px 24px rgba(20, 37, 31, 0.08);
+}
+.research-page .paper-fallback {
+  padding: 40px 0;
+  text-align: center;
+}
+.paper-bar {
   display: flex;
   align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
+  justify-content: center;
+  gap: 14px;
 }
-.reader-bar button {
+.paper-bar button {
+  width: 36px;
+  height: 36px;
   border: 1px solid var(--paper-rule);
-  background: none;
-  border-radius: 8px;
-  padding: 7px 11px;
-  font-family: var(--font-mono), ui-monospace, monospace;
-  font-size: 10.5px;
-  color: var(--ink-3);
+  border-radius: 999px;
+  background: var(--sheet);
+  color: var(--ink);
+  font: inherit;
   cursor: pointer;
 }
-.reader-bar .download {
-  border: 1px solid var(--green);
-  background: var(--green);
-  color: var(--paper-2);
-  border-radius: 8px;
-  padding: 7px 13px;
-  font-size: 12.5px;
+.paper-bar button:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+.paper-count {
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: 11.5px;
+  color: var(--ink-4);
+  min-width: 130px;
+  text-align: center;
+}
+.research-page .paper-download {
+  margin-left: 8px;
+  padding: 9px 16px;
+  border-radius: 999px;
+  background: var(--ink);
+  color: #faf8f2;
+  font-size: 13px;
   font-weight: 600;
   text-decoration: none;
 }
-.reader-bar .download + .download {
-  background: none;
-  color: var(--green);
-}
-.reader-spread {
-  padding: 26px 22px;
-  background: #efebe0;
-  display: flex;
-  justify-content: center;
-}
-.spread {
-  position: relative;
-  width: 100%;
-  max-width: 800px;
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 2px;
-  box-shadow: 0 18px 40px rgba(20, 37, 31, 0.18);
-}
-.spread.one {
-  grid-template-columns: minmax(0, 1fr);
-}
-.sheet {
-  position: relative;
-  background: var(--sheet);
-  aspect-ratio: 1 / 1.414;
-  overflow: auto;
-  padding: 26px 24px 34px;
-  font-size: 12.5px;
-  line-height: 1.55;
-  color: var(--ink-3);
-}
-.sheet h3 {
-  margin: 0 0 12px;
-  font-size: 16px;
-  line-height: 1.25;
-  color: var(--ink);
-}
-.sheet p {
-  margin: 0 0 10px;
-  font-size: 12.5px;
-}
-.sheet ul {
-  margin: 0 0 10px;
-  padding-left: 18px;
-}
-.sheet li {
-  margin-bottom: 5px;
-}
-.sheet .flag {
-  color: #9a3b2f;
-  font-weight: 600;
-}
-.sheet dl {
-  margin: 0;
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 8px 14px;
-}
-.sheet dl div {
-  border-top: 1px solid var(--paper-rule);
-  padding-top: 6px;
-}
-.sheet dt {
-  font-family: var(--font-mono), ui-monospace, monospace;
-  font-size: 9px;
-  letter-spacing: 0.1em;
-  color: var(--ink-4);
-}
-.sheet dd {
-  margin: 0;
-  font-size: 12.5px;
-  color: var(--ink);
-}
-.sheet .mono {
-  font-family: var(--font-mono), ui-monospace, monospace;
-  font-size: 10.5px;
-}
-.sheet table {
-  width: 100%;
-  border-collapse: collapse;
-  font-variant-numeric: tabular-nums;
-}
-.sheet th,
-.sheet td {
-  text-align: left;
-  padding: 5px 6px;
-  border-bottom: 1px solid var(--paper-rule);
-  font-size: 11.5px;
-  color: var(--ink);
-}
-.sheet th {
-  font-family: var(--font-mono), ui-monospace, monospace;
-  font-size: 9px;
-  letter-spacing: 0.08em;
-  color: var(--ink-4);
-  font-weight: 500;
-}
-.sheet .n {
-  text-align: right;
-}
-.sheet tr.focus td {
-  color: var(--green);
-  font-weight: 600;
-}
-.sheet .folio {
-  position: absolute;
-  right: 18px;
-  bottom: 12px;
-  font-family: var(--font-mono), ui-monospace, monospace;
-  font-size: 10px;
-  color: var(--ink-4);
-}
-.reader-nav {
-  padding: 14px 18px;
-  border-top: 1px solid var(--paper-rule);
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  flex-wrap: wrap;
-}
-.reader-nav > button {
-  width: 34px;
-  height: 34px;
-  border: 1px solid var(--paper-rule);
-  border-radius: 9px;
-  background: none;
-  font-size: 13px;
-  color: var(--ink-3);
-  cursor: pointer;
-}
-.reader-nav > button:disabled {
-  opacity: 0.4;
-  cursor: default;
-}
-.reader-nav .count {
-  font-family: var(--font-mono), ui-monospace, monospace;
-  font-size: 11px;
-  color: var(--ink-4);
-}
-.reader-nav .segments {
-  flex: 1;
-  min-width: 180px;
-  display: flex;
-  gap: 3px;
-  align-items: center;
-}
-.reader-nav .segments button {
-  flex: 1;
-  height: 5px;
-  border: 0;
-  padding: 0;
-  border-radius: 3px;
-  background: var(--paper-rule);
-  cursor: pointer;
-}
-.reader-nav .segments button.on {
-  background: var(--green);
-}
-.reader-nav .hint {
+.research-page .data {
+  text-align: center;
   font-size: 12.5px;
   color: var(--ink-4);
-}
-.research-page .sections {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
-  gap: 18px;
-}
-.research-page .sections div.no,
-.research-page .sections > div {
-  display: flex;
-  gap: 12px;
-  align-items: baseline;
-}
-.research-page .sections .no {
-  font-family: var(--font-mono), ui-monospace, monospace;
-  font-size: 10.5px;
-  color: var(--brown);
-  flex: none;
-}
-.research-page .sections .t {
-  font-size: 14.5px;
-  font-weight: 600;
-  line-height: 1.35;
-  color: var(--ink);
-}
-.research-page .sections .p {
-  font-family: var(--font-mono), ui-monospace, monospace;
-  font-size: 10.5px;
-  color: var(--ink-4);
-  margin-top: 3px;
-}
-@media (max-width: 720px) {
-  .spread {
-    grid-template-columns: minmax(0, 1fr);
-  }
-  .research-page .intro h1 {
-    font-size: 34px;
-  }
-}
-
-/* ---- the seats, so the study looks like the rest of the site ----
-   Paper page, site furniture: the same mascots, model chips and gold as the broadcast screens, in
-   the ink and cream this page is printed in. */
-.research-page .seats {
-  display: grid;
-  /* Narrow enough that the five seats make one row on a laptop, with no empty cell beside them. */
-  grid-template-columns: repeat(auto-fit, minmax(158px, 1fr));
-  gap: 1px;
-  background: var(--paper-rule);
-  border: 1px solid var(--paper-rule);
-  border-radius: 14px;
-  overflow: hidden;
-}
-.research-page .seat {
-  display: grid;
-  grid-template-columns: 30px minmax(0, 1fr);
-  align-items: center;
-  gap: 4px 10px;
-  padding: 12px 13px;
-  background: var(--sheet);
-  border-top: 3px solid var(--gold);
-}
-.research-page .seat-who {
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-}
-.research-page .seat-who b {
-  font-size: 15px;
-  letter-spacing: 0.01em;
-}
-.research-page .chip {
-  align-self: flex-start;
-  max-width: 100%;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-family: var(--font-mono), ui-monospace, monospace;
-  font-size: 9.5px;
-  color: var(--ink-4);
-  border: 1px solid var(--paper-rule);
-  border-radius: 3px;
-  padding: 1px 5px;
-}
-.research-page .seat-error {
-  grid-column: 1 / -1;
-  display: flex;
-  align-items: baseline;
-  gap: 6px;
-  padding-top: 7px;
-  border-top: 1px solid var(--paper-rule);
-}
-.research-page .seat-error b {
-  font-family: var(--font-mono), ui-monospace, monospace;
-  font-size: 13px;
-  color: var(--green);
-}
-.research-page .seat-error span {
-  font-size: 9px;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: var(--ink-4);
-}
-/* The site's gold, used where it reads on cream: as a rule above a figure, never as text. */
-.research-page .metrics div {
-  border-top: 3px solid var(--gold);
-}
-.research-page .kicker::after {
-  content: '';
-  display: inline-block;
-  width: 18px;
-  height: 2px;
-  margin: 0 0 3px 8px;
-  background: var(--gold);
-  vertical-align: middle;
 }
 
 /* ---- phones ---- */
+@media (max-width: 860px) {
+  .tiles {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 24px 20px;
+  }
+  .findings {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
 @media (max-width: 680px) {
-  .research-page .intro {
+  .intro {
     padding: 26px 16px 24px;
     gap: 16px;
   }
-  .research-page .intro h1 {
+  .intro h1 {
     font-size: 30px;
   }
   .research-page .intro p {
     font-size: 15px;
     line-height: 1.6;
   }
-  .research-page .hands-say,
-  .research-page .report {
-    padding: 28px 16px;
-  }
-  .research-page .inner {
-    gap: 20px;
+  .measured,
+  .report {
+    padding: 32px 16px;
   }
   .research-page h2 {
-    font-size: 22px;
-  }
-  .research-page p {
-    font-size: 14px;
-  }
-  .research-page .metrics {
-    grid-template-columns: minmax(0, 1fr);
-  }
-  .research-page .metrics .v {
     font-size: 24px;
   }
-  .research-page .seats {
-    grid-template-columns: minmax(0, 1fr);
+  .v {
+    font-size: 28px;
   }
-  .research-page .findings {
-    gap: 14px;
+  .paper-frame {
+    padding: 8px;
+  }
+  .paper-bar {
+    flex-wrap: wrap;
   }
 }
