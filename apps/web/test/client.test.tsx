@@ -16,6 +16,7 @@ const { Broadcast } = await import('../components/Broadcast')
 const { ReplayScreen, replayPause } = await import('../components/ReplayScreen')
 const { useFeed, RECONNECT_MS } = await import('../components/useFeed')
 const { LiveScreen } = await import('../components/LiveScreen')
+const { HandLog } = await import('../components/HandLog')
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
@@ -89,6 +90,28 @@ describe('ReplayScreen', () => {
     mount(<ReplayScreen title="t" events={events} />)
     for (let i = 0; i < 10; i++) act(() => vi.advanceTimersByTime(5000)) // one step per act (React applies updates at its end)
     expect([...host.querySelectorAll('button')].some((b) => b.textContent === 'Ended' && b.disabled)).toBe(true)
+  })
+})
+
+describe('HandLog', () => {
+  it('opens older hands in place, and never links a replay to itself', async () => {
+    const events = await mockGame(6)
+    let view = emptyView()
+    const lines = events
+      .map((e) => {
+        const line = logLine(e, (id) => id.toUpperCase(), view)
+        view = buildView(events.slice(0, events.indexOf(e) + 1))
+        return line
+      })
+      .filter((l) => l !== null)
+    mount(<HandLog lines={lines} view={view} gameLink={false} />)
+    const log = host.querySelector('.log')!
+    // A phone shows the newest three hands; the rest open here rather than on another page.
+    expect(host.querySelector('a[href^="/replays/"]')).toBeNull()
+    click(`Show all ${host.querySelectorAll('.hand-group').length} hands`)
+    expect(log.classList.contains('expanded')).toBe(true)
+    click('Show fewer')
+    expect(log.classList.contains('expanded')).toBe(false)
   })
 })
 

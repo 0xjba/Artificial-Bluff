@@ -77,5 +77,5 @@ export function ReplayScreen({ title, events, fromSeq }: { title: string; events
       </span>
     </span>
   )
-  return <Broadcast channel={state.channel} view={state.view} log={state.log} decisionEquity={state.decisionEquity} controls={controls} />
+  return <Broadcast channel={state.channel} view={state.view} log={state.log} decisionEquity={state.decisionEquity} controls={controls} gameLink={false} />
 }

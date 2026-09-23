@@ -55,7 +55,8 @@ export function programmeStatus(channel: Pick<Channel, 'mode' | 'title'> | null,
   if (channel.mode !== 'live') {
     // The tag already says REPLAY: what is worth the room beside it is when the game was played.
     const subject = channel.title.replace(/^REPLAY\s*·\s*/i, '')
-    const game = /^live game (\S+)$/i.exec(subject)
+    // "live game <id>" from the server's replays, or the bare id the replay page uses.
+    const game = /^(?:live game )?(\S+)$/i.exec(subject)
     return [(game && gameLabel(game[1]!)) || subject]
   }
   const hand = view.hand && !view.hand.ended ? view.handsPlayed + 1 : view.handsPlayed
@@ -81,6 +82,8 @@ export function Broadcast(props: {
   live?: { behind: boolean; onGoLive: () => void }
   /** The one-line explainer for newcomers (the home page shows it). */
   explainer?: boolean
+  /** Off on a replay page, which is itself where every hand of the game is. */
+  gameLink?: boolean
 }) {
   const [muted, setMuted] = useState(true)
   useEffect(() => {
@@ -160,7 +163,7 @@ export function Broadcast(props: {
         <Stage view={props.view} />
         <aside className="side">
           <DecisionCard view={props.view} decisionEquity={props.decisionEquity} />
-          <HandLog lines={props.log} view={props.view} />
+          <HandLog lines={props.log} view={props.view} gameLink={props.gameLink ?? true} />
         </aside>
       </div>
       {props.seek}

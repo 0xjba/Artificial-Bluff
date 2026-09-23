@@ -168,6 +168,8 @@ describe('screen pieces', () => {
     expect(gameLabel('live-2026-09-23T13-35-24-143Z')).toBe('23 SEP 13:35')
     expect(gameLabel('live-1')).toBeNull() // nothing to read: left alone
     expect(programmeStatus({ mode: 'replay', title: 'REPLAY · live game live-2026-09-23T13-35-24-143Z' }, emptyView())).toEqual(['23 SEP 13:35'])
+    // The replay page names the game by its bare id: the same reading applies.
+    expect(programmeStatus({ mode: 'replay', title: 'REPLAY · live-2026-09-23T17-29-04-001Z' }, emptyView())).toEqual(['23 SEP 17:29'])
   })
 
   it('never repeats the tag in the title', async () => {
