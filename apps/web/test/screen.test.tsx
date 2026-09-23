@@ -38,6 +38,20 @@ describe('Broadcast screen', () => {
     expect(html).not.toMatch(/NaN|undefined/)
   })
 
+  it('gives the last decision a subject, a comparison and a cost: mascot, move, bars, three cells', async () => {
+    const events = await mockGame(4)
+    const cut = events.findIndex((e, i) => i > 30 && e.type === 'decision')
+    const view = buildView(events.slice(0, cut + 1))
+    const html = renderToStaticMarkup(<Broadcast channel={{ mode: 'live', title: 'LIVE' }} view={view} log={[]} decisionEquity={0.41} />)
+    expect(html).toMatch(/<h2>LAST DECISION<small>HAND \d+ · [A-Z]+<\/small><\/h2>/) // the hand it belongs to
+    expect(html).toContain('class="who-mascot"') // who acted, at a glance
+    expect(html).toMatch(/<span class="who-id"><b>[A-Z]+<\/b>/)
+    // The claim and the truth each carry a bar, so the gap shows before either number is read.
+    expect(html).toContain('class="claim-bar said"')
+    expect(html).toContain('<span class="claim-bar real" aria-hidden="true"><span style="width:41%"></span></span>')
+    for (const cell of ['ANSWERED BY', 'THIS MOVE TOOK', 'THIS MOVE COST']) expect(html).toContain(cell)
+  })
+
   it('shows the waiting card before a game', () => {
     const html = renderToStaticMarkup(<Broadcast channel={null} view={emptyView()} log={[]} decisionEquity={null} />)
     expect(html).toContain('OFF AIR')
