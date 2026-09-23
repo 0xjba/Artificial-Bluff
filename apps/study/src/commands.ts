@@ -8,6 +8,8 @@ import { readStoreProgress } from './progress'
 import { summarize, type StudySummary } from './results'
 import { decisionsCsv } from './exports'
 import { renderReportHtml } from './html'
+import { renderPaperHtml } from './paper'
+import { printPdf } from './pdf'
 import { analyseStudy, analysedGroupCount, focusPlayer } from './report'
 import { runStudy, type StudyOutcome } from './run'
 
@@ -116,10 +118,19 @@ export function statusCommand(config: StudyConfig, mock: boolean, store: EventSt
 
 /**
  * Writes the study report to `outDir`: report.html (self-contained), report.json (every number in the
- * report), decisions.csv and decisions.json (one row per analysed decision, with its outcomes).
+ * report), decisions.csv and decisions.json (one row per analysed decision, with its outcomes), and the
+ * paper: paper.html, printed to paper.pdf when a Chrome is available (`print` is injectable for tests).
  * Free: reads the event log only. Returns the files written.
  */
-export function reportCommand(config: StudyConfig, mock: boolean, store: EventStore, outDir: string, deps: CommandDeps, generatedAt = new Date().toISOString()): string[] {
+export function reportCommand(
+  config: StudyConfig,
+  mock: boolean,
+  store: EventStore,
+  outDir: string,
+  deps: CommandDeps,
+  generatedAt = new Date().toISOString(),
+  print: (html: string, pdf: string) => boolean = printPdf,
+): string[] {
   const c = mock ? mockVariant(config) : config
   const started = Date.now()
   const { report, decisions } = analyseStudy(store, c, { focusId: focusPlayer(config), generatedAt })
@@ -129,14 +140,19 @@ export function reportCommand(config: StudyConfig, mock: boolean, store: EventSt
     ['report.json', `${JSON.stringify(report, null, 2)}\n`],
     ['decisions.csv', decisionsCsv(decisions)],
     ['decisions.json', `${JSON.stringify(decisions)}\n`],
+    ['paper.html', renderPaperHtml(report, decisions, { mock })],
   ]
   const written = files.map(([name, content]) => {
     const path = join(outDir, name)
     writeFileSync(path, content)
     return path
   })
+  // The paper as a PDF, from the HTML just written: its page setup is in its own @page rules.
+  const pdf = join(outDir, 'paper.pdf')
+  if (print(join(outDir, 'paper.html'), pdf)) written.push(pdf)
   deps.log(`study ${c.id}: ${report.study.hands} hands, ${report.study.decisions} decisions analysed in ${((Date.now() - started) / 1000).toFixed(1)} s`)
   for (const path of written) deps.log(`  wrote ${path}`)
+  if (!written.includes(pdf)) deps.log('  paper.pdf not printed: no Chrome found (set CHROME_PATH); paper.html is there to print')
   return written
 }
 

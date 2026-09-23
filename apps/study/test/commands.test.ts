@@ -1,6 +1,6 @@
 import { EventStore } from '@ab/core'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { mkdtempSync, readFileSync } from 'node:fs'
+import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { mockVariant, parseCliArgs, preregCommand, reportCommand, runCommand, statusCommand } from '../src/commands'
@@ -85,8 +85,21 @@ describe('study commands (mock mode: free, no network, no keys)', () => {
     await runCommand(config, true, store, capture().deps)
     const out = mkdtempSync(join(tmpdir(), 'ab-report-'))
     const { lines, deps } = capture()
-    const files = reportCommand(config, true, store, out, deps, '2026-09-22T00:00:00.000Z')
-    expect(files.map((f) => f.slice(out.length + 1))).toEqual(['report.html', 'report.json', 'decisions.csv', 'decisions.json'])
+    // The PDF step is a stand-in here (tests don't launch Chrome); it gets the paper that was written.
+    const printed: string[] = []
+    const print = (html: string, pdf: string) => {
+      printed.push(readFileSync(html, 'utf8'))
+      writeFileSync(pdf, '%PDF-1.7 stand-in')
+      return true
+    }
+    const files = reportCommand(config, true, store, out, deps, '2026-09-22T00:00:00.000Z', print)
+    expect(files.map((f) => f.slice(out.length + 1))).toEqual(['report.html', 'report.json', 'decisions.csv', 'decisions.json', 'paper.html', 'paper.pdf'])
+    expect(printed[0]).toContain('REHEARSAL ON MOCK PLAYERS') // a mock study's paper says what it is
+    // Without a Chrome the paper is still written as HTML, and the log says why there is no PDF.
+    const bare = capture()
+    const noPdf = reportCommand(config, true, store, mkdtempSync(join(tmpdir(), 'ab-report-')), bare.deps, '2026-09-22T00:00:00.000Z', () => false)
+    expect(noPdf.at(-1)).toMatch(/paper\.html$/)
+    expect(bare.lines.at(-1)).toMatch(/paper\.pdf not printed/)
     expect(lines[0]).toMatch(/^study smoke-mock: 20 hands, \d+ decisions analysed in/)
     const json = JSON.parse(readFileSync(join(out, 'report.json'), 'utf8'))
     expect(json).toMatchObject({ kind: 'artificialBluff study report', focusId: 'hex', study: { id: 'smoke-mock', hands: 20 } })
