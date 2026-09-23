@@ -25,7 +25,7 @@ const SHARED = new Set([
   'seat-card', 'seat-face', 'seat-id', 'seat-stack', 'seat-cards', 'seat-act', 'seat-win', 'stack', 'dealer', 'now', 'quiet',
   'decision', 'claims', 'who-did', 'action', 'true', 'reasoning', 'probs', 'chosen', 'value', 'approx',
   'log', 'hand-head', 'at', 'what', 'all-hands', 'end', 'win', 'split', 'fold', 'raise', 'allin', 'flop', 'turn', 'river',
-  'seek', 'seek-row', 'track', 'fill', 'tick', 'title',
+  'seek', 'seek-row', 'track', 'fill', 'tick', 'title', 'play',
   // playing cards
   'card', 'slot', 'gone',
 ])

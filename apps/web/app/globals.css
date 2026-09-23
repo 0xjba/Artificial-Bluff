@@ -987,6 +987,13 @@ button.tag.live {
   font-size: 11px;
   cursor: pointer;
 }
+.seek button.play {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  width: 30px;
+}
 .seek button:disabled {
   opacity: 0.4;
   cursor: default;
@@ -1077,25 +1084,88 @@ button.tag.live {
   .stage-grid {
     grid-template-columns: minmax(0, 1fr);
   }
+  /* One column: the table takes the width it is given, keeping the desktop oval's proportions, and
+     the seats sit out on its rim (below) instead of huddling toward the middle. */
   .felt {
-    width: 330px;
-    aspect-ratio: 330 / 646;
-    border-radius: 165px;
+    width: min(420px, 100%);
+    aspect-ratio: 340 / 600;
+    border-radius: 50%;
+    margin: 10px 0 8px;
     box-shadow:
       0 0 0 9px var(--felt-rim),
       inset 0 1px 0 rgba(255, 255, 255, 0.06);
   }
+  /* Room at the bottom for the seat that hangs off the rim, or it runs into the panel below. */
+  .stage {
+    padding: 10px 4px 58px;
+  }
+  /* The phone's own places (--pl/--pt from Stage.tsx), out at the rim rather than pulled in. The
+     shift follows the place, so a seat at the left edge hangs its pill inward from that edge and one
+     at the right hangs it inward from that one; a seat in the middle is still centred on its place. */
   .seat-slot {
-    width: 136px;
-    /* Pull the seats in, so their cards stay on a phone screen. */
-    left: calc((50 + (var(--l) - 50) * 0.62) * 1%);
+    width: 118px;
+    left: calc(var(--pl) * 1%);
+    top: calc(var(--pt) * 1%);
+    transform: translate(calc(var(--pl) * -1%), -50%);
   }
   .seat-card {
-    padding: 7px 8px 0;
-    column-gap: 7px;
+    padding: 6px 7px 0;
+    column-gap: 6px;
+    border-radius: 11px;
+  }
+  .seat-face svg {
+    width: 36px;
+    height: 36px;
+  }
+  .seat-cards {
+    gap: 3px;
+    margin-bottom: 4px;
+  }
+  .seat-cards .card,
+  .seat-cards .card.gone {
+    width: 21px;
+    height: 29px;
+  }
+  .seat-win {
+    padding: 3px 6px;
+    font-size: 8.5px;
+    white-space: nowrap;
+  }
+  .seat-win b {
+    font-size: 11px;
   }
   .seat-act {
-    margin: 0 -8px;
+    height: 18px;
+    margin: 0 -7px;
+    font-size: 9.5px;
+  }
+  .pot b {
+    font-size: 24px;
+  }
+  /* The log is a box on the page, like the desktop column, not a list that runs on for screens. */
+  .log {
+    max-height: 340px;
+    overflow: auto;
+    border-top: 1px solid var(--rule);
+  }
+  .decision {
+    padding: 14px 16px;
+  }
+  .claims {
+    gap: 6px;
+  }
+  .claims > div {
+    padding: 7px 8px;
+  }
+  .claims b {
+    font-size: 19px;
+  }
+  .claims small {
+    font-size: 9px;
+    line-height: 1.25;
+  }
+  .who-did b {
+    font-size: 20px;
   }
   .seat-id b {
     font-size: 13px;
@@ -1132,8 +1202,14 @@ button.tag.live {
     order: 2;
     gap: 8px;
     min-width: 0;
+    margin-left: auto;
     font-size: 10.5px;
     white-space: nowrap;
+  }
+  /* With a programme on screen the status sits between the two, so the menu keeps its place. */
+  .site-status:not(:empty) + .menu,
+  .site-status:not(:empty) ~ .menu {
+    margin-left: 10px;
   }
   /* Only the hand number fits beside the logo and the menu; the blinds are on the table anyway. */
   .site-status .part.extra {
@@ -1143,6 +1219,8 @@ button.tag.live {
     display: flex;
     order: 3;
     flex: none;
+    /* Pages without a programme leave the status slot empty, and the button used to slide left. */
+    margin-left: auto;
   }
   /* The links drop out of the header over the page, one per row. */
   header.site nav {
@@ -1169,7 +1247,7 @@ button.tag.live {
   header.site nav a:last-child {
     border-bottom: 0;
   }
-  header.site nav a[aria-current='page'] {
+  header.site nav a[aria-current="page"] {
     box-shadow: none;
     color: var(--gold);
   }
@@ -1215,79 +1293,6 @@ button.tag.live {
   /* The broadcast page's own sections carry the gutter (the felt wants the full width). */
   main {
     padding: 0 0 28px;
-  }
-  .stage {
-    padding: 14px 8px 6px;
-  }
-  /* A little taller than the desktop felt for its width: it spreads the seats down the rim, which is
-     what stops the bottom seat running into the two beside it. */
-  .felt {
-    aspect-ratio: 330 / 700;
-    border-radius: 165px / 350px;
-  }
-  /* Smaller seats, pushed a little further onto the rim: at this size they used to overlap. */
-  .seat-slot {
-    width: 118px;
-    left: calc((50 + (var(--l) - 50) * 0.6) * 1%);
-    top: calc((50 + (var(--t) - 50) * 1.06) * 1%);
-  }
-  .seat-card {
-    padding: 6px 7px 0;
-    column-gap: 6px;
-    border-radius: 11px;
-  }
-  .seat-face svg {
-    width: 36px;
-    height: 36px;
-  }
-  .seat-cards {
-    gap: 3px;
-    margin-bottom: 4px;
-  }
-  .seat-cards .card,
-  .seat-cards .card.gone {
-    width: 21px;
-    height: 29px;
-  }
-  .seat-win {
-    padding: 3px 6px;
-    font-size: 8.5px;
-  }
-  .seat-win b {
-    font-size: 11px;
-  }
-  .seat-act {
-    height: 18px;
-    margin: 0 -7px;
-    font-size: 9.5px;
-  }
-  .pot b {
-    font-size: 24px;
-  }
-  /* The log is a box on the page, like the desktop column, not a list that runs on for screens. */
-  .log {
-    max-height: 340px;
-    overflow: auto;
-    border-top: 1px solid var(--rule);
-  }
-  .decision {
-    padding: 14px 16px;
-  }
-  .claims {
-    gap: 6px;
-  }
-  .claims > div {
-    padding: 7px 8px;
-  }
-  .claims b {
-    font-size: 19px;
-  }
-  .claims small {
-    font-size: 9px;
-    line-height: 1.25;
-  }
-  .who-did b {
-    font-size: 20px;
   }
 }
 
@@ -1378,10 +1383,35 @@ body:has(.research-light) header.site .logo {
 body:has(.research-light) header.site .logo span {
   color: #0f5c49;
 }
+body:has(.research-light) header.site .menu {
+  color: #14251f;
+  border-color: #ddd6c6;
+}
+/* The drop-down is paper too, or it opens as a dark slab with gold text on this page. */
+body:has(.research-light) header.site nav {
+  background: #fdfcf8;
+  border-bottom-color: #ddd6c6;
+}
+body:has(.research-light) header.site nav a[aria-current="page"] {
+  color: #0f5c49;
+}
 body:has(.research-light) header.site nav a {
   color: #5b6a62;
 }
 body:has(.research-light) header.site nav a[aria-current="page"] {
   color: #14251f;
   box-shadow: inset 0 -2px 0 #0f5c49;
+}
+
+/* The menu on the paper pages at phone width: cream drop-down, ink links. It comes after the light
+   header rules above, which would otherwise leave dull green-grey text on cream. */
+@media (max-width: 680px) {
+  body:has(.research-light) header.site nav a {
+    color: #2f4038;
+    border-bottom-color: #ddd6c6;
+  }
+  body:has(.research-light) header.site nav a[aria-current="page"] {
+    color: #0f5c49;
+    font-weight: 600;
+  }
 }

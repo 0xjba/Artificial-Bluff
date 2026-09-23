@@ -7,7 +7,7 @@ import { Broadcast, programmeStatus } from '../components/Broadcast'
 import { handGroups } from '../components/HandLog'
 import { PIPS, PlayingCard } from '../components/PlayingCard'
 import { isCurrent } from '../components/SiteNav'
-import { seatPlace } from '../components/Stage'
+import { phonePlace, seatPlace } from '../components/Stage'
 import type { LogLine } from '../lib/log'
 import { initialFeed, reduceFeed } from '../lib/feed'
 import { logLine } from '../lib/log'
@@ -53,6 +53,30 @@ describe('Broadcast screen', () => {
       expect(Math.min(...places.map((p) => p.top))).toBeLessThan(25) // someone across the table
     }
     expect(seatPlace(1, 7).top).toBeGreaterThan(0) // more seats than places: round the ellipse
+  })
+
+  it('gives a phone its own places: out to the edges, and far enough apart for the pills not to touch', () => {
+    // A phone's felt is 280 x 660 with pills 118 x 150; the places are in percent of that box.
+    const W = 280
+    const H = 660
+    const PILL = { w: 118, h: 150 }
+    for (const n of [2, 3, 4, 5]) {
+      const boxes = Array.from({ length: n }, (_, i) => {
+        const p = phonePlace(i, n)
+        return { x: (p.left / 100) * W - PILL.w / 2, y: (p.top / 100) * H - PILL.h / 2 }
+      })
+      for (let i = 0; i < n; i++)
+        for (let j = i + 1; j < n; j++) {
+          const a = boxes[i]!
+          const b = boxes[j]!
+          const apart = Math.min(a.x + PILL.w, b.x + PILL.w) - Math.max(a.x, b.x) <= 0 || Math.min(a.y + PILL.h, b.y + PILL.h) - Math.max(a.y, b.y) <= 0
+          expect(apart, `seats ${i} and ${j} of ${n} overlap`).toBe(true)
+        }
+      // The seats that aren't on the centre line sit out at the rim, using the width either side of
+      // the felt rather than huddling in the middle of a narrow screen.
+      const outer = boxes.filter((b) => Math.abs(b.x + PILL.w / 2 - W / 2) > W * 0.35)
+      if (n > 2) expect(outer.length).toBeGreaterThanOrEqual(2)
+    }
   })
 
   it('underlines the section being viewed', () => {
