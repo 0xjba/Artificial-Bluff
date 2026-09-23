@@ -30,6 +30,41 @@ const PLACES: Record<number, Array<{ left: number; top: number }>> = {
   ],
 }
 
+/**
+ * Seat places on a phone's felt (280 x 660). The desktop ring pulled the seats toward the middle,
+ * which on a narrow screen left the width either side of the table empty and stacked the bottom seat
+ * onto its neighbours. These sit out on the rim, with the rows far enough apart for the pills.
+ */
+const PHONE_PLACES: Record<number, Array<{ left: number; top: number }>> = {
+  2: [
+    { left: 50, top: 92 },
+    { left: 50, top: 8 },
+  ],
+  3: [
+    { left: 50, top: 92 },
+    { left: 0, top: 18 },
+    { left: 100, top: 18 },
+  ],
+  4: [
+    { left: 50, top: 94 },
+    { left: 0, top: 58 },
+    { left: 50, top: 8 },
+    { left: 100, top: 58 },
+  ],
+  5: [
+    { left: 50, top: 97 },
+    { left: 0, top: 68 },
+    { left: 0, top: 10 },
+    { left: 100, top: 10 },
+    { left: 100, top: 68 },
+  ],
+}
+
+/** Where seat i of n sits on a phone's felt (see PHONE_PLACES); beyond those, the same ring. */
+export function phonePlace(i: number, n: number): { left: number; top: number } {
+  return PHONE_PLACES[n]?.[i] ?? seatPlace(i, n)
+}
+
 /** Where seat i of n sits on the felt; seats beyond the fixed places go round an ellipse. */
 export function seatPlace(i: number, n: number): { left: number; top: number } {
   const fixed = PLACES[n]?.[i]
@@ -68,8 +103,14 @@ export function Stage({ view }: { view: TableView }) {
         </div>
         {view.seats.map((seat, i) => {
           const place = seatPlace(i, view.seats.length)
+          const phone = phonePlace(i, view.seats.length)
           return (
-            <div key={seat.playerId} className="seat-slot" style={{ '--l': place.left, '--t': place.top } as React.CSSProperties}>
+            // Two sets of places: the stylesheet picks the phone pair on a narrow screen.
+            <div
+              key={seat.playerId}
+              className="seat-slot"
+              style={{ '--l': place.left, '--t': place.top, '--pl': phone.left, '--pt': phone.top } as React.CSSProperties}
+            >
               <Seat view={view} seat={seat} index={i} />
             </div>
           )

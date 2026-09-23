@@ -19,6 +19,22 @@ export interface SeekBarProps {
   onTogglePlay: () => void
 }
 
+/** Two bars, or a triangle: the same button, whichever way it is about to go. */
+function PlayIcon({ playing }: { playing: boolean }) {
+  return (
+    <svg viewBox="0 0 12 12" width="11" height="11" aria-hidden="true" focusable="false" fill="currentColor">
+      {playing ? (
+        <>
+          <rect x="2.5" y="2" width="2.6" height="8" rx="0.6" />
+          <rect x="6.9" y="2" width="2.6" height="8" rx="0.6" />
+        </>
+      ) : (
+        <path d="M3.4 2.2 10 6 3.4 9.8z" />
+      )}
+    </svg>
+  )
+}
+
 /** The bar under the table: drag back into the game, step by hand, or play the past on. */
 export function SeekBar(props: SeekBarProps) {
   const first = props.starts[0] ?? 1
@@ -31,8 +47,8 @@ export function SeekBar(props: SeekBarProps) {
           ◀◀
         </button>
         {props.behind ? (
-          <button type="button" onClick={props.onTogglePlay}>
-            {props.playing ? 'Pause' : 'Play'}
+          <button type="button" className="play" title={props.playing ? 'Pause' : 'Play'} aria-label={props.playing ? 'pause' : 'play'} onClick={props.onTogglePlay}>
+            <PlayIcon playing={props.playing} />
           </button>
         ) : null}
         <button type="button" title="Next hand" aria-label="next hand" disabled={!props.behind} onClick={props.onNextHand}>

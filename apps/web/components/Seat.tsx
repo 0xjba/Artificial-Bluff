@@ -53,7 +53,7 @@ export function Seat({ view, seat, index }: { view: TableView; seat: SeatView; i
       <span className="seat-win" title="Chance this player wins the hand from here, from everyone's cards. The players can't see it.">
         <span>Win chances</span>
         <b>
-          <WinChance view={view} seat={seat} />
+          <WinChance view={view} seat={seat} short />
         </b>
       </span>
       <span className={`seat-act${acting ? ' now' : ''}${dim ? ' quiet' : ''}`}>{acting ? 'Thinking…' : lastWord(seat)}</span>
