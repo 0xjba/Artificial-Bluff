@@ -52,11 +52,11 @@ const PHONE_PLACES: Record<number, Array<{ left: number; top: number }>> = {
     { left: 100, top: 58 },
   ],
   5: [
-    { left: 50, top: 97 },
-    { left: 0, top: 68 },
-    { left: 0, top: 10 },
-    { left: 100, top: 10 },
-    { left: 100, top: 68 },
+    { left: 50, top: 99 },
+    { left: 0, top: 71 },
+    { left: 0, top: 12 },
+    { left: 100, top: 12 },
+    { left: 100, top: 71 },
   ],
 }
 
