@@ -117,8 +117,11 @@ export function Broadcast(props: {
           {tag}
         </span>
       )}
-      {programmeStatus(props.channel, props.view).map((part) => (
-        <span key={part}>{part}</span>
+      {/* On a phone only the first part (the hand) fits beside the logo and the menu. */}
+      {programmeStatus(props.channel, props.view).map((part, i) => (
+        <span key={part} className={i === 0 ? 'part' : 'part extra'}>
+          {part}
+        </span>
       ))}
       {props.connection === 'lost' ? <span className="warn">RECONNECTING…</span> : null}
       <button type="button" className="mute" onClick={toggle} title={muted ? 'Turn sound on' : 'Turn sound off'} aria-label={muted ? 'turn sound on' : 'turn sound off'} aria-pressed={!muted}>

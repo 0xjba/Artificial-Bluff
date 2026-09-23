@@ -389,3 +389,38 @@
 .muted {
   color: var(--dim);
 }
+
+/* ---- phones ---- */
+@media (max-width: 680px) {
+  .run-page {
+    padding: 16px 16px 20px;
+  }
+  .run-head {
+    padding: 0 0 12px;
+  }
+  .run-head h1 {
+    font-size: 25px;
+  }
+  .run-head p {
+    font-size: 13.5px;
+    line-height: 1.55;
+  }
+  .run-cols {
+    padding: 0 0 24px;
+    gap: 14px;
+  }
+  .run-panel {
+    padding: 14px;
+  }
+  .run .seat-row {
+    gap: 10px;
+  }
+  .run .settings {
+    grid-template-columns: repeat(auto-fit, minmax(135px, 1fr));
+    gap: 10px;
+  }
+  .run .key-row input[type='password'] {
+    min-width: 0;
+    flex-basis: 100%;
+  }
+}

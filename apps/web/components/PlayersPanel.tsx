@@ -2,6 +2,7 @@
 import type { TableView } from '@ab/core/view'
 import { characterFor, cueFor, EYE_INK, Mascot } from '@ab/mascot'
 import { chips, ms, pct, shortModel, signedChips, usd } from '../lib/format'
+import { WinChance } from './WinChance'
 
 /** Who is playing: each seat's model, stack, net result, win chance, speed and spend. */
 export function PlayersPanel({ view }: { view: TableView }) {
@@ -33,7 +34,10 @@ export function PlayersPanel({ view }: { view: TableView }) {
                 <span style={{ width: `${Math.round((folded ? 0 : (equity ?? 0)) * 100)}%` }} />
               </span>
               <span>
-                Win chances <b>{folded ? (s.status === 'out' ? 'Out' : 'Folded') : equity === undefined ? '–' : `${view.equityEstimated ? '≈' : ''}${pct(equity)}`}</b>
+                Win chances{' '}
+                <b>
+                  <WinChance view={view} seat={s} />
+                </b>
               </span>
             </div>
             <div className="player-stats">

@@ -3,6 +3,8 @@ import type { Metadata } from 'next'
 import Link from 'next/link'
 import { connection } from 'next/server'
 import { ReportViewer } from '../../components/research/ReportViewer'
+import { SeatStrip } from '../../components/research/SeatStrip'
+import { WatchLive } from '../../components/research/WatchLive'
 import { API_URL } from '../../lib/api'
 import { usd } from '../../lib/format'
 import { listReports } from '../../lib/reports'
@@ -56,6 +58,7 @@ export default async function Research() {
 
   return (
     <div className={`${styles['research-page']} research-light`}>
+      <WatchLive />
       <section className={styles.intro}>
         <span className={styles.kicker}>RESEARCH</span>
         <h1>I&apos;m Jobin Ayathil.</h1>
@@ -98,6 +101,7 @@ export default async function Research() {
                   </div>
                 ))}
               </div>
+              <SeatStrip table={table!} />
               <p className={styles.caveat}>
                 Figures come from the event log of {table!.games} finished live {table!.games === 1 ? 'game' : 'games'} ({table!.hands} hands,{' '}
                 {table!.seats.length} seats) and are demo scale, not a study result: the sample is small, blinds rise throughout, and the line-up can change

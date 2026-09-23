@@ -1,4 +1,30 @@
 /* ---- replays (design: "Replays") ---- */
+.replays {
+  max-width: var(--shell);
+  margin: 0 auto;
+}
+.kicker {
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: 10px;
+  letter-spacing: 0.18em;
+  color: var(--gold);
+}
+.replays-section {
+  padding: 26px 24px 8px;
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+}
+.replays-section .k {
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: 9.5px;
+  letter-spacing: 0.16em;
+  color: var(--dim);
+}
+.replays-section .hint {
+  font-size: 12.5px;
+  color: var(--dim);
+}
 .live-now {
   padding: 14px 24px 0;
   display: flex;
@@ -304,3 +330,67 @@
   }
 }
 
+
+/* ---- phones ---- */
+@media (max-width: 680px) {
+  .live-now {
+    padding: 10px 16px 0;
+  }
+  .replays-head {
+    padding: 18px 16px 12px;
+    gap: 8px;
+  }
+  .replays-head h1 {
+    font-size: 26px;
+  }
+  .replays-head p {
+    font-size: 13.5px;
+    line-height: 1.55;
+  }
+  /* One row that scrolls sideways, rather than three rows of pills down the page. */
+  .filters {
+    padding: 4px 16px 0;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+  .filters::-webkit-scrollbar {
+    display: none;
+  }
+  .filter {
+    flex: none;
+  }
+  .featured-wrap {
+    padding: 14px 16px 0;
+  }
+  .featured {
+    padding: 14px;
+    gap: 14px;
+  }
+  .featured-main h2 {
+    font-size: 20px;
+  }
+  .featured-facts {
+    font-size: 10px;
+    gap: 8px;
+  }
+  .featured-buttons a {
+    flex: 1;
+    text-align: center;
+  }
+  .replays-section {
+    padding: 20px 16px 6px;
+    flex-direction: column;
+    gap: 2px;
+  }
+  .hand-grid {
+    padding: 0 16px 22px;
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .games-row {
+    padding: 4px 16px 28px;
+  }
+  .replays-empty {
+    padding: 0 16px 20px;
+  }
+}

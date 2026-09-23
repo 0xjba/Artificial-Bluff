@@ -1,9 +1,10 @@
 'use client'
 import type { SeatView, TableView } from '@ab/core/view'
 import { characterFor, cueFor, EYE_INK, Mascot } from '@ab/mascot'
-import { chips, pct, positionName, shortAction } from '../lib/format'
+import { chips, positionName, shortAction } from '../lib/format'
 import { seatMoment } from '../lib/moments'
 import { PlayingCard } from './PlayingCard'
+import { WinChance } from './WinChance'
 
 /** One poker chip, so the number beside it reads as chips and not money. */
 function ChipIcon() {
@@ -20,14 +21,6 @@ function lastWord(seat: SeatView): string {
   if (seat.status === 'out') return 'Out'
   if (seat.status === 'folded') return 'Folded'
   return seat.lastAction ? shortAction(seat.lastAction.label) : ''
-}
-
-/** What the seat's win chance line reads (on narrow screens, where the players panel is hidden). */
-function winWord(view: TableView, seat: SeatView): string {
-  if (seat.status === 'folded') return 'Folded'
-  if (seat.status === 'out') return 'Out'
-  const e = view.equity?.[seat.playerId]
-  return e === undefined ? '–' : `${view.equityEstimated ? '≈' : ''}${pct(e)}`
 }
 
 /** One seat on the felt: mascot, name, position, stack, cards and what it just did. */
@@ -59,7 +52,9 @@ export function Seat({ view, seat, index }: { view: TableView; seat: SeatView; i
       </span>
       <span className="seat-win" title="Chance this player wins the hand from here, from everyone's cards. The players can't see it.">
         <span>Win chances</span>
-        <b>{winWord(view, seat)}</b>
+        <b>
+          <WinChance view={view} seat={seat} />
+        </b>
       </span>
       <span className={`seat-act${acting ? ' now' : ''}${dim ? ' quiet' : ''}`}>{acting ? 'Thinking…' : lastWord(seat)}</span>
     </div>
