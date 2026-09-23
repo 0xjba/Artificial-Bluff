@@ -1561,16 +1561,21 @@ button.tag.live {
     max-height: none;
     overflow: visible;
   }
-  /* As tall as what it holds: forcing it to a screen left a void under a short log that changed
-     size with every hand. The newest three hands, six rows each, until the button opens the rest. */
-  .log:not(.expanded) .hand-group:nth-of-type(n + 4) {
-    display: none;
-  }
-  .log:not(.expanded) .hand-group ol li:nth-child(n + 7) {
-    display: none;
+  /* One fixed height, whatever the hand count: the newest rows fill it and older ones fade out under
+     its edge. Not a scrolling box (that fought the page's snapping) and not as tall as its content
+     (which grew with every hand); the button under it opens the rest in place. */
+  .log:not(.expanded) .log-body {
+    height: min(46svh, 400px);
+    overflow: hidden;
+    -webkit-mask-image: linear-gradient(to bottom, #000 82%, transparent);
+    mask-image: linear-gradient(to bottom, #000 82%, transparent);
   }
   .log .more-hands {
     display: block;
+  }
+  /* Held in place when there is nothing to open, so its arrival never moves anything. */
+  .log .more-hands.idle {
+    visibility: hidden;
   }
 }
 
