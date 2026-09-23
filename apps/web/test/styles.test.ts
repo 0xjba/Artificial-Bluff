@@ -69,6 +69,21 @@ describe('stylesheets', () => {
     expect(dangling.sort()).toEqual([])
   })
 
+  it('keeps one table at every width', () => {
+    // The felt is restated for narrow screens, where it takes the column's width. Its proportions and
+    // its capsule shape must not drift with it: a 50% radius turns the same table into an egg.
+    const css = readFileSync(join(WEB, 'app/globals.css'), 'utf8')
+    const felts = [...css.matchAll(/\.felt\s*\{([^}]*)\}/g)].map((m) => m[1]!)
+    expect(felts.length).toBeGreaterThan(1)
+    for (const rule of felts) {
+      const ratio = /aspect-ratio:\s*([^;]+);/.exec(rule)?.[1]?.trim()
+      if (ratio) expect(ratio).toBe('404 / 610')
+      const radius = /border-radius:\s*([^;]+);/.exec(rule)?.[1]?.trim()
+      // Half the width or more: round caps with straight sides, never a percentage (an ellipse).
+      if (radius) expect(radius).toMatch(/^\d+px$/)
+    }
+  })
+
   it('never lets a page module style a class the table uses', () => {
     // Modules are hashed, so this can only bite through :global(...) escapes.
     const modules = readdirSync(join(WEB, 'app'), { recursive: true, encoding: 'utf8' })

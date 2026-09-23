@@ -1084,12 +1084,12 @@ button.tag.live {
   .stage-grid {
     grid-template-columns: minmax(0, 1fr);
   }
-  /* One column: the table takes the width it is given, keeping the desktop oval's proportions, and
-     the seats sit out on its rim (below) instead of huddling toward the middle. */
+  /* One column: the table takes the width it is given, and it is the same table as the desktop one —
+     404/610, and a radius of half its width, which is a capsule with straight sides, not an ellipse. */
   .felt {
     width: min(420px, 100%);
-    aspect-ratio: 340 / 600;
-    border-radius: 50%;
+    aspect-ratio: 404 / 610;
+    border-radius: 999px;
     margin: 10px 0 8px;
     box-shadow:
       0 0 0 9px var(--felt-rim),
@@ -1097,7 +1097,7 @@ button.tag.live {
   }
   /* Room at the bottom for the seat that hangs off the rim, or it runs into the panel below. */
   .stage {
-    padding: 10px 4px 58px;
+    padding: 10px 4px 66px;
   }
   /* The phone's own places (--pl/--pt from Stage.tsx), out at the rim rather than pulled in. The
      shift follows the place, so a seat at the left edge hangs its pill inward from that edge and one
