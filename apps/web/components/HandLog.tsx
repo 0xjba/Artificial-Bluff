@@ -66,6 +66,12 @@ export function HandLog({ lines, view }: { lines: LogLine[]; view: TableView }) 
         <Link className="all-hands" href={`/replays/${encodeURIComponent(view.gameId)}`}>
           Every hand from this game
         </Link>
+      ) : view.gameId ? (
+        // A phone shows the last few hands only, so the rest needs a way out. Hidden on wider screens,
+        // where the whole log is on the page.
+        <Link className="all-hands older" href={`/replays/${encodeURIComponent(view.gameId)}`}>
+          Older hands
+        </Link>
       ) : null}
     </section>
   )
