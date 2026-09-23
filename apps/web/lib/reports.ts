@@ -1,4 +1,5 @@
 import type { StudyReport } from '@ab/study'
+import type { ScoredDecision } from '@ab/study/paper'
 import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 
@@ -14,6 +15,7 @@ export const REPORT_FILES: Record<string, string> = {
   'report.json': 'application/json',
   'decisions.csv': 'text/csv; charset=utf-8',
   'decisions.json': 'application/json',
+  'paper.pdf': 'application/pdf',
 }
 
 /** Study ids are directory names we wrote: letters, digits, dot, dash, underscore. */
@@ -57,4 +59,34 @@ export function listReports(dir = REPORTS_DIR): ReportEntry[] {
     }
   }
   return out.sort((a, b) => b.report.generatedAt.localeCompare(a.report.generatedAt))
+}
+
+/**
+ * A rehearsal is a study played by mock players: free, and useful for checking the pipeline and the
+ * page, but its numbers are not results and the site never presents them as such.
+ */
+export const isRehearsal = (report: StudyReport) => report.study.id.endsWith('-mock') || report.players.some((p) => p.kind === 'mock')
+
+/** The newest study that real models played, if one has finished a report. */
+export const latestStudy = (entries: ReportEntry[]) => entries.find((e) => !isRehearsal(e.report)) ?? null
+
+/** A study's scored decisions (decisions.json), which the page's figures are computed from. */
+export function readDecisions(dirName: string, dir = REPORTS_DIR): ScoredDecision[] {
+  if (!SAFE_ID.test(dirName)) return []
+  const file = join(dir, dirName, 'decisions.json')
+  if (!existsSync(file)) return []
+  try {
+    const rows: unknown = JSON.parse(readFileSync(file, 'utf8'))
+    return Array.isArray(rows) ? (rows as ScoredDecision[]) : []
+  } catch {
+    return []
+  }
+}
+
+/** Pages in a study's printed paper, or 0 when there is no PDF (counted from its page objects). */
+export function paperPages(dirName: string, dir = REPORTS_DIR): number {
+  if (!SAFE_ID.test(dirName)) return 0
+  const file = join(dir, dirName, 'paper.pdf')
+  if (!existsSync(file)) return 0
+  return (readFileSync(file, 'latin1').match(/\/Type\s*\/Page[^s]/g) ?? []).length
 }

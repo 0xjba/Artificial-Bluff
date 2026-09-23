@@ -1,31 +1,10 @@
-import type { ModelsTable, HandSummary, SeatSummary } from '@ab/server'
+import type { HandSummary } from '@ab/server'
 import { describe, expect, it } from 'vitest'
 import { leadTag } from '../components/HandCard'
 import { filterHands, FILTERS } from '../lib/replays'
-import { researchHeadline, researchMetrics } from '../lib/research'
+import type { ModelFacts, PaperFacts } from '@ab/study/paper'
+import { researchCaveat, researchTiles } from '../lib/research'
 
-const seat = (over: Partial<SeatSummary>): SeatSummary => ({
-  playerId: 'x',
-  kind: 'llm',
-  model: 'a/b',
-  games: 1,
-  hands: 40,
-  handsWon: 10,
-  winRate: 0.25,
-  chipsWon: 0,
-  bb100: 0,
-  decisions: 50,
-  latencyMeanMs: 1000,
-  costUsd: 1,
-  costPerDecisionUsd: 0.02,
-  biasPts: 10,
-  errorPts: 12,
-  statedDecisions: 50,
-  models: ['a/b'],
-  fallbacks: 0,
-  style: { vpip: 0.2, pfr: 0.1, af: 1, wtsd: 0.3 },
-  ...over,
-})
 
 const hand = (over: Partial<HandSummary>): HandSummary => ({
   gameId: 'g',
@@ -49,39 +28,74 @@ const hand = (over: Partial<HandSummary>): HandSummary => ({
 })
 
 describe('research figures', () => {
-  const table: ModelsTable = {
-    games: 2,
-    hands: 80,
-    seats: [
-      seat({ playerId: 'hex', kind: 'jev', biasPts: -1, errorPts: 2, costPerDecisionUsd: 0.0009, latencyMeanMs: 240, decisions: 100, fallbacks: 0 }),
-      seat({ playerId: 'pill', biasPts: 28, errorPts: 31, costPerDecisionUsd: 0.214, latencyMeanMs: 1620, decisions: 100, fallbacks: 3 }),
-    ],
-    models: [],
-  }
-
-  it('says only what the numbers say', () => {
-    expect(researchHeadline(table)).toBe('The cheapest seat is also the one whose stated chances sit closest to the truth: HEX.')
-    // PILL states the closest chances, HEX is the cheapest: then the headline names both.
-    const split = { ...table, seats: [table.seats[0]!, seat({ playerId: 'pill', biasPts: 1, errorPts: 1, costPerDecisionUsd: 0.05 })] }
-    expect(researchHeadline(split)).toBe('PILL states the chances closest to the truth; HEX costs the least per decision.')
-    expect(researchHeadline({ games: 0, hands: 0, seats: [], models: [] })).toBe('Not enough hands yet to say anything.')
+  // A measured study, reduced to the facts the page reads (the paper computes the same ones).
+  const model = (over: Partial<ModelFacts>): ModelFacts => ({
+    playerId: 'x',
+    model: 'a/x',
+    kind: 'llm',
+    label: 'x',
+    focus: false,
+    answered: 100,
+    latencyP50Ms: 4000,
+    latencyP95Ms: 9000,
+    costPerDecisionUsd: 0.01,
+    fallbackRate: 0.02,
+    offTruthPts: 20,
+    biasPts: 12,
+    brierC: 0.1,
+    eceC: 0.05,
+    calibrationC: null,
+    foldRight: { n: 40, rate: 0.6 },
+    callRight: { n: 20, rate: 0.5 },
+    bb100: { mean: -5, low: -40, high: 30 },
+    vsFocus: { mean: 10, low: -20, high: 40, pHolm: 0.4, significant: false },
+    ...over,
+  })
+  const jev = model({ playerId: 'hex', model: 'jev-1.13.0', kind: 'jev', label: 'Jev (jev-1.13.0)', focus: true, latencyP50Ms: 200, costPerDecisionUsd: 0.00005, fallbackRate: 0, offTruthPts: 6, biasPts: -1, foldRight: { n: 30, rate: 0.9 }, callRight: { n: 10, rate: 0.8 }, bb100: { mean: 5, low: -25, high: 35 }, vsFocus: null })
+  const fable = model({ playerId: 'pill', label: 'claude-fable-5.1', latencyP50Ms: 3000, costPerDecisionUsd: 0.012, offTruthPts: 18, biasPts: 15 })
+  const llama = model({ playerId: 'nimbus', label: 'llama-4-maverick', latencyP50Ms: 5000, costPerDecisionUsd: 0.0002, offTruthPts: 25, biasPts: -8, fallbackRate: 0.05 })
+  const facts = (over: Partial<PaperFacts> = {}): PaperFacts => ({
+    study: { id: 'main', configHash: 'abcdef0123456789', status: 'ended', endReason: 'budget_cap', analysedGroups: 160, blocks: 40, hands: 800, decisions: 4800, costUsd: 25, preregistration: {} },
+    generatedAt: '2026-09-30T00:00:00.000Z',
+    focus: jev,
+    others: [fable, llama],
+    decisions: 4800,
+    speed: { fastestOther: fable, slowestOther: llama, timesFasterThanFastest: 15, timesFasterThanSlowest: 25 },
+    cost: { cheapestOther: llama, dearestOther: fable, timesCheaperThanCheapest: 4, timesCheaperThanDearest: 240 },
+    truth: { focusBest: true, bestOther: fable, worstOther: llama },
+    significantChipWins: [],
+    significantChipLosses: [],
+    ...over,
   })
 
-  it('turns the table into figures, and drops ratios that are not really differences', () => {
-    const m = researchMetrics(table)
-    expect(m[0]).toEqual({ value: '2 pts', what: "HEX's stated win chance sits this far from the true one, on average" })
-    expect(m[1]!.value).toBe('31 pts')
-    expect(m[2]).toEqual({ value: '+28 pts', what: 'PILL talks itself up by this much on average, over and under cancelled' })
-    expect(m[3]!.value).toBe('238×') // $0.214 against $0.0009
-    expect(m[4]!.value).toBe('6.8×') // 1.62 s against 240 ms
-    expect(m.some((x) => x.what.includes('decisions logged across 80 hands'))).toBe(true)
-    expect(researchMetrics({ games: 1, hands: 1, seats: [table.seats[0]!], models: [] }).some((x) => x.what.includes('across 1 hand,'))).toBe(true) // not "1 hands"
-    expect(m.some((x) => x.value === '3 of 200')).toBe(true) // fallbacks
-    const alike = { ...table, seats: [table.seats[0]!, seat({ playerId: 'pill', biasPts: 2, errorPts: 9, costPerDecisionUsd: 0.001, latencyMeanMs: 250 })] }
-    const flat = researchMetrics(alike)
-    expect(flat.some((x) => x.what.includes('every seat costs about the same'))).toBe(true)
-    expect(flat.some((x) => x.what.includes('about the same speed'))).toBe(true)
-    for (const x of researchMetrics(table)) expect(x.value).not.toMatch(/NaN|undefined|Infinity/)
+  it('turns the measured facts into tiles, each set against the other models', () => {
+    const tiles = researchTiles(facts())
+    expect(tiles.map((t) => t.value)).toEqual(['15×', '4.0×', '6.0 pts', '+15 pts', '88%', '0.0%', '±30 bb', '4,800'])
+    expect(tiles[0]!.what).toBe('faster to a decision: 200 ms median against 3.00 s for claude-fable-5.1, the fastest of the others')
+    expect(tiles[2]!.what).toContain('18.0–25.0 pts for the others')
+    expect(tiles[3]!.what).toBe('claude-fable-5.1 overstated its chances on average, the most of any model')
+    expect(tiles[4]!.what).toContain('57%') // the others' folds and calls, pooled the same way
+    // No chip difference was significant, so the tile gives the interval and says so.
+    expect(tiles[6]!.what).toContain('no chip difference is significant yet')
+  })
+
+  it('claims a chip result only when the pre-registered test says so', () => {
+    const won = researchTiles(facts({ significantChipWins: [{ ...llama, vsFocus: { mean: 42, low: 10, high: 74, pHolm: 0.01, significant: true } }] }))
+    expect(won[6]).toEqual({ value: '+42 bb', what: 'per 100 hands over llama-4-maverick, significant after Holm’s correction' })
+  })
+
+  it('states what a ratio could not claim as a plain figure instead', () => {
+    const slow = researchTiles(facts({ speed: { ...facts().speed, timesFasterThanFastest: 1.1 } }))
+    expect(slow[0]!.value).toBe('200 ms')
+    expect(slow[0]!.what).not.toContain('faster')
+  })
+
+  it('says how much the figures rest on, and what is and is not significant', () => {
+    const c = researchCaveat(facts())
+    expect(c).toContain('800 hands')
+    expect(c).toContain('40 blocks')
+    expect(c).toContain('abcdef012345')
+    expect(c).toContain('no chip difference is significant')
   })
 })
 
