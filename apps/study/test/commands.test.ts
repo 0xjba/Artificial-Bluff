@@ -9,7 +9,7 @@ import { parseStudyConfig } from '../src/config'
 const config = parseStudyConfig({
   id: 'smoke',
   lineup: [
-    { id: 'jev', kind: 'jev', model: 'jev-1.13.0' },
+    { id: 'hex', kind: 'jev', model: 'jev-1.13.0' },
     { id: 'pill', kind: 'llm', model: 'vendor/frontier' },
     { id: 'drip', kind: 'bot', bot: 'tag' },
     { id: 'block', kind: 'llm', model: 'vendor/other' },
@@ -89,7 +89,7 @@ describe('study commands (mock mode: free, no network, no keys)', () => {
     expect(files.map((f) => f.slice(out.length + 1))).toEqual(['report.html', 'report.json', 'decisions.csv', 'decisions.json'])
     expect(lines[0]).toMatch(/^study smoke-mock: 20 hands, \d+ decisions analysed in/)
     const json = JSON.parse(readFileSync(join(out, 'report.json'), 'utf8'))
-    expect(json).toMatchObject({ kind: 'artificialBluff study report', focusId: 'jev', study: { id: 'smoke-mock', hands: 20 } })
+    expect(json).toMatchObject({ kind: 'artificialBluff study report', focusId: 'hex', study: { id: 'smoke-mock', hands: 20 } })
     const rows = JSON.parse(readFileSync(join(out, 'decisions.json'), 'utf8'))
     expect(readFileSync(join(out, 'decisions.csv'), 'utf8').trimEnd().split('\n')).toHaveLength(rows.length + 1)
     expect(readFileSync(join(out, 'report.html'), 'utf8')).toContain('study smoke-mock')

@@ -16,8 +16,8 @@ describe('models table', () => {
 
     expect(table.games).toBe(2)
     expect(table.hands).toBe(14)
-    expect(table.seats.map((s) => s.playerId).sort()).toEqual(['block', 'drip', 'jev', 'nimbus', 'pill'])
-    const jev = table.seats.find((s) => s.playerId === 'jev')!
+    expect(table.seats.map((s) => s.playerId).sort()).toEqual(['block', 'drip', 'hex', 'nimbus', 'pill'])
+    const jev = table.seats.find((s) => s.playerId === 'hex')!
     expect(jev).toMatchObject({ model: 'mock/jev', games: 2 })
     expect(jev.hands).toBeGreaterThan(0)
     expect(jev.handsWon).toBeLessThanOrEqual(jev.hands)

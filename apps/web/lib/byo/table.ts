@@ -4,8 +4,8 @@ import { adaptLineup, JevPlayer, LlmPlayer, TagBot, type CatalogModel, type Play
 import type { Channel, FeedMessage } from '@ab/server'
 import { jevDecisionUsd, MAX_DECISION_USD, type ModelOption, type SeatChoice } from './models'
 
-/** Seat ids (the on-screen characters). Seat 0 is JEV when Jev plays it, PEBBLE otherwise. */
-export const SEAT_IDS = ['jev', 'pill', 'block', 'drip', 'nimbus'] as const
+/** Seat ids (the on-screen characters). Any model can sit in any of them. */
+export const SEAT_IDS = ['hex', 'pill', 'block', 'drip', 'nimbus'] as const
 export const JEV_MODEL = 'jev-1.13.0'
 export const DEFAULT_SEATS: SeatChoice[] = [
   { kind: 'jev' },
@@ -63,7 +63,8 @@ export function tournamentFor(game: GameOptions, seed: string): TournamentConfig
   }
 }
 
-export const seatId = (seat: SeatChoice, index: number): string => (index === 0 && seat.kind !== 'jev' ? 'pebble' : SEAT_IDS[index]!)
+/** The seat a choice plays in. The characters are the house: the model behind one can be anything. */
+export const seatId = (_seat: SeatChoice, index: number): string => SEAT_IDS[index]!
 
 /** The seats that actually play (empty ones are left out). */
 export const filledSeats = (seats: SeatChoice[]) => seats.map((seat, index) => ({ seat, index })).filter(({ seat }) => seat.kind !== 'empty')
@@ -99,11 +100,11 @@ export function checkSetup(setup: TableSetup, models: Map<string, ModelOption>):
   if (setup.seats.length > SEAT_IDS.length) problems.push(`a table has at most ${SEAT_IDS.length} seats`)
   if (playing.length < MIN_SEATS) problems.push(`fill at least ${MIN_SEATS} seats`)
   setup.seats.forEach((s, i) => {
-    if (s.kind === 'jev' && i !== 0) problems.push('Jev can only play the first seat')
+    if (s.kind === 'jev' && i !== 0) problems.push('the Jev model can only play seat 1')
     if (s.kind === 'llm' && !models.has(s.model.trim())) problems.push(`seat ${i + 1}: choose a model from the list`)
   })
   if (setup.seats.some((s) => s.kind === 'llm') && !setup.openrouterKey) problems.push('connect OpenRouter (or paste a key) for the model seats')
-  if (setup.seats.some((s) => s.kind === 'jev') && !setup.typesafeKey) problems.push('add a TypeSafe key for the Jev seat')
+  if (setup.seats.some((s) => s.kind === 'jev') && !setup.typesafeKey) problems.push('add a TypeSafe key for the seat playing Jev')
   if (!(setup.budgetUsd >= MIN_BUDGET_USD && setup.budgetUsd <= MAX_BUDGET_USD)) problems.push(`the spending cap must be between $${MIN_BUDGET_USD} and $${MAX_BUDGET_USD}`)
   return problems
 }

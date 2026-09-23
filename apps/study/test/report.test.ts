@@ -8,7 +8,7 @@ import { analyseStudy, analysedGroupCount, focusPlayer, studyHands } from '../sr
 import { emptyProgress, handKeyOf } from '../src/progress'
 import { runStudy } from '../src/run'
 
-const ids = ['jev', 'pill', 'block', 'drip', 'nimbus']
+const ids = ['hex', 'pill', 'block', 'drip', 'nimbus']
 
 function config(over: Record<string, unknown> = {}): StudyConfig {
   return parseStudyConfig({
@@ -26,7 +26,7 @@ function config(over: Record<string, unknown> = {}): StudyConfig {
   })
 }
 
-const mixed = (): Player[] => [new MockLlm('jev', 'mock/jev'), new TagBot('pill'), new CallingStation('block'), new MockLlm('drip', 'mock/drip'), new CallingStation('nimbus')]
+const mixed = (): Player[] => [new MockLlm('hex', 'mock/jev'), new TagBot('pill'), new CallingStation('block'), new MockLlm('drip', 'mock/drip'), new CallingStation('nimbus')]
 const run = (c: StudyConfig, players: Player[], store: EventStore) => runStudy({ config: c, players, store, prereg: preregistration(c, c.lineup) })
 const at = '2026-09-22T00:00:00.000Z'
 
@@ -35,11 +35,11 @@ describe('study report', () => {
     const store = new EventStore()
     const c = config()
     const outcome = await run(c, mixed(), store)
-    const { report, decisions } = analyseStudy(store, c, { focusId: 'jev', generatedAt: at })
+    const { report, decisions } = analyseStudy(store, c, { focusId: 'hex', generatedAt: at })
     expect(report.study).toMatchObject({ id: 'r', analysedGroups: 8, blocks: 2, hands: 40, endReason: outcome.reason, status: 'ended', configHash: outcome.configHash })
     expect(report.results).toEqual(outcome.summary.players)
     expect(report.contrasts.map((x) => x.otherId)).toEqual(['pill', 'block', 'drip', 'nimbus'])
-    expect(report.players[0]).toMatchObject({ playerId: 'jev', kind: 'mock', model: 'mock/jev', answeredModels: ['mock/jev'] })
+    expect(report.players[0]).toMatchObject({ playerId: 'hex', kind: 'mock', model: 'mock/jev', answeredModels: ['mock/jev'] })
     expect(report.metrics.map((m) => m.hands)).toEqual([40, 40, 40, 40, 40])
     expect(decisions.length).toBe(report.study.decisions)
     // Mock seats state win probabilities, so both calibration charts have data; calling stations state none.
@@ -65,7 +65,7 @@ describe('study report', () => {
     expect(hands).toHaveLength(40)
     expect(new Set(hands.map((h) => h.handId.split('#')[0])).size).toBe(40) // one attempt per (group, rotation)
     expect(hands.some((h) => !h.handId.endsWith('#1'))).toBe(true) // a replayed attempt is used
-    const { report } = analyseStudy(store, config({ budgetUsd: 50 }), { focusId: 'jev', generatedAt: at })
+    const { report } = analyseStudy(store, config({ budgetUsd: 50 }), { focusId: 'hex', generatedAt: at })
     expect(report.study.costUsd).toBeGreaterThan(report.metrics.reduce((s, m) => s + m.costUsd, 0)) // cut-off hands cost money too
   })
 
@@ -85,11 +85,11 @@ describe('study report', () => {
 
   it('picks the Jev seat as the focus and refuses a config that is not the study', async () => {
     expect(focusPlayer(parseStudyConfig({ ...rawWith([{ id: 'x', kind: 'bot', bot: 'tag' }, { id: 'j', kind: 'jev', model: 'jev-1' }]) }))).toBe('j')
-    expect(focusPlayer(config())).toBe('jev')
+    expect(focusPlayer(config())).toBe('hex')
     const store = new EventStore()
     await run(config(), mixed(), store)
-    expect(() => analyseStudy(store, config({ masterSeed: 'other' }), { focusId: 'jev', generatedAt: at })).toThrow(/not for study config/)
-    expect(() => analyseStudy(new EventStore(), config(), { focusId: 'jev', generatedAt: at })).toThrow(/has not started/)
+    expect(() => analyseStudy(store, config({ masterSeed: 'other' }), { focusId: 'hex', generatedAt: at })).toThrow(/not for study config/)
+    expect(() => analyseStudy(new EventStore(), config(), { focusId: 'hex', generatedAt: at })).toThrow(/has not started/)
   })
 })
 
@@ -101,7 +101,7 @@ describe('decisionsCsv', () => {
   it('writes one quoted row per decision', async () => {
     const store = new EventStore()
     await run(config({ minGroups: 4, maxGroups: 4 }), mixed(), store)
-    const { decisions } = analyseStudy(store, config({ minGroups: 4, maxGroups: 4 }), { focusId: 'jev', generatedAt: at })
+    const { decisions } = analyseStudy(store, config({ minGroups: 4, maxGroups: 4 }), { focusId: 'hex', generatedAt: at })
     const csv = decisionsCsv(decisions)
     const lines = csv.trimEnd().split('\n')
     expect(lines).toHaveLength(decisions.length + 1)

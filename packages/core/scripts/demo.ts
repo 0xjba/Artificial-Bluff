@@ -13,7 +13,7 @@ const dbPath = process.argv[2] ?? 'data/demo.db'
 mkdirSync(dirname(dbPath), { recursive: true })
 const store = new EventStore(dbPath)
 const gameId = `demo-${Date.now()}`
-const players = [new MockLlm('jev', 'mock/jev'), new TagBot('pill'), new MockLlm('block'), new CallingStation('drip'), new MockLlm('nimbus', 'mock/llm', { failEvery: 25 })]
+const players = [new MockLlm('hex', 'mock/jev'), new TagBot('pill'), new MockLlm('block'), new CallingStation('drip'), new MockLlm('nimbus', 'mock/llm', { failEvery: 25 })]
 
 const t = await runTournamentGame({ gameId, players, tournament: liveTurboConfig(gameId), store, decisionTimeoutMs: 2000, budgetUsd: 1 })
 const events = store.events(gameId)

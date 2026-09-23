@@ -7,7 +7,7 @@ import { BUDGET_CAP_REASON, emptyProgress, handKeyOf, readProgress, readStorePro
 import { summarize } from '../src/results'
 import { runStudy } from '../src/run'
 
-const ids = ['jev', 'pill', 'block', 'drip', 'nimbus']
+const ids = ['hex', 'pill', 'block', 'drip', 'nimbus']
 
 function config(over: Record<string, unknown> = {}): StudyConfig {
   return parseStudyConfig({
@@ -31,7 +31,7 @@ const run = (c: StudyConfig, players: Player[], store: EventStore, signal?: Abor
   runStudy({ config: c, players, store, prereg: preregistration(c, c.lineup), ...(signal ? { signal } : {}), ...(takeover ? { takeover } : {}) })
 
 const tags = () => ids.map((id) => new TagBot(id))
-const mixed = () => [new TagBot('jev'), new CallingStation('pill'), new MockLlm('block'), new TagBot('drip'), new CallingStation('nimbus')]
+const mixed = () => [new TagBot('hex'), new CallingStation('pill'), new MockLlm('block'), new TagBot('drip'), new CallingStation('nimbus')]
 
 type Of<T extends GameEvent['type']> = Extract<GameEvent, { type: T }>
 const eventsOf = <T extends GameEvent['type']>(store: EventStore, type: T) => store.events('pilot').filter((e): e is Of<T> => e.type === type)
@@ -89,7 +89,7 @@ describe('runStudy', () => {
       [20, false],
       [40, true],
     ])
-    expect(checks[1]!.players[0]).toMatchObject({ playerId: 'jev', bb100: 0, halfWidth: 0 })
+    expect(checks[1]!.players[0]).toMatchObject({ playerId: 'hex', bb100: 0, halfWidth: 0 })
   })
 
   it('records the duplicate schedule on every hand', async () => {
@@ -103,7 +103,7 @@ describe('runStudy', () => {
 
   it('plays every group up to maxGroups when the CI target is out of reach', async () => {
     const store = new EventStore()
-    const players = [new TagBot('jev'), new CallingStation('pill'), new RandomBot('block', 1), new TagBot('drip'), new CallingStation('nimbus')]
+    const players = [new TagBot('hex'), new CallingStation('pill'), new RandomBot('block', 1), new TagBot('drip'), new CallingStation('nimbus')]
     const out = await run(config({ targetHalfWidthBb100: 0.001 }), players, store)
     expect(out.reason).toBe('max_groups')
     expect(out.groupsCompleted).toBe(16)
@@ -250,14 +250,14 @@ describe('study results and progress', () => {
   it('computes bb/100 per group from the nets, averaged over whole neighbour blocks', () => {
     const c = config({ minGroups: 8, maxGroups: 8 })
     const p = emptyProgress()
-    // Group g: jev wins (g + 1) big blinds from pill in every rotation, so jev's group bb/100 is 100 (g + 1).
-    for (let g = 0; g < 8; g++) for (let r = 0; r < 5; r++) p.valid.set(handKeyOf(g, r), { jev: (g + 1) * 100, pill: -(g + 1) * 100 })
+    // Group g: jev wins (g + 1) big blinds from pill in every rotation, so hex's group bb/100 is 100 (g + 1).
+    for (let g = 0; g < 8; g++) for (let r = 0; r < 5; r++) p.valid.set(handKeyOf(g, r), { hex: (g + 1) * 100, pill: -(g + 1) * 100 })
     const full = summarize(p, c, 8)
     expect(full).toMatchObject({ groups: 8, blocks: 2 })
-    const jev = full.players[0]!
-    expect(jev.bb100.mean).toBeCloseTo(450, 9) // blocks: 250 and 650
-    expect(jev.bb100.halfWidth).toBeCloseTo(12.7062047 * 200, 3) // t(0.975, 1) x sd 282.84 / sqrt 2
-    expect(jev.hands).toBe(40)
+    const hex = full.players[0]!
+    expect(hex.bb100.mean).toBeCloseTo(450, 9) // blocks: 250 and 650
+    expect(hex.bb100.halfWidth).toBeCloseTo(12.7062047 * 200, 3) // t(0.975, 1) x sd 282.84 / sqrt 2
+    expect(hex.hands).toBe(40)
     expect(full.players[1]!.bb100.mean).toBeCloseTo(-450, 9)
     expect(full.players[2]!.bb100.mean).toBe(0)
     const partial = summarize(p, c, 7) // only the first whole block
@@ -271,11 +271,11 @@ describe('study results and progress', () => {
     const p = readProgress([
       e({ type: 'hand_started', handId: '0:0#1', duplicate: dup(1) }),
       e({ type: 'hand_started', handId: '0:0#2', duplicate: dup(2) }),
-      e({ type: 'hand_ended', handId: '0:0#2', net: { jev: 5 }, stacks: {} }),
+      e({ type: 'hand_ended', handId: '0:0#2', net: { hex: 5 }, stacks: {} }),
       e({ type: 'study_checkpoint', groups: 4, blocks: 1, costUsd: 0, players: [], stop: false }),
     ])
     expect(p.attempts.get('0:0')).toBe(2)
-    expect(p.valid.get('0:0')).toEqual({ jev: 5 })
+    expect(p.valid.get('0:0')).toEqual({ hex: 5 })
     expect(p.handsPlayed).toBe(1)
     expect(p.lastCheckpoint).toEqual({ groups: 4, stop: false })
   })

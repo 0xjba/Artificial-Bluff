@@ -44,10 +44,10 @@ describe('LiveController', () => {
   })
 
   it('records the line-up metadata and the per-game budget with the game', async () => {
-    const { store, live } = controller({ meta: { lineup: [{ id: 'jev', kind: 'mock' }], mock: true }, budgetUsd: 0.75 })
+    const { store, live } = controller({ meta: { lineup: [{ id: 'hex', kind: 'mock' }], mock: true }, budgetUsd: 0.75 })
     const { gameId } = await live.start()
     await live.idle()
-    expect(store.game(gameId)!.config).toMatchObject({ lineup: [{ id: 'jev', kind: 'mock' }], mock: true, budgetUsd: 0.75 })
+    expect(store.game(gameId)!.config).toMatchObject({ lineup: [{ id: 'hex', kind: 'mock' }], mock: true, budgetUsd: 0.75 })
   })
 
   it('stops after the hand in progress when asked', async () => {

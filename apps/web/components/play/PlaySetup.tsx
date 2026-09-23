@@ -280,7 +280,7 @@ export function PlaySetup(props: {
                   aria-label="TypeSafe key"
                   type="password"
                   autoComplete="off"
-                  placeholder="TypeSafe API key, for the Jev seat"
+                  placeholder="TypeSafe API key, for the seat playing Jev"
                   value={v.typesafeKey}
                   onChange={(e) => onChange({ ...v, typesafeKey: e.target.value.trim() })}
                 />

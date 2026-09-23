@@ -13,7 +13,7 @@ const said = (playerId: string, winProbability: number, optionId = 'call') =>
 
 describe('highlights', () => {
   const kinds = new Map<string, PlayerInfo>([
-    ['jev', { id: 'jev', kind: 'jev', model: 'jev-1' }],
+    ['hex', { id: 'hex', kind: 'jev', model: 'jev-1' }],
     ['pill', { id: 'pill', kind: 'llm', model: 'x/y' }],
     ['drip', { id: 'drip', kind: 'llm', model: 'x/z' }],
   ])
@@ -22,11 +22,11 @@ describe('highlights', () => {
     expect(highlightScore(hand({ net: { a: 500, b: -500 } }), kinds)).toBe(5)
     expect(highlightScore(hand({ net: { a: 500, b: -500 }, decisions: [said('pill', 0.5, 'all_in')] }), kinds)).toBe(30)
     // Jev says 80%, pill says 70%: 50 points over 100% between them (their last statements count).
-    const clash = hand({ decisions: [said('jev', 0.3), said('pill', 0.7), said('jev', 0.8), said('drip', 0.1)] })
+    const clash = hand({ decisions: [said('hex', 0.3), said('pill', 0.7), said('hex', 0.8), said('drip', 0.1)] })
     expect(highlightScore(clash, kinds)).toBeCloseTo(50, 9)
     // Two LLMs disagreeing, or a coherent pair, add nothing.
     expect(highlightScore(hand({ decisions: [said('pill', 0.9), said('drip', 0.9)] }), kinds)).toBe(0)
-    expect(highlightScore(hand({ decisions: [said('jev', 0.4), said('pill', 0.5)] }), kinds)).toBe(0)
+    expect(highlightScore(hand({ decisions: [said('hex', 0.4), said('pill', 0.5)] }), kinds)).toBe(0)
   })
 
   it('makes a reel of the best hands of a game, in play order, after its game_started', async () => {

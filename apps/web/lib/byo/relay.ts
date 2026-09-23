@@ -1,5 +1,5 @@
 /**
- * The TypeSafe relay, for Jev seats at tables that run in a visitor's browser. TypeSafe's API does not
+ * The TypeSafe relay, for seats playing Jev at tables that run in a visitor's browser. TypeSafe's API does not
  * accept browser (cross-origin) calls yet, so the page calls this route instead and it forwards the
  * request with the visitor's own key. Stateless: the key is forwarded per request and never stored or
  * logged. Only Jev calls are allowed (POST /v1/systemone), from our own pages, small bodies, and

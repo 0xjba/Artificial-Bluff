@@ -8,7 +8,7 @@ import { STATE_BY_ID } from '../src/engine/states'
 describe('cast', () => {
   it('gives the five characters distinct shapes, none of them a circle', () => {
     expect(CAST.map((c) => [c.id, c.name, c.shape])).toEqual([
-      ['jev', 'JEV', 'hexagone'],
+      ['hex', 'HEX', 'hexagone'],
       ['pill', 'PILL', 'capsule'],
       ['block', 'BLOCK', 'squircle'],
       ['drip', 'DRIP', 'goutte'],
@@ -18,6 +18,8 @@ describe('cast', () => {
   })
 
   it('gives unknown seats a spare shape and their id in capitals', () => {
+    expect(characterFor('hex')).toBe(CAST[0])
+    // Games played before the seat was renamed still name it: their events carry the old id.
     expect(characterFor('jev')).toBe(CAST[0])
     expect(characterFor('guest', 0)).toEqual({ id: 'guest', name: 'GUEST', shape: 'galet', color: '#9DB8AE' })
     expect(new Set(CAST.map((c) => c.color)).size).toBe(CAST.length) // every seat its own colour

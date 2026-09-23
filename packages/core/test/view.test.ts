@@ -6,7 +6,7 @@ import { runTournamentGame } from '../src/game'
 import { EventStore } from '../src/store'
 import { applyEvent, buildView, emptyView, withEquity, type TableView } from '../src/view'
 
-const lineup = (): Player[] => [new MockLlm('jev'), new TagBot('pill'), new RandomBot('block', 7), new CallingStation('drip'), new MockLlm('nimbus', 'mock/llm', { failEvery: 9 })]
+const lineup = (): Player[] => [new MockLlm('hex'), new TagBot('pill'), new RandomBot('block', 7), new CallingStation('drip'), new MockLlm('nimbus', 'mock/llm', { failEvery: 9 })]
 
 async function tournament(seed: string): Promise<GameEvent[]> {
   const store = new EventStore()

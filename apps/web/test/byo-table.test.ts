@@ -34,11 +34,11 @@ describe('a table in the browser', () => {
     expect(checkSetup(setup(), models)).toEqual([])
     expect(checkSetup(setup({ openrouterKey: null, typesafeKey: null, budgetUsd: 50 }), models)).toEqual([
       'connect OpenRouter (or paste a key) for the model seats',
-      'add a TypeSafe key for the Jev seat',
+      'add a TypeSafe key for the seat playing Jev',
       'the spending cap must be between $0.1 and $20',
     ])
     expect(checkSetup(setup({ seats: [{ kind: 'bot' }, { kind: 'jev' }, { kind: 'llm', model: 'nope/x' }, { kind: 'bot' }, { kind: 'bot' }] }), models)).toEqual([
-      'Jev can only play the first seat',
+      'the Jev model can only play seat 1',
       'seat 3: choose a model from the list',
     ])
     expect(checkSetup(setup({ seats: [{ kind: 'bot' }, { kind: 'bot' }, { kind: 'bot' }, { kind: 'bot' }, { kind: 'bot' }], openrouterKey: null, typesafeKey: null }), models)).toEqual([]) // a free all-bot table
@@ -46,7 +46,8 @@ describe('a table in the browser', () => {
     expect(checkSetup(setup({ seats: [{ kind: 'bot' }, { kind: 'empty' }, { kind: 'empty' }, { kind: 'empty' }, { kind: 'empty' }], openrouterKey: null, typesafeKey: null }), models)).toEqual(['fill at least 2 seats'])
     expect(filledSeats([{ kind: 'bot' }, { kind: 'empty' }, { kind: 'jev' }]).map((f) => f.index)).toEqual([0, 2])
     expect(DEFAULT_SEATS[0]).toEqual({ kind: 'jev' })
-    expect([seatId({ kind: 'jev' }, 0), seatId({ kind: 'bot' }, 0), seatId({ kind: 'bot' }, 3)]).toEqual(['jev', 'pebble', 'drip'])
+    // The seat is the seat whoever plays it: HEX is a character, not the Jev model's own chair.
+    expect([seatId({ kind: 'jev' }, 0), seatId({ kind: 'bot' }, 0), seatId({ kind: 'bot' }, 3)]).toEqual(['hex', 'hex', 'drip'])
   })
 
   it('turns the game options into a tournament', () => {
@@ -73,7 +74,7 @@ describe('a table in the browser', () => {
     expect(net.calls).toHaveLength(0) // bots cost nothing
     let state = initialFeed()
     for (const m of messages) state = reduceFeed(state, m, (id) => id.toUpperCase())
-    expect(state.view.seats.map((s) => s.playerId)).toEqual(['pebble', 'block', 'nimbus'])
+    expect(state.view.seats.map((s) => s.playerId)).toEqual(['hex', 'block', 'nimbus'])
     expect(state.view.seats.every((s) => s.startingStack === DEFAULT_GAME.startingStack)).toBe(true)
     expect(state.view.handsPlayed).toBe(3)
   })
@@ -98,7 +99,7 @@ describe('a table in the browser', () => {
     let state = initialFeed()
     for (const m of messages) state = reduceFeed(state, m, (id) => id.toUpperCase())
     expect(state.view.status).toBe('ended')
-    expect(state.view.seats.map((s) => s.playerId)).toEqual(['jev', 'pill', 'block', 'drip', 'nimbus'])
+    expect(state.view.seats.map((s) => s.playerId)).toEqual(['hex', 'pill', 'block', 'drip', 'nimbus'])
   })
 
   it('ends at the spending cap', async () => {

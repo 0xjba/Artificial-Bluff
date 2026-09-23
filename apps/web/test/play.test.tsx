@@ -63,11 +63,11 @@ afterEach(() => {
 describe('/play', () => {
   it('starts with Jev and four models, and says what is missing', async () => {
     await mount()
-    expect(text()).toContain('JEV')
+    expect(text()).toContain('HEX')
     expect((host.querySelector('[aria-label="seat 2 player"]') as HTMLSelectElement).value).toBe('anthropic/claude-sonnet-5')
     expect(text()).toContain('anthropic/claude-sonnet-5')
     expect(text()).toContain('connect OpenRouter (or paste a key) for the model seats')
-    expect(text()).toContain('add a TypeSafe key for the Jev seat')
+    expect(text()).toContain('add a TypeSafe key for the seat playing Jev')
     expect(text().match(/KEY NEEDED/g) ?? []).toHaveLength(5) // every seat is waiting for a key
     expect(text()).toContain('KEY NEEDED') // the Jev relay is explained next to the TypeSafe key
     expect(button('Deal the first hand')!.disabled).toBe(true)
@@ -80,7 +80,7 @@ describe('/play', () => {
   it('runs a free all-bot table on the broadcast screen, keeping no keys', async () => {
     await mount()
     for (let i = 1; i <= 5; i++) choose(`seat ${i} player`, 'bot')
-    expect(text()).toContain('PEBBLE') // seat 1 without Jev
+    expect(text()).toContain('HEX') // seat 1 without Jev
     expect(text()).not.toContain('KEY NEEDED')
     expect(text()).toContain('≈ $0')
     await act(async () => button('Deal the first hand')!.click())

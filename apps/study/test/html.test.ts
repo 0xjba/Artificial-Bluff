@@ -7,7 +7,7 @@ import { preregistration } from '../src/prereg'
 import { analyseStudy } from '../src/report'
 import { runStudy } from '../src/run'
 
-const ids = ['jev', 'pill', 'block', 'drip', 'nimbus']
+const ids = ['hex', 'pill', 'block', 'drip', 'nimbus']
 const config = parseStudyConfig({
   id: 'h',
   lineup: ids.map((id) => ({ id, kind: 'mock' })),
@@ -22,9 +22,9 @@ const config = parseStudyConfig({
 
 async function report() {
   const store = new EventStore()
-  const players = [new MockLlm('jev', 'mock/jev'), new TagBot('pill'), new CallingStation('block'), new MockLlm('drip', 'vendor/drip'), new CallingStation('nimbus')]
+  const players = [new MockLlm('hex', 'mock/jev'), new TagBot('pill'), new CallingStation('block'), new MockLlm('drip', 'vendor/drip'), new CallingStation('nimbus')]
   await runStudy({ config, players, store, prereg: preregistration(config, config.lineup) })
-  return analyseStudy(store, config, { focusId: 'jev', generatedAt: '2026-09-22T00:00:00.000Z' }).report
+  return analyseStudy(store, config, { focusId: 'hex', generatedAt: '2026-09-22T00:00:00.000Z' }).report
 }
 
 describe('renderReportHtml', () => {
@@ -37,7 +37,7 @@ describe('renderReportHtml', () => {
       expect(html).toContain(h)
     }
     expect(html).toContain(r.study.configHash)
-    expect(html).toContain('JEV · mock/jev')
+    expect(html).toContain('HEX · mock/jev')
     expect(html).toContain('Holm')
     expect(html).toContain('No win probabilities stated: BLOCK · bot/calling-station, NIMBUS · bot/calling-station.')
     // Two CI charts; A and C charts for the three seats stating win probabilities (the mocks and the TAG
@@ -57,7 +57,7 @@ describe('renderReportHtml', () => {
     let html = renderReportHtml(r)
     expect(html).toContain('$0.0000084')
     expect(html).toContain('&lt;0.0001')
-    expect(html).toContain('Mock seats (JEV, DRIP)')
+    expect(html).toContain('Mock seats (HEX, DRIP)')
     expect(html).not.toContain('Interim report')
     expect(html).toContain('title="focus player">◆</span>')
     r.study.status = 'running'

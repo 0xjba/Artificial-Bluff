@@ -51,25 +51,25 @@ describe('seatMoment', () => {
 
   it('marks eliminated seats, big losses and fallbacks, and keys replays by decision', () => {
     const base = buildView([
-      { type: 'game_started', kind: 'live', configHash: 'h', players: [{ id: 'jev', kind: 'jev', model: 'jev-1' }, { id: 'pill', kind: 'llm', model: 'x/y' }], gameId: 'g', seq: 1, ts: 0 },
+      { type: 'game_started', kind: 'live', configHash: 'h', players: [{ id: 'hex', kind: 'jev', model: 'jev-1' }, { id: 'pill', kind: 'llm', model: 'x/y' }], gameId: 'g', seq: 1, ts: 0 },
     ] as GameEvent[])
     const seat = (over: Partial<TableView['seats'][number]>) => ({ ...base.seats[0]!, ...over })
     const hand = (over: Partial<NonNullable<TableView['hand']>>) => ({
-      handId: 'h1', seatOrder: ['jev', 'pill'], buttonIndex: 0, smallBlind: 50, bigBlind: 100, board: [], pot: 0, street: 'preflop' as const,
+      handId: 'h1', seatOrder: ['hex', 'pill'], buttonIndex: 0, smallBlind: 50, bigBlind: 100, board: [], pot: 0, street: 'preflop' as const,
       toAct: null, options: null, showdown: null, awards: [], ended: false, ...over,
     })
     const out = { ...base, seats: [seat({ status: 'out' })] }
-    expect(seatMoment(out, 'jev')).toMatchObject({ moment: 'eliminated', key: 'out' })
+    expect(seatMoment(out, 'hex')).toMatchObject({ moment: 'eliminated', key: 'out' })
     const lost = { ...base, hand: hand({ ended: true, awards: [{ amount: 5000, winners: ['pill'], shares: { pill: 5000 } }] }), seats: [seat({ committed: BIG_LOSS_BB * 100 })] }
-    expect(seatMoment(lost, 'jev').moment).toBe('lost_big')
-    const decision = { handId: 'h1', playerId: 'jev', street: 'preflop' as const, optionId: 'call' as const, label: 'Call 100', winProbability: null, confidence: null, optionProbabilities: null, reasoning: null, latencyMs: 1, costUsd: 0, fallback: true, fallbackKind: 'timeout' as const, fallbackReason: 'timeout' }
+    expect(seatMoment(lost, 'hex').moment).toBe('lost_big')
+    const decision = { handId: 'h1', playerId: 'hex', street: 'preflop' as const, optionId: 'call' as const, label: 'Call 100', winProbability: null, confidence: null, optionProbabilities: null, reasoning: null, latencyMs: 1, costUsd: 0, fallback: true, fallbackKind: 'timeout' as const, fallbackReason: 'timeout' }
     const fell = { ...base, hand: hand({}), lastDecision: decision, seats: [seat({ decisions: 3, lastAction: { street: 'preflop' as const, optionId: 'call' as const, label: 'Call 100' } })] }
-    expect(seatMoment(fell, 'jev')).toMatchObject({ moment: 'fallback', jevDecided: true, key: 'h1:3:fallback' })
+    expect(seatMoment(fell, 'hex')).toMatchObject({ moment: 'fallback', jevDecided: true, key: 'h1:3:fallback' })
     const fine = { ...fell, lastDecision: { ...decision, fallback: false } }
-    expect(seatMoment(fine, 'jev')).toMatchObject({ moment: 'check_call', jevDecided: true })
+    expect(seatMoment(fine, 'hex')).toMatchObject({ moment: 'check_call', jevDecided: true })
     // Broke when the game ended (knocked out in the last hand): eliminated, not waiting.
     const over = { ...base, status: 'ended' as const, hand: hand({ ended: true }), seats: [seat({ stack: 0, committed: 50 })] }
-    expect(seatMoment(over, 'jev').moment).toBe('eliminated')
+    expect(seatMoment(over, 'hex').moment).toBe('eliminated')
   })
 })
 
@@ -119,24 +119,24 @@ describe('feed', () => {
     for (const l of lines) expect(l.text).not.toMatch(/ ms\b|hand-|undefined/)
     expect(soundFor('street', 'FLOP')).toBe('card')
     expect(soundFor('action', 'PILL folds')).toBe('fold')
-    expect(soundFor('action', 'JEV checks')).toBeNull()
-    expect(soundFor('action', 'JEV raises to 300')).toBe('chip')
+    expect(soundFor('action', 'HEX checks')).toBeNull()
+    expect(soundFor('action', 'HEX raises to 300')).toBe('chip')
     expect(fallbackNotice('auto', 'auto: too many failures')).toBe('connection lost: seat auto-played')
     expect(fallbackNotice('auto', 'auto: budget cap reached')).toBe('budget cap reached')
     expect(fallbackNotice('timeout', 'timeout')).toBe('timed out')
   })
 
   it('describes each decision in plain words', () => {
-    const line = (label: string, extra = {}) => logLine({ type: 'decision', seq: 9, ts: 5, playerId: 'jev', label, fallback: false, fallbackKind: null, fallbackReason: null, ...extra } as never, name, emptyView())!
+    const line = (label: string, extra = {}) => logLine({ type: 'decision', seq: 9, ts: 5, playerId: 'hex', label, fallback: false, fallbackKind: null, fallbackReason: null, ...extra } as never, name, emptyView())!
     const d = (label: string, extra = {}) => line(label, extra).text
     expect(['Fold', 'Check', 'Call 150', 'Call all-in 1,250', 'Bet 200', 'Raise to 1,300', 'All-in 4,800'].map((l) => line(l).tag)).toEqual(['FOLD', 'CHECK', 'CALL', 'ALL-IN', 'BET', 'RAISE', 'ALL-IN'])
-    expect(d('Fold')).toBe('JEV folds')
-    expect(d('Check')).toBe('JEV checks')
-    expect(d('Call 150')).toBe('JEV calls 150')
-    expect(d('Call all-in 1,250')).toBe('JEV calls all-in for 1,250')
-    expect(d('Bet 200')).toBe('JEV bets 200')
-    expect(d('Raise to 1,300')).toBe('JEV raises to 1,300')
-    expect(d('All-in 4,800')).toBe('JEV goes all-in (4,800)')
-    expect(d('Fold', { fallback: true, fallbackKind: 'timeout', fallbackReason: 'timeout' })).toBe('JEV folds (timed out)')
+    expect(d('Fold')).toBe('HEX folds')
+    expect(d('Check')).toBe('HEX checks')
+    expect(d('Call 150')).toBe('HEX calls 150')
+    expect(d('Call all-in 1,250')).toBe('HEX calls all-in for 1,250')
+    expect(d('Bet 200')).toBe('HEX bets 200')
+    expect(d('Raise to 1,300')).toBe('HEX raises to 1,300')
+    expect(d('All-in 4,800')).toBe('HEX goes all-in (4,800)')
+    expect(d('Fold', { fallback: true, fallbackKind: 'timeout', fallbackReason: 'timeout' })).toBe('HEX folds (timed out)')
   })
 })

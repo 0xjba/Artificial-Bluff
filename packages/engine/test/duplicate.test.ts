@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { cashHandConfig, duplicateGroup, handKey, neighbourBlockSize, seatRotations } from '../src/duplicate'
 import { createHand } from '../src/hand'
 
-const players = ['jev', 'pill', 'block', 'drip', 'nimbus']
+const players = ['hex', 'pill', 'block', 'drip', 'nimbus']
 
 describe('duplicate', () => {
   it('puts every player in every seat exactly once', () => {
@@ -28,8 +28,8 @@ describe('duplicate', () => {
       const holes = hands.map((h) => h.seats[seat]!.hole.join(''))
       expect(new Set(holes).size).toBe(1)
     }
-    const jevCards = hands.map((h) => h.seats.find((s) => s.id === 'jev')!.hole.join(''))
-    expect(new Set(jevCards).size).toBe(5)
+    const hexCards = hands.map((h) => h.seats.find((s) => s.id === 'hex')!.hole.join(''))
+    expect(new Set(hexCards).size).toBe(5)
   })
 
   it('gives each player the button, small blind and big blind exactly once per group', () => {

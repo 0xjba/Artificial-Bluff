@@ -5,7 +5,7 @@ import type { GameEvent } from '../src/events'
 import { runTournamentGame } from '../src/game'
 import { EventStore } from '../src/store'
 
-const lineup = (): Player[] => [new MockLlm('jev'), new TagBot('pill'), new MockLlm('block'), new CallingStation('drip'), new MockLlm('nimbus')]
+const lineup = (): Player[] => [new MockLlm('hex'), new TagBot('pill'), new MockLlm('block'), new CallingStation('drip'), new MockLlm('nimbus')]
 const ended = (events: GameEvent[]) => events.at(-1) as Extract<GameEvent, { type: 'game_ended' }>
 
 describe('runTournamentGame', () => {
@@ -76,7 +76,7 @@ describe('runTournamentGame', () => {
     const store = new EventStore()
     await runTournamentGame({ gameId: 'g4', players: lineup(), tournament: { ...liveTurboConfig('s'), maxHands: 2 }, store, decisionTimeoutMs: 1000, budgetUsd: 1, meta: { note: 'test' } })
     const game = store.game('g4')!
-    expect(game.config).toMatchObject({ budgetUsd: 1, decisionTimeoutMs: 1000, note: 'test', players: [{ id: 'jev', kind: 'mock', model: 'mock/llm' }, { id: 'pill' }, { id: 'block' }, { id: 'drip' }, { id: 'nimbus' }] })
+    expect(game.config).toMatchObject({ budgetUsd: 1, decisionTimeoutMs: 1000, note: 'test', players: [{ id: 'hex', kind: 'mock', model: 'mock/llm' }, { id: 'pill' }, { id: 'block' }, { id: 'drip' }, { id: 'nimbus' }] })
     expect(game.configHash).toMatch(/^[0-9a-f]{64}$/)
   })
 
