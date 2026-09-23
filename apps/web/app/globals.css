@@ -1188,51 +1188,40 @@ button.tag.live {
    sections fold behind a menu, the seats shrink so they stop overlapping on the rim, and the hand
    log becomes a box of its own instead of a list that runs for pages. */
 @media (max-width: 680px) {
+  /* One row: logo, what is playing, sound, menu. Everything gives way except the menu. */
   header.site {
-    gap: 10px 12px;
-    padding: 12px 16px 0;
-    flex-wrap: wrap;
+    gap: 8px;
+    padding: 11px 14px;
+    flex-wrap: nowrap;
   }
   .logo {
-    font-size: 17px;
-    letter-spacing: 0.02em;
     order: 1;
+    flex: none;
+    font-size: 15px;
+    letter-spacing: 0.01em;
   }
-  /* Its own line under the logo: there is no room beside one for a tag, what is playing and the
-     sound, and squeezed in there a replay's name was cut down to two letters. */
   .site-status {
-    order: 4;
-    flex-basis: 100%;
-    gap: 8px;
+    order: 2;
     min-width: 0;
-    margin: 0 -16px;
-    padding: 7px 16px;
-    border-top: 1px solid var(--rule);
-    font-size: 10.5px;
+    gap: 6px;
+    margin-left: auto;
+    font-size: 9.5px;
+    letter-spacing: 0.02em;
     white-space: nowrap;
   }
-  .site-status:empty {
-    display: none;
+  .site-status .tag {
+    flex: none;
+    gap: 4px;
+    padding: 3px 6px;
+    font-size: 9.5px;
   }
-  /* Whatever a programme calls itself, it gives way rather than pushing the header out of shape. */
+  /* The programme's name is the one thing here that can be any length, so it is the one that gives. */
   .site-status .part {
     min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
   }
-  .site-status .mute {
-    margin-left: auto;
-  }
-  /* Nothing on this line, so the header keeps its own bottom edge. */
-  header.site:not(:has(.site-status:not(:empty))) {
-    padding-bottom: 12px;
-  }
-  /* With a programme on screen the status sits between the two, so the menu keeps its place. */
-  .site-status:not(:empty) + .menu,
-  .site-status:not(:empty) ~ .menu {
-    margin-left: 10px;
-  }
-  /* Blinds are on the table anyway, and the line is shared with the sound button. */
+  /* Blinds are on the table anyway. */
   .site-status .part.extra {
     display: none;
   }
@@ -1240,7 +1229,12 @@ button.tag.live {
     display: flex;
     order: 3;
     flex: none;
-    /* Pages without a programme leave the status slot empty, and the button used to slide left. */
+    width: 30px;
+    height: 30px;
+  }
+  /* The status carries the space to the right. On a page with no programme it isn't there, so the
+     menu takes it instead and keeps the same place in every header. */
+  header.site:not(:has(.site-status:not(:empty))) .menu {
     margin-left: auto;
   }
   /* The links drop out of the header over the page, one per row. */
@@ -1273,43 +1267,18 @@ button.tag.live {
     color: var(--gold);
   }
   .site-status .mute {
-    width: 24px;
-    height: 24px;
+    flex: none;
+    width: 22px;
+    height: 22px;
   }
   /* No room beside the logo and the menu, and the menu already has Live in it. */
   .watch-live {
     display: none;
   }
-  /* One line of explanation, not a paragraph in a box. */
+  /* Not on a phone: the explainer cost more of the screen than the table did, and the menu has the
+     same thing behind "How it works". */
   .new-here {
-    gap: 8px;
-    padding: 9px 16px;
-    align-items: baseline;
-  }
-  .new-here .label {
-    font-size: 9px;
-    letter-spacing: 0.12em;
-  }
-  .new-here p {
-    flex-basis: 100%;
-    min-width: 0;
-    order: 4;
-    font-size: 12.5px;
-    line-height: 1.4;
-  }
-  .new-here .how {
-    order: 2;
-    margin-left: auto;
-    padding: 0;
-    border: 0;
-    font-size: 12px;
-    color: var(--gold);
-    text-decoration: underline;
-  }
-  .new-here .dismiss {
-    order: 3;
-    padding: 0 0 0 4px;
-    font-size: 12px;
+    display: none;
   }
   /* The broadcast page's own sections carry the gutter (the felt wants the full width). */
   main {
