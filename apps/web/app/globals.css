@@ -1189,29 +1189,50 @@ button.tag.live {
    log becomes a box of its own instead of a list that runs for pages. */
 @media (max-width: 680px) {
   header.site {
-    gap: 12px;
-    padding: 12px 16px;
-    flex-wrap: nowrap;
+    gap: 10px 12px;
+    padding: 12px 16px 0;
+    flex-wrap: wrap;
   }
   .logo {
     font-size: 17px;
     letter-spacing: 0.02em;
     order: 1;
   }
+  /* Its own line under the logo: there is no room beside one for a tag, what is playing and the
+     sound, and squeezed in there a replay's name was cut down to two letters. */
   .site-status {
-    order: 2;
+    order: 4;
+    flex-basis: 100%;
     gap: 8px;
     min-width: 0;
-    margin-left: auto;
+    margin: 0 -16px;
+    padding: 7px 16px;
+    border-top: 1px solid var(--rule);
     font-size: 10.5px;
     white-space: nowrap;
+  }
+  .site-status:empty {
+    display: none;
+  }
+  /* Whatever a programme calls itself, it gives way rather than pushing the header out of shape. */
+  .site-status .part {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .site-status .mute {
+    margin-left: auto;
+  }
+  /* Nothing on this line, so the header keeps its own bottom edge. */
+  header.site:not(:has(.site-status:not(:empty))) {
+    padding-bottom: 12px;
   }
   /* With a programme on screen the status sits between the two, so the menu keeps its place. */
   .site-status:not(:empty) + .menu,
   .site-status:not(:empty) ~ .menu {
     margin-left: 10px;
   }
-  /* Only the hand number fits beside the logo and the menu; the blinds are on the table anyway. */
+  /* Blinds are on the table anyway, and the line is shared with the sound button. */
   .site-status .part.extra {
     display: none;
   }

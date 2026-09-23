@@ -32,12 +32,32 @@ function SoundIcon({ on }: { on: boolean }) {
 }
 
 /**
+ * A game id is its start time with a prefix, which spelled out ("live-2026-09-23T13-35-24-143Z") is
+ * longer than a phone's header. Read back as the day and time it was played, or null if it is not
+ * one of those ids.
+ */
+export function gameLabel(id: string): string | null {
+  const stamp = /^[a-z]+-(\d{4})-(\d{2})-(\d{2})T(\d{2})-(\d{2})-(\d{2})-(\d{3})Z$/.exec(id)
+  if (!stamp) return null
+  const [, y, mo, d, h, mi] = stamp
+  const when = new Date(`${y}-${mo}-${d}T${h}:${mi}:00Z`)
+  if (Number.isNaN(when.getTime())) return null
+  return `${Number(d)} ${MONTHS[Number(mo) - 1]} ${h}:${mi}`
+}
+const MONTHS = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC']
+
+/**
  * What the header says beside the tag: a live game shows its hand number and blinds, a replay its
  * subject ("REPLAY · live game x" → "live game x"), so the tag is never repeated.
  */
 export function programmeStatus(channel: Pick<Channel, 'mode' | 'title'> | null, view: TableView): string[] {
   if (!channel) return ['CONNECTING…']
-  if (channel.mode !== 'live') return [channel.title.replace(/^REPLAY\s*·\s*/i, '')]
+  if (channel.mode !== 'live') {
+    // The tag already says REPLAY: what is worth the room beside it is when the game was played.
+    const subject = channel.title.replace(/^REPLAY\s*·\s*/i, '')
+    const game = /^live game (\S+)$/i.exec(subject)
+    return [(game && gameLabel(game[1]!)) || subject]
+  }
   const hand = view.hand && !view.hand.ended ? view.handsPlayed + 1 : view.handsPlayed
   const parts: string[] = []
   if (hand > 0) parts.push(`HAND ${hand}`)

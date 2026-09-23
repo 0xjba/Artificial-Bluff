@@ -3,7 +3,7 @@ import { parseServerConfig, startApp, type FeedMessage } from '@ab/server'
 import { CallingStation, MockLlm, TagBot } from '@ab/players'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
-import { Broadcast, programmeStatus } from '../components/Broadcast'
+import { Broadcast, gameLabel, programmeStatus } from '../components/Broadcast'
 import { handGroups } from '../components/HandLog'
 import { PIPS, PlayingCard } from '../components/PlayingCard'
 import { isCurrent } from '../components/SiteNav'
@@ -147,6 +147,13 @@ describe('screen pieces', () => {
     expect(seatCard).toMatch(/fontSize="80"|font-size="80"/)
     expect(renderToStaticMarkup(<PlayingCard code={null} />)).toContain('face-down card')
     for (const [rank, spots] of Object.entries(PIPS)) expect(spots).toHaveLength(Number(rank))
+  })
+
+  it('names a replayed game by when it was played, not by its id', () => {
+    // The id is a timestamp with a prefix; spelled out it overflowed the header on a phone.
+    expect(gameLabel('live-2026-09-23T13-35-24-143Z')).toBe('23 SEP 13:35')
+    expect(gameLabel('live-1')).toBeNull() // nothing to read: left alone
+    expect(programmeStatus({ mode: 'replay', title: 'REPLAY · live game live-2026-09-23T13-35-24-143Z' }, emptyView())).toEqual(['23 SEP 13:35'])
   })
 
   it('never repeats the tag in the title', async () => {
