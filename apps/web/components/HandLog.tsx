@@ -39,6 +39,26 @@ export function handGroups(lines: LogLine[], view: TableView): HandGroup[] {
 }
 
 /**
+ * Turns off the page's section snapping until the reader next scrolls and stops. Resuming at once would
+ * re-snap straight away and undo whatever was just held in place.
+ */
+function pauseSnapping() {
+  const page = document.documentElement
+  if (page.style.scrollSnapType === 'none') return
+  page.style.scrollSnapType = 'none'
+  let settle: ReturnType<typeof setTimeout> | undefined
+  const onScroll = () => {
+    clearTimeout(settle)
+    settle = setTimeout(() => {
+      page.style.scrollSnapType = ''
+      window.removeEventListener('scroll', onScroll)
+    }, 180)
+  }
+  // Our own correction scrolls the page once; only the reader's scrolling after it counts.
+  requestAnimationFrame(() => requestAnimationFrame(() => window.addEventListener('scroll', onScroll, { passive: true })))
+}
+
+/**
  * The running hand log. On a phone it is a box of one fixed height, whatever the hand count: the
  * newest rows fill it, older ones fade out under its edge, and a button opens the rest in place. It
  * doesn't scroll inside itself (that fought the page's section snapping), and it doesn't link away
@@ -48,6 +68,27 @@ export function handGroups(lines: LogLine[], view: TableView): HandGroup[] {
 export function HandLog({ lines, view, gameLink = true }: { lines: LogLine[]; view: TableView; gameLink?: boolean }) {
   const groups = handGroups(lines, view)
   const [all, setAll] = useState(false)
+  // Opening and closing push the page down from the log's top, like any disclosure: without this the
+  // browser holds the button (or the footer) still instead, and the log seems to grow upward.
+  const section = useRef<HTMLElement>(null)
+  const pinnedTop = useRef<number | null>(null)
+  const toggle = () => {
+    pinnedTop.current = section.current?.getBoundingClientRect().top ?? null
+    // A phone's page snaps between sections, and re-snaps whenever one changes height: it would pull
+    // the page to a section edge the moment the log opened. Paused until the next scroll settles.
+    pauseSnapping()
+    setAll((a) => !a)
+  }
+  useLayoutEffect(() => {
+    const before = pinnedTop.current
+    pinnedTop.current = null
+    if (before === null || !section.current) return
+    // Closed from far down an open log, its top was off the screen: bring it back under the header.
+    const header = document.querySelector('header.site')?.getBoundingClientRect().bottom ?? 0
+    const target = Math.max(before, header)
+    const moved = section.current.getBoundingClientRect().top - target
+    if (moved !== 0) window.scrollBy({ top: moved, behavior: 'instant' })
+  }, [all])
   // Whether the box is hiding anything, measured rather than guessed from counts: rows differ in height.
   const body = useRef<HTMLDivElement>(null)
   const [clipped, setClipped] = useState(false)
@@ -56,7 +97,7 @@ export function HandLog({ lines, view, gameLink = true }: { lines: LogLine[]; vi
     if (el) setClipped(el.scrollHeight > el.clientHeight + 1)
   })
   return (
-    <section className={`log${all ? ' expanded' : ''}`} aria-label="hand log">
+    <section ref={section} className={`log${all ? ' expanded' : ''}`} aria-label="hand log">
       <h2>
         HAND LOG <span>newest first</span>
       </h2>
@@ -80,7 +121,7 @@ export function HandLog({ lines, view, gameLink = true }: { lines: LogLine[]; vi
         ))}
       </div>
       {/* Always there, only shown when it has something to open: appearing would change the box's size. */}
-      <button type="button" className={`more-hands${all || clipped ? '' : ' idle'}`} aria-expanded={all} onClick={() => setAll((a) => !a)}>
+      <button type="button" className={`more-hands${all || clipped ? '' : ' idle'}`} aria-expanded={all} onClick={toggle}>
         {all ? 'Show fewer' : `Show all ${groups.length} ${groups.length === 1 ? 'hand' : 'hands'}`}
       </button>
       {gameLink && view.status === 'ended' && view.gameId ? (
