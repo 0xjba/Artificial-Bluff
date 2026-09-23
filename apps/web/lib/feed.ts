@@ -58,7 +58,9 @@ export function reduceFeed(state: FeedState, message: FeedMessage | HistoryMessa
     ...state,
     view,
     log: line ? [...state.log, line].slice(-LOG_LIMIT) : state.log,
-    decisionEquity: e.type === 'hand_started' ? null : decisionEquity,
+    // Kept in step with the decision on screen, which stands until the next one replaces it: a new
+    // hand must not blank the true chance under the claim it belongs to.
+    decisionEquity,
     history: [...state.history, e],
   }
 }
