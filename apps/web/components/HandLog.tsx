@@ -1,7 +1,7 @@
 'use client'
 import type { TableView } from '@ab/core/view'
 import Link from 'next/link'
-import { useState } from 'react'
+import { useLayoutEffect, useRef, useState } from 'react'
 import { chips, clock } from '../lib/format'
 import type { LogLine } from '../lib/log'
 
@@ -38,47 +38,51 @@ export function handGroups(lines: LogLine[], view: TableView): HandGroup[] {
   return groups.reverse()
 }
 
-/** Hands a phone shows before the rest are opened (the stylesheet hides the others). */
-export const PHONE_HANDS = 3
-/** Rows of each of those hands a phone shows. */
-export const PHONE_ROWS = 6
-
 /**
- * The running hand log. On a phone it shows the newest few hands and opens the rest in place: sending
- * people to the replay page for them landed on the same capped log with the same button.
- * `gameLink` is off on a replay page, which is itself where every hand of the game is.
+ * The running hand log. On a phone it is a box of one fixed height, whatever the hand count: the
+ * newest rows fill it, older ones fade out under its edge, and a button opens the rest in place. It
+ * doesn't scroll inside itself (that fought the page's section snapping), and it doesn't link away
+ * (the replay page showed the same box with the same button). `gameLink` is off on a replay page,
+ * which is itself where every hand of the game is.
  */
 export function HandLog({ lines, view, gameLink = true }: { lines: LogLine[]; view: TableView; gameLink?: boolean }) {
   const groups = handGroups(lines, view)
   const [all, setAll] = useState(false)
-  const more = groups.length > PHONE_HANDS || groups.slice(0, PHONE_HANDS).some((g) => g.lines.length > PHONE_ROWS)
+  // Whether the box is hiding anything, measured rather than guessed from counts: rows differ in height.
+  const body = useRef<HTMLDivElement>(null)
+  const [clipped, setClipped] = useState(false)
+  useLayoutEffect(() => {
+    const el = body.current
+    if (el) setClipped(el.scrollHeight > el.clientHeight + 1)
+  })
   return (
     <section className={`log${all ? ' expanded' : ''}`} aria-label="hand log">
       <h2>
         HAND LOG <span>newest first</span>
       </h2>
-      {groups.map((g) => (
-        <div className="hand-group" key={g.key}>
-          <div className="hand-head">
-            <b>{g.title}</b>
-            <span>{g.meta}</span>
+      <div className="log-body" ref={body}>
+        {groups.map((g) => (
+          <div className="hand-group" key={g.key}>
+            <div className="hand-head">
+              <b>{g.title}</b>
+              <span>{g.meta}</span>
+            </div>
+            <ol>
+              {g.lines.map((l) => (
+                <li key={l.seq} className={l.kind}>
+                  <span className="at">{clock(l.ts)}</span>
+                  <span className={`tag ${l.tag.toLowerCase().replace('-', '')}`}>{l.tag}</span>
+                  <span className="what">{l.text}</span>
+                </li>
+              ))}
+            </ol>
           </div>
-          <ol>
-            {g.lines.map((l) => (
-              <li key={l.seq} className={l.kind}>
-                <span className="at">{clock(l.ts)}</span>
-                <span className={`tag ${l.tag.toLowerCase().replace('-', '')}`}>{l.tag}</span>
-                <span className="what">{l.text}</span>
-              </li>
-            ))}
-          </ol>
-        </div>
-      ))}
-      {more ? (
-        <button type="button" className="more-hands" aria-expanded={all} onClick={() => setAll((a) => !a)}>
-          {all ? 'Show fewer' : `Show all ${groups.length} hands`}
-        </button>
-      ) : null}
+        ))}
+      </div>
+      {/* Always there, only shown when it has something to open: appearing would change the box's size. */}
+      <button type="button" className={`more-hands${all || clipped ? '' : ' idle'}`} aria-expanded={all} onClick={() => setAll((a) => !a)}>
+        {all ? 'Show fewer' : `Show all ${groups.length} ${groups.length === 1 ? 'hand' : 'hands'}`}
+      </button>
       {gameLink && view.status === 'ended' && view.gameId ? (
         <Link className="all-hands" href={`/replays/${encodeURIComponent(view.gameId)}`}>
           Every hand from this game
