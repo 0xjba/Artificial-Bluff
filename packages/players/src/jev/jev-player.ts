@@ -25,6 +25,30 @@ export const WIN_INSTRUCTIONS = `The player marked "you": true will ${WIN_CONDIT
  */
 export const JEV_INPUT_PRICE_PER_MTOK = 0.042
 
+/** The kind of move an option is: sizes of the same bet or raise are one kind. */
+const kindOf = (id: string): 'fold' | 'passive' | 'aggressive' => (id === 'fold' ? 'fold' : id === 'check' || id === 'call' ? 'passive' : 'aggressive')
+
+/**
+ * The move Jev's answer stands for. The Choice spreads its weight over every option offered, and raising
+ * comes in several sizes while calling is one option, so the single most likely option under-counts
+ * raising: 52% on raising over four sizes loses to 42% on calling. First the kind of move with the most
+ * total weight (fold, check or call, bet or raise), then the most likely option of that kind. Ties keep
+ * TypeSafe's own choice. Stated in the pre-registration.
+ */
+export function chooseMove(probabilities: Partial<Record<string, number>>, jevChoice: string): string {
+  const entries = Object.entries(probabilities).filter((e): e is [string, number] => typeof e[1] === 'number' && Number.isFinite(e[1]))
+  if (entries.length === 0) return jevChoice
+  const weight = new Map<string, number>()
+  for (const [id, p] of entries) weight.set(kindOf(id), (weight.get(kindOf(id)) ?? 0) + p)
+  const own = kindOf(jevChoice)
+  let kind = own
+  for (const [k, w] of weight) if (w > (weight.get(kind) ?? 0)) kind = k as typeof kind
+  let best = kind === own ? jevChoice : null
+  let bestP = best === null ? -Infinity : (probabilities[best] ?? 0)
+  for (const [id, p] of entries) if (kindOf(id) === kind && p > bestP) [best, bestP] = [id, p]
+  return best ?? jevChoice
+}
+
 export interface JevPlayerOptions {
   id: string
   /** Pinned model version, e.g. "jev-1.13.0". The model that answered is recorded per decision. */
@@ -105,7 +129,7 @@ export class JevPlayer implements Player {
     return {
       ok: true,
       decision: {
-        optionId: action.choice as OptionId,
+        optionId: chooseMove(optionProbabilities, action.choice) as OptionId,
         winProbability: win,
         // Jev's confidence is derived from how concentrated its option probabilities are (TypeSafe's
         // definition); the LLMs' is self-reported. Analyse them separately.

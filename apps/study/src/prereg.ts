@@ -16,6 +16,9 @@ export function preregistration(config: StudyConfig, adaptedLineup: PlayerSpec[]
     seating: { design: 'duplicate, cyclic rotations of a per-group base order', neighbourBlock: neighbourBlockSize(adaptedLineup.length) },
     menu: DEFAULT_MENU_CONFIG,
     prompts: { llmSystem: SYSTEM_PROMPT, jevAction: ACTION_INSTRUCTIONS, jevWin: WIN_INSTRUCTIONS },
+    jevMove:
+      'the kind of move with the most total weight in the action probabilities (fold; check or call; bet or raise, all sizes), ' +
+      "then the most likely option of that kind; ties keep TypeSafe's own choice",
     prices: { jevInputUsdPerMTok: JEV_INPUT_PRICE_PER_MTOK, llm: 'as reported per call by OpenRouter (usage.cost)' },
     outcomes: {
       calibrationHeadline: 'main-pot share: 1 if won alone, 1/k if split k ways, 0 if lost or folded at any point',

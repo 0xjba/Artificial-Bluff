@@ -65,10 +65,18 @@ export function listReports(dir = REPORTS_DIR): ReportEntry[] {
  * A rehearsal is a study played by mock players: free, and useful for checking the pipeline and the
  * page, but its numbers are not results and the site never presents them as such.
  */
-export const isRehearsal = (report: StudyReport) => report.study.id.endsWith('-mock') || report.players.some((p) => p.kind === 'mock')
+/**
+ * What a report is: a study's results, a pilot (a short paid run to check the pipeline, such as the
+ * smoke test: real models, too few hands to report) or a rehearsal on mock players.
+ */
+export function studyKind(report: StudyReport): 'study' | 'pilot' | 'rehearsal' {
+  if (report.study.id.endsWith('-mock') || report.players.some((p) => p.kind === 'mock')) return 'rehearsal'
+  if (/^(smoke|pilot)-/.test(report.study.id)) return 'pilot'
+  return 'study'
+}
 
-/** The newest study that real models played, if one has finished a report. */
-export const latestStudy = (entries: ReportEntry[]) => entries.find((e) => !isRehearsal(e.report)) ?? null
+/** The newest study that real models played to the end of its protocol, if one has a report. */
+export const latestStudy = (entries: ReportEntry[]) => entries.find((e) => studyKind(e.report) === 'study') ?? null
 
 /** A study's scored decisions (decisions.json), which the page's figures are computed from. */
 export function readDecisions(dirName: string, dir = REPORTS_DIR): ScoredDecision[] {

@@ -139,6 +139,7 @@ describe('renderPaperHtml', () => {
     expect(html.match(/<table/g)!.length).toBeGreaterThanOrEqual(3)
     expect(html).toContain(report.study.configHash.slice(0, 12)) // the pre-registration it answers to
     expect(html).toContain('REHEARSAL') // a mock study says so on every page
+    expect(html).toContain('most total weight') // how Jev's answer becomes a move, stated and in the record
     expect(html).not.toMatch(/NaN|undefined|Infinity/)
   })
 

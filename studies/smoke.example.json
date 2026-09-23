@@ -1,6 +1,6 @@
 {
   "_note": "Pipeline check with the research line-up: 8 groups (40 hands), about $1. Run with --mock first (free).",
-  "id": "smoke-2026-09b",
+  "id": "smoke-2026-09c",
   "lineup": [
     { "id": "hex", "kind": "jev", "model": "jev-1.13.0" },
     { "id": "pill", "kind": "llm", "model": "anthropic/claude-fable-5.1", "reasoning": "minimal" },

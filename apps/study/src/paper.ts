@@ -395,6 +395,10 @@ export function renderPaperHtml(report: StudyReport, decisions: readonly ScoredD
       return row(m, [pctOf(fin(st?.vpip)), pctOf(fin(st?.pfr)), n1(fin(st?.af), 2), pctOf(fin(st?.wtsd))])
     })
     .join('')}</tbody></table>`
+  // Studies before the rule was pre-registered played TypeSafe's single most likely option.
+  const moveRule = (prereg as { jevMove?: string }).jevMove
+    ? ' Raising comes in several sizes while calling is one option, so the single most likely option would under-count raising; the move played is the kind of move with the most total weight (fold, check or call, bet or raise), then the most likely option of that kind.'
+    : ' The move played is its single most likely option.'
   const prompts = (prereg as { prompts?: Record<string, string> }).prompts ?? {}
   const promptNames: Record<string, string> = { jevAction: `${focusName}: which action`, jevWin: `${focusName}: win question`, llmSystem: 'Language models: system prompt' }
   const promptsHtml = Object.entries(prompts)
@@ -405,6 +409,7 @@ export function renderPaperHtml(report: StudyReport, decisions: readonly ScoredD
     ['Intervals', (prereg as { intervals?: string }).intervals],
     ['Comparisons', (prereg as { contrasts?: string }).contrasts],
     ['Seating', (prereg as { seating?: { design?: string } }).seating?.design],
+    [`${focusName}’s move`, (prereg as { jevMove?: string }).jevMove],
     ['Prices', (prereg as { prices?: { jevInputUsdPerMTok?: number; llm?: string } }).prices ? `${focusName}: $${prereg.prices?.jevInputUsdPerMTok} per million input tokens; language models: ${(prereg as { prices?: { llm?: string } }).prices?.llm ?? ''}` : null],
     ['Master seed', prereg.study?.masterSeed],
   ]
@@ -429,7 +434,7 @@ export function renderPaperHtml(report: StudyReport, decisions: readonly ScoredD
 
 <h2>2 Background</h2>
 <h3>2.1 Typed readout</h3>
-<p>${esc(focusName)} does not write text. It is sent the table state and a fixed set of named options, and returns a probability for each option together with its answer to a second typed question: the probability that it wins the hand. Its answers can only come from the options offered, so every answer is legal by construction; numbers such as bet sizes stay in code.</p>
+<p>${esc(focusName)} does not write text. It is sent the table state and a fixed set of named options, and returns a probability for each option together with its answer to a second typed question: the probability that it wins the hand. Its answers can only come from the options offered, so every answer is legal by construction; numbers such as bet sizes stay in code.${moveRule}</p>
 <h3>2.2 General-purpose models</h3>
 <p>The language models receive the same state as JSON, with the same options, and reply with the option they choose, their stated chance of winning, a confidence in the move and one line of reasoning. An answer that cannot be parsed, names an option that was not offered, or arrives after ${Math.round((prereg.study?.decisionTimeoutMs ?? 20000) / 1000)} seconds is replaced by check-or-fold and counted as a fallback.</p>
 <h3>2.3 Related work</h3>

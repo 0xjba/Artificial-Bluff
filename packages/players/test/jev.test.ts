@@ -1,6 +1,6 @@
 import { createHand } from '@ab/engine'
 import { describe, expect, it } from 'vitest'
-import { ACTION_INSTRUCTIONS, JevPlayer, WIN_INSTRUCTIONS } from '../src/jev/jev-player'
+import { ACTION_INSTRUCTIONS, chooseMove, JevPlayer, WIN_INSTRUCTIONS } from '../src/jev/jev-player'
 import { buildObservation } from '../src/observation'
 
 const obs = buildObservation(
@@ -104,5 +104,33 @@ describe('JevPlayer', () => {
     const pending = new JevPlayer({ id: 'hex', model: 'jev-1.13.0', client: { ...quiet, fetch: hang } }).decide(obs, ac.signal)
     ac.abort()
     expect(await pending).toMatchObject({ ok: false, kind: 'infra' })
+  })
+
+  it('chooses the kind of move by its total weight, then the size: raising is several options, calling is one', () => {
+    // From the first real smoke run: 52% on raising spread over four sizes, 42% on calling. Taking the
+    // single most likely option played the call every time, and Jev never raised after the flop.
+    const split = { fold: 0.06, call: 0.42, min_raise: 0.14, open_3bb: 0.16, open_4bb: 0.12, all_in: 0.1 }
+    expect(chooseMove(split, 'call')).toBe('open_3bb')
+    // Checking against betting: the same, 55 against 45.
+    expect(chooseMove({ check: 0.45, bet_half_pot: 0.2, bet_pot: 0.2, all_in: 0.15 }, 'check')).toBe('bet_half_pot')
+    // When the passive move really has the most weight, it stays.
+    expect(chooseMove({ fold: 0.1, call: 0.6, all_in: 0.3 }, 'call')).toBe('call')
+    expect(chooseMove({ fold: 0.5, call: 0.3, min_raise: 0.2 }, 'fold')).toBe('fold')
+    // A tie between kinds keeps Jev's own choice, so nothing turns on the order of the options.
+    expect(chooseMove({ check: 0.5, bet_pot: 0.25, bet_half_pot: 0.25 }, 'check')).toBe('check')
+    expect(chooseMove({ check: 0.5, bet_pot: 0.25, bet_half_pot: 0.25 }, 'bet_pot')).toBe('bet_pot')
+  })
+
+  it('plays the move chooseMove picks, and keeps every probability Jev gave', async () => {
+    const raises = obs.options.map((o) => o.id).filter((id) => id !== 'fold' && id !== 'call' && id !== 'check')
+    expect(raises.length).toBeGreaterThanOrEqual(2)
+    const probabilities: Record<string, number> = { fold: 0.06, call: 0.42 }
+    raises.forEach((id, i) => (probabilities[id] = i === 0 ? 0.2 : 0.32 / (raises.length - 1)))
+    const body = { ...okBody, answers: { ...okBody.answers, action: { type: 'choice', choice: 'call', confidence: 0.3, probabilities } } }
+    const fake = fakeFetch([{ status: 200, body }])
+    const jev = new JevPlayer({ id: 'hex', model: 'jev-1.13.0', client: { apiKey: 'test', fetch: fake.fn } })
+    const res = await jev.decide(obs, signal)
+    expect(res.ok && res.decision.optionId).toBe(raises[0])
+    expect(res.ok && res.decision.optionProbabilities).toEqual(probabilities)
   })
 })

@@ -238,11 +238,13 @@ describe('runStudy', () => {
 
   it('pre-registers everything that affects results, but not budget or concurrency', () => {
     const c = config()
-    const record = preregistration(c, c.lineup) as { study: Record<string, unknown>; prompts: Record<string, string> }
+    const record = preregistration(c, c.lineup) as { study: Record<string, unknown>; prompts: Record<string, string>; jevMove: string }
     expect(record.study).not.toHaveProperty('budgetUsd')
     expect(record.study).not.toHaveProperty('concurrency')
     expect(record.study).toMatchObject({ masterSeed: 'm', targetHalfWidthBb100: 1000, decisionTimeoutMs: 1000 })
     expect(record.prompts.llmSystem).toContain('win this hand')
+    // How Jev's probabilities become a move is part of the protocol, not a detail of the code.
+    expect(record.jevMove).toContain('total weight')
   })
 })
 
