@@ -1122,14 +1122,19 @@ button.tag.live {
 .log li.end .what {
   font-weight: 600;
 }
+/* Only a phone hides part of the log, so only a phone needs the button that opens the rest. */
 .log .all-hands {
   display: block;
 }
-/* Only a phone hides part of the log, so only a phone needs this way to the rest. */
-.log .all-hands.older {
+.log .more-hands {
   display: none;
 }
-.log .all-hands {
+.log .all-hands,
+.log .more-hands {
+  width: 100%;
+  font: inherit;
+  background: none;
+  cursor: pointer;
   margin-top: 10px;
   text-align: center;
   border: 1px solid var(--rule-2);
@@ -1541,11 +1546,6 @@ button.tag.live {
   html:has(.broadcast) footer.site {
     scroll-snap-align: end;
   }
-  /* The log fills the last screen; the decision card is as tall as it is, so that scrolling to it
-     doesn't land on a screen of empty panel under a card. */
-  .log {
-    min-height: calc(100svh - var(--header-h));
-  }
   /* The card sits at the top of its screen at its own size: stretching it to 100svh is what made
      those three tall empty boxes. */
   .decision {
@@ -1554,23 +1554,22 @@ button.tag.live {
     gap: 13px;
   }
   /* One long section, not a scrolling box inside a snapping page: a section taller than the screen
-     is left alone by snapping, so the log scrolls with the page instead of fighting it. Bounded by
-     what it holds rather than by a scrollbar — the last three hands, and a way to the rest — so the
-     page stops growing as the game goes on. */
+     is left alone by snapping, so the log scrolls with the page instead of fighting it. */
   .log {
     flex: none;
     height: auto;
     max-height: none;
     overflow: visible;
   }
-  .log .hand-group:nth-of-type(n + 4) {
+  /* As tall as what it holds: forcing it to a screen left a void under a short log that changed
+     size with every hand. The newest three hands, six rows each, until the button opens the rest. */
+  .log:not(.expanded) .hand-group:nth-of-type(n + 4) {
     display: none;
   }
-  /* And the six newest rows of each hand kept: enough to see how it went, inside one screen. */
-  .log .hand-group ol li:nth-child(n + 7) {
+  .log:not(.expanded) .hand-group ol li:nth-child(n + 7) {
     display: none;
   }
-  .log .all-hands.older {
+  .log .more-hands {
     display: block;
   }
 }

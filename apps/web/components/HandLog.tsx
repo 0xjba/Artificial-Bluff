@@ -1,6 +1,7 @@
 'use client'
 import type { TableView } from '@ab/core/view'
 import Link from 'next/link'
+import { useState } from 'react'
 import { chips, clock } from '../lib/format'
 import type { LogLine } from '../lib/log'
 
@@ -37,11 +38,22 @@ export function handGroups(lines: LogLine[], view: TableView): HandGroup[] {
   return groups.reverse()
 }
 
-/** The running hand log. */
-export function HandLog({ lines, view }: { lines: LogLine[]; view: TableView }) {
+/** Hands a phone shows before the rest are opened (the stylesheet hides the others). */
+export const PHONE_HANDS = 3
+/** Rows of each of those hands a phone shows. */
+export const PHONE_ROWS = 6
+
+/**
+ * The running hand log. On a phone it shows the newest few hands and opens the rest in place: sending
+ * people to the replay page for them landed on the same capped log with the same button.
+ * `gameLink` is off on a replay page, which is itself where every hand of the game is.
+ */
+export function HandLog({ lines, view, gameLink = true }: { lines: LogLine[]; view: TableView; gameLink?: boolean }) {
   const groups = handGroups(lines, view)
+  const [all, setAll] = useState(false)
+  const more = groups.length > PHONE_HANDS || groups.slice(0, PHONE_HANDS).some((g) => g.lines.length > PHONE_ROWS)
   return (
-    <section className="log" aria-label="hand log">
+    <section className={`log${all ? ' expanded' : ''}`} aria-label="hand log">
       <h2>
         HAND LOG <span>newest first</span>
       </h2>
@@ -62,15 +74,14 @@ export function HandLog({ lines, view }: { lines: LogLine[]; view: TableView }) 
           </ol>
         </div>
       ))}
-      {view.status === 'ended' && view.gameId ? (
+      {more ? (
+        <button type="button" className="more-hands" aria-expanded={all} onClick={() => setAll((a) => !a)}>
+          {all ? 'Show fewer' : `Show all ${groups.length} hands`}
+        </button>
+      ) : null}
+      {gameLink && view.status === 'ended' && view.gameId ? (
         <Link className="all-hands" href={`/replays/${encodeURIComponent(view.gameId)}`}>
           Every hand from this game
-        </Link>
-      ) : view.gameId ? (
-        // A phone shows the last few hands only, so the rest needs a way out. Hidden on wider screens,
-        // where the whole log is on the page.
-        <Link className="all-hands older" href={`/replays/${encodeURIComponent(view.gameId)}`}>
-          Older hands
         </Link>
       ) : null}
     </section>
