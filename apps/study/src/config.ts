@@ -76,7 +76,8 @@ function parseSeat(raw: unknown, index: number): PlayerSpec {
     case 'llm': {
       const seat: PlayerSpec = { id: s.id, kind: 'llm', model: model() }
       if (s.reasoning !== undefined) {
-        if (s.reasoning !== 'off' && s.reasoning !== 'low' && s.reasoning !== 'omit') throw new Error(`study config: ${where}.reasoning must be "off", "low" or "omit"`)
+        if (s.reasoning !== 'off' && s.reasoning !== 'minimal' && s.reasoning !== 'low' && s.reasoning !== 'omit')
+          throw new Error(`study config: ${where}.reasoning must be "off", "minimal", "low" or "omit"`)
         seat.reasoning = s.reasoning
       }
       for (const flag of ['structuredOutput', 'sendTemperature'] as const) {

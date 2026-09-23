@@ -4,7 +4,7 @@
     { "id": "hex", "kind": "jev", "model": "jev-1.13.0" },
     { "id": "pill", "kind": "llm", "model": "anthropic/claude-sonnet-5" },
     { "id": "block", "kind": "llm", "model": "openai/gpt-5.6-sol" },
-    { "id": "drip", "kind": "llm", "model": "google/gemini-3.8-flash" },
+    { "id": "drip", "kind": "llm", "model": "google/gemini-3.8-flash", "reasoning": "minimal" },
     { "id": "nimbus", "kind": "llm", "model": "meta-llama/llama-4-maverick" }
   ]
 }

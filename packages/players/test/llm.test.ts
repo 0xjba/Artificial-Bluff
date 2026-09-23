@@ -123,6 +123,11 @@ describe('LlmPlayer', () => {
     await make(low.fn, { reasoning: 'low', sendTemperature: false }).decide(obs, signal)
     expect(low.requests[0]!.body).toMatchObject({ reasoning: { effort: 'low', exclude: true }, max_tokens: 1500 })
     expect(low.requests[0]!.body).not.toHaveProperty('temperature')
+    // Models that refuse to turn reasoning off ("Reasoning is mandatory for this endpoint") get the least
+    // they allow, kept out of the reply, with room for the hidden tokens.
+    const minimal = fakeFetch([{ content: valid }])
+    await make(minimal.fn, { reasoning: 'minimal' }).decide(obs, signal)
+    expect(minimal.requests[0]!.body).toMatchObject({ reasoning: { effort: 'minimal', exclude: true }, max_tokens: 1500 })
     const omit = fakeFetch([{ content: valid }])
     await make(omit.fn, { reasoning: 'omit', structuredOutput: false }).decide(obs, signal)
     expect(omit.requests[0]!.body).not.toHaveProperty('reasoning')

@@ -6,10 +6,15 @@ import { chatCompletion, type ChatMessage, type ChatRequest, type OpenRouterConf
 /**
  * How to handle a model's reasoning ("thinking"):
  * - 'off': send reasoning {effort: 'none'} (default; reasoning-capable models that allow turning it off)
- * - 'low': models that always reason: {effort: 'low', exclude: true} and a larger token allowance
+ * - 'minimal': models that always reason ("Reasoning is mandatory for this endpoint"): the least they
+ *   allow, {effort: 'minimal', exclude: true}, with room for the hidden tokens
+ * - 'low': {effort: 'low', exclude: true} and the same allowance, for models without 'minimal'
  * - 'omit': models without a reasoning parameter: send nothing
  */
-export type ReasoningMode = 'off' | 'low' | 'omit'
+export type ReasoningMode = 'off' | 'minimal' | 'low' | 'omit'
+
+/** Reasoning modes that spend hidden tokens before the answer, and so need a larger allowance. */
+const REASONS: ReadonlySet<ReasoningMode> = new Set(['minimal', 'low'])
 
 export interface LlmPlayerOptions {
   id: string
@@ -19,7 +24,7 @@ export interface LlmPlayerOptions {
   temperature?: number
   /** Send `temperature` (some reasoning models reject it). Default true. */
   sendTemperature?: boolean
-  /** Default 150 with reasoning 'off'/'omit', 1500 with 'low'. */
+  /** Default 150 with reasoning 'off'/'omit', 1500 with 'minimal' or 'low'. */
   maxTokens?: number
   reasoning?: ReasoningMode
   /** Use JSON-schema structured output and route only to endpoints that support it. Default true. */
@@ -50,10 +55,11 @@ export class LlmPlayer implements Player {
     return {
       model: o.model,
       messages,
-      max_tokens: o.maxTokens ?? (reasoning === 'low' ? 1500 : 150),
+      max_tokens: o.maxTokens ?? (REASONS.has(reasoning) ? 1500 : 150),
       ...((o.sendTemperature ?? true) ? { temperature: o.temperature ?? 0.3 } : {}),
       ...((o.structuredOutput ?? true) ? { response_format: responseFormat(obs), provider: { require_parameters: true } } : {}),
       ...(reasoning === 'off' ? { reasoning: { effort: 'none' as const } } : {}),
+      ...(reasoning === 'minimal' ? { reasoning: { effort: 'minimal' as const, exclude: true } } : {}),
       ...(reasoning === 'low' ? { reasoning: { effort: 'low' as const, exclude: true } } : {}),
     }
   }
