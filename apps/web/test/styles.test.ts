@@ -17,7 +17,7 @@ const SHARED = new Set([
   // base and utilities
   'muted', 'warn', 'yes', 'sr-only', 'page', 'lede', 'scroll', 'badge', 'license', 'games', 'study', 'n', 'jev',
   // the shell: header, nav, status
-  'site', 'site-status', 'logo', 'tag', 'live', 'replay', 'behind', 'blip', 'mute', 'research-light', 'menu', 'open', 'part', 'extra', 'watch-live',
+  'site', 'site-status', 'logo', 'tag', 'live', 'replay', 'behind', 'blip', 'mute', 'research-light', 'menu', 'open', 'part', 'extra', 'watch-live', 'foot-brand', 'foot-by',
   // the broadcast screen, shared by the live table, replays and a browser table
   'broadcast', 'programme', 'controls', 'progress', 'new-here', 'label', 'how', 'dismiss',
   'stage-grid', 'stage', 'side', 'felt', 'centre', 'centre-line', 'pot', 'board', 'seat-slot',

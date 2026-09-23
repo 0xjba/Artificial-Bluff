@@ -234,6 +234,68 @@ main > .research-light {
   margin: 0 auto;
 }
 
+/* ---- site footer ----
+   What the site is (the design's own line from its Research footer), the sections again, and who
+   made it. On the paper pages it takes their colours, like the header. */
+footer.site {
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) auto auto;
+  align-items: start;
+  gap: 18px 40px;
+  padding: 26px var(--gutter) 30px;
+  border-top: 1px solid var(--rule);
+  background: var(--bg);
+  font-size: 12.5px;
+  color: var(--dim);
+}
+.foot-brand {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-width: 440px;
+}
+.foot-brand .logo {
+  font-size: 16px;
+}
+.foot-brand p,
+.foot-by {
+  margin: 0;
+  line-height: 1.55;
+}
+footer.site nav {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+footer.site nav a,
+.foot-by a {
+  color: var(--muted);
+  text-decoration: none;
+}
+footer.site nav a:hover,
+.foot-by a:hover {
+  color: var(--cream);
+}
+/* The page's own paper under everything, so no gap (or overscroll) shows the dark site through. */
+body:has(.research-light) {
+  background: #f5f2e9;
+}
+body:has(.research-light) footer.site {
+  background: #faf8f2;
+  border-top-color: #ddd6c6;
+  color: #54635b;
+}
+body:has(.research-light) footer.site .logo {
+  color: #14251f;
+}
+body:has(.research-light) footer.site .logo span {
+  color: #0f5c49;
+}
+body:has(.research-light) footer.site nav a,
+body:has(.research-light) .foot-by a {
+  color: #2f4038;
+}
+
 /* ---- programme strip ---- */
 .programme {
   display: flex;
@@ -1308,7 +1370,7 @@ button.tag.live {
     padding: 11px 14px;
     flex-wrap: nowrap;
   }
-  .logo {
+  header.site .logo {
     order: 1;
     flex: none;
     font-size: 15px;
@@ -1389,6 +1451,16 @@ button.tag.live {
   .watch-live {
     display: none;
   }
+  footer.site {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 16px;
+    padding: 22px 16px 28px;
+  }
+  footer.site nav {
+    flex-direction: row;
+    flex-wrap: wrap;
+    gap: 8px 16px;
+  }
   /* Not on a phone: the explainer cost more of the screen than the table did, and the menu has the
      same thing behind "How it works". */
   .new-here {
@@ -1463,6 +1535,11 @@ button.tag.live {
   .decision,
   .log {
     scroll-snap-align: start;
+  }
+  /* The footer is past the last snap point, and mandatory snapping would pull the page back off it:
+     its end is a resting place too. */
+  html:has(.broadcast) footer.site {
+    scroll-snap-align: end;
   }
   /* The log fills the last screen; the decision card is as tall as it is, so that scrolling to it
      doesn't land on a screen of empty panel under a card. */

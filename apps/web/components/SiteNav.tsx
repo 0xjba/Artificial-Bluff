@@ -2,14 +2,9 @@
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { useEffect, useState } from 'react'
+import { NAV } from '../lib/nav'
 
-export const NAV = [
-  { href: '/', label: 'Live' },
-  { href: '/replays', label: 'Replays' },
-  { href: '/models', label: 'Models' },
-  { href: '/research', label: 'Research' },
-  { href: '/play', label: 'Run a table' },
-] as const
+export { NAV }
 
 /** Whether a nav link is the current section ("/" only on the home page). */
 export const isCurrent = (href: string, path: string) => (href === '/' ? path === '/' : path === href || path.startsWith(`${href}/`))

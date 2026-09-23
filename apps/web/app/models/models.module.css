@@ -1,50 +1,51 @@
-/* ---- models (design: "Models") ---- */
-.models-head {
-  padding: 30px 24px 20px;
+/* ---- models ----
+   One ranked board of models (not seats: the seats are the house and the models move between them),
+   the figures that compare across models however much each has played, and one line on method. */
+.models {
+  padding-bottom: 36px;
+}
+.head {
+  padding: 30px 24px 18px;
   display: flex;
   flex-direction: column;
   gap: 10px;
   max-width: 900px;
 }
-.models .kicker,
-.replays .kicker {
+.kicker {
   font-family: var(--font-mono), ui-monospace, monospace;
   font-size: 10px;
   letter-spacing: 0.18em;
   color: var(--gold);
 }
-.models-head h1 {
+.head h1 {
   margin: 0;
   font-size: 34px;
   line-height: 1.08;
 }
-.models-head p {
+.counts {
   margin: 0;
-  font-size: 14.5px;
-  line-height: 1.6;
-  color: var(--text);
-  text-wrap: pretty;
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: 11.5px;
+  letter-spacing: 0.04em;
+  color: var(--muted);
 }
-.models-empty {
+.empty {
   padding: 0 24px 24px;
 }
-.models-scroll {
-  padding: 6px 24px 0;
-  overflow-x: auto;
-}
-.models-board {
-  min-width: 920px;
+
+.board {
+  margin: 6px 24px 0;
   display: flex;
   flex-direction: column;
 }
-.models-board .row-head,
-.models-board .row {
+.row-head,
+.row {
   display: grid;
-  grid-template-columns: 34px 46px minmax(0, 1.5fr) 92px 78px 92px 92px 110px;
-  gap: 12px;
+  grid-template-columns: 30px minmax(0, 1fr) 90px 120px 130px 90px 100px;
+  gap: 14px;
   align-items: center;
 }
-.models-board .row-head {
+.row-head {
   padding: 0 6px 9px;
   font-family: var(--font-mono), ui-monospace, monospace;
   font-size: 9.5px;
@@ -52,37 +53,26 @@
   color: var(--dim);
   border-bottom: 1px solid var(--rule-2);
 }
-.models-board .r {
-  text-align: right;
+.row-head span[title] {
+  cursor: help;
 }
-.models-board .row {
-  padding: 12px 6px;
+.row {
+  padding: 14px 6px;
   border-bottom: 1px solid #1a2421;
 }
-.models-board .rank {
+.r {
+  text-align: right;
+}
+.rank {
   font-family: var(--font-mono), ui-monospace, monospace;
   font-size: 12px;
   color: var(--dim);
 }
-.models-board .face,
-.dossier .face {
-  width: 38px;
-  height: 38px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: var(--panel-3);
-  border-radius: 12px;
-}
-.dossier .face.big {
-  width: 64px;
-  height: 64px;
-  border-radius: 18px;
-  flex: none;
-}
-.models-board .who {
+.who {
   min-width: 0;
-  display: block;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
 }
 .who-top {
   display: flex;
@@ -91,10 +81,10 @@
   flex-wrap: wrap;
 }
 .who-top b {
-  font-weight: 700;
   font-size: 16px;
+  font-weight: 700;
 }
-.chip {
+.maker {
   font-family: var(--font-mono), ui-monospace, monospace;
   font-size: 10px;
   color: var(--dim);
@@ -102,220 +92,106 @@
   border-radius: 3px;
   padding: 1px 6px;
 }
-.models-board .style,
-.dossier .style {
-  display: block;
-  font-size: 12px;
-  color: var(--dim-2, #9aa9a3);
-  margin-top: 2px;
-}
-.models-board .mono,
-.dossier .v {
-  font-family: var(--font-mono), ui-monospace, monospace;
-  font-size: 12.5px;
-  color: var(--text);
-}
-.models-board .chips {
-  font-family: var(--font-mono), ui-monospace, monospace;
-  font-size: 14px;
-  font-weight: 600;
-}
-.models-board .chips.up {
-  color: var(--gold);
-}
-.models-board .chips.down {
-  color: var(--down);
-}
-.models-board .rate {
+.seats {
   display: flex;
   align-items: center;
-  gap: 7px;
-}
-.models-board .rate .bar,
-.trait .bar {
-  flex: 1;
-  height: 7px;
-  border-radius: 4px;
-  background: #1b2521;
-  overflow: hidden;
-  display: block;
-}
-.models-board .rate .bar span,
-.trait .bar span {
-  display: block;
-  height: 100%;
-  background: var(--seat, var(--gold));
-}
-.models-board .rate .mono {
-  font-size: 11.5px;
-}
-.models-section,
-.replays-section {
-  padding: 26px 24px 8px;
-  display: flex;
-  align-items: baseline;
-  gap: 12px;
-}
-.models-section .k,
-.replays-section .k,
-.models-method .k {
-  font-family: var(--font-mono), ui-monospace, monospace;
-  font-size: 9.5px;
-  letter-spacing: 0.16em;
-  color: var(--dim);
-}
-.dossiers {
-  padding: 0 24px 26px;
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
-  gap: 14px;
-}
-.dossier {
-  border: 1px solid var(--rule-2);
-  border-radius: 16px;
-  background: var(--bg-2);
-  padding: 18px;
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-}
-.dossier-top {
-  display: flex;
-  align-items: center;
-  gap: 13px;
-}
-.dossier .name {
-  font-weight: 700;
-  font-size: 19px;
-  line-height: 1.1;
-}
-.dossier .model {
-  font-family: var(--font-mono), ui-monospace, monospace;
+  gap: 8px;
+  flex-wrap: wrap;
   font-size: 11px;
   color: var(--dim);
-  margin-top: 3px;
 }
-.traits {
-  display: flex;
-  flex-direction: column;
-  gap: 9px;
-}
-.trait {
-  display: grid;
-  grid-template-columns: 110px minmax(0, 1fr) 44px;
-  gap: 10px;
+.seat {
+  display: inline-flex;
   align-items: center;
-}
-.trait .k {
+  gap: 4px;
   font-family: var(--font-mono), ui-monospace, monospace;
-  font-size: 9.5px;
-  letter-spacing: 0.08em;
-  color: var(--dim);
-}
-.trait .v {
-  font-family: var(--font-mono), ui-monospace, monospace;
-  font-size: 11px;
-  text-align: right;
-  color: var(--text);
-}
-.dossier-foot {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 10px;
-  padding-top: 12px;
-  border-top: 1px solid #1a2421;
-}
-.dossier-foot .k {
-  font-family: var(--font-mono), ui-monospace, monospace;
-  font-size: 8.5px;
-  letter-spacing: 0.1em;
-  color: var(--dim);
-}
-.dossier-foot .v {
-  font-size: 13px;
-}
-.dossier-foot div:nth-child(even) {
-  padding-left: 11px;
-  border-left: 1px solid #1a2421;
-}
-.models-method {
-  padding: 8px 24px 40px;
-  max-width: 980px;
-}
-.models-method p {
-  font-size: 13px;
-  line-height: 1.6;
+  font-size: 10px;
+  letter-spacing: 0.04em;
   color: var(--muted);
 }
-
+.style {
+  font-size: 12px;
+  color: var(--dim);
+}
+.mono {
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: 13.5px;
+  color: var(--cream);
+}
+/* Winning and losing, in the site's colours for them. */
+.up {
+  color: var(--gold);
+}
+.down {
+  color: var(--down);
+}
+/* A second line under a figure: what it means, or a warning about how little it rests on. */
+.mono small {
+  display: block;
+  margin-top: 2px;
+  font-size: 10px;
+  color: var(--dim);
+}
+.method {
+  max-width: 760px;
+  margin: 22px 24px 0;
+  font-size: 12.5px;
+  line-height: 1.6;
+  color: var(--dim);
+}
 
 /* ---- phones ----
-   The eight-column board has nowhere to go on a phone, so each seat becomes a card: name and model
-   first, then its figures in a labelled list (the labels come from the row's data-k attributes,
-   because the heading row is hidden). */
+   Seven columns have nowhere to go, so each model becomes a card: name and seats first, then its
+   figures in a labelled list (labels from each figure's data-k, since the heading row is hidden). */
 @media (max-width: 680px) {
-  .models-head {
-    padding: 22px 16px 14px;
+  .head {
+    padding: 22px 16px 12px;
   }
-  .models-head h1 {
+  .head h1 {
     font-size: 26px;
   }
-  .models-head p {
-    font-size: 14px;
-  }
-  .models-scroll {
-    padding: 4px 16px 0;
-    overflow-x: visible;
-  }
-  .models-board {
-    min-width: 0;
+  .board {
+    margin: 4px 16px 0;
     gap: 10px;
   }
-  .models-board .row-head {
+  .row-head {
     display: none;
   }
-  .models-board .row {
-    grid-template-columns: 26px 34px minmax(0, 1fr);
-    gap: 6px 9px;
+  .row {
+    grid-template-columns: 22px minmax(0, 1fr);
+    gap: 6px 10px;
     padding: 12px;
     border: 1px solid var(--rule);
     border-radius: 14px;
     background: var(--panel);
   }
-  .models-board .face {
-    width: 34px;
-    height: 34px;
-    border-radius: 10px;
-  }
-  .models-board .row > [data-k] {
+  .row > [data-k] {
     grid-column: 2 / -1;
     display: flex;
     align-items: baseline;
     justify-content: space-between;
     gap: 10px;
-    text-align: left;
-    padding-top: 5px;
+    text-align: right;
+    padding-top: 6px;
     border-top: 1px solid #1a2421;
   }
-  .models-board .row > [data-k]::before {
+  /* A figure's note drops to its own line, still under the figure. */
+  .row > [data-k] {
+    flex-wrap: wrap;
+  }
+  .row > [data-k] small {
+    flex-basis: 100%;
+    margin-top: 0;
+  }
+  .row > [data-k]::before {
     content: attr(data-k);
     font-family: var(--font-mono), ui-monospace, monospace;
     font-size: 9px;
     letter-spacing: 0.1em;
     color: var(--dim);
+    text-align: left;
   }
-  .models-board .row > [data-k].rate {
-    display: grid;
-    grid-template-columns: auto minmax(40px, 1fr) auto;
-    align-items: center;
-  }
-  .models-section,
-  .dossiers,
-  .models-foot {
-    padding-left: 16px;
-    padding-right: 16px;
-  }
-  .dossiers {
-    grid-template-columns: minmax(0, 1fr);
+  .method {
+    margin: 18px 16px 0;
   }
 }
