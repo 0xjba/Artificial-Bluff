@@ -1302,11 +1302,23 @@ button.tag.live {
      The table, the last decision and the hand log each take the screen and settle into place as you
      scroll, instead of running together down one long page. The grid becomes plain children of the
      column so the seek bar can sit between the table and the decision, where it belongs on a phone. */
+  :root {
+    --header-h: 53px;
+  }
+  /* The header stays put: on a screen at a time, it is the only thing that says where you are. */
+  header.site {
+    position: sticky;
+    top: 0;
+    z-index: 40;
+    background: var(--bg);
+  }
   html:has(.broadcast) {
-    /* Mandatory is safe here only because every section below is sized to one screen: the table with
-       its bar, the decision, and the log (which scrolls inside itself). */
+    /* Mandatory is safe here because the table and the decision each fit one screen, and the log is
+       taller than the screen, which the spec leaves free to scroll through. */
     scroll-snap-type: y mandatory;
     scroll-behavior: smooth;
+    /* Sections come to rest under the header, not behind it. */
+    scroll-padding-top: var(--header-h);
   }
   .broadcast {
     display: flex;
@@ -1318,8 +1330,11 @@ button.tag.live {
   .stage {
     order: 1;
     scroll-snap-align: start;
-    /* The bottom seat hangs off the rim; without room for it, it lands on the seek bar. */
-    padding: 6px 4px 60px;
+    /* The seats hang off the rim at both ends: without this room the top pair slides under the
+       header and the bottom one lands on the seek bar. */
+    padding: 22px 4px 60px;
+    /* Fills the screen the header leaves, so the bar rests at the bottom of the table's screen. */
+    min-height: calc(100svh - var(--header-h) - 61px);
   }
   .seek {
     order: 2;
@@ -1334,25 +1349,33 @@ button.tag.live {
   }
   /* Sized so the table, its bar and the header fit one screen, whatever the screen is. */
   .felt {
-    width: min(420px, 100%, calc((100svh - 250px) * 404 / 610));
+    width: min(420px, 100%, calc((100svh - 200px) * 404 / 610));
   }
   .decision,
   .log {
     scroll-snap-align: start;
-    min-height: calc(100svh - 8px);
+    min-height: calc(100svh - var(--header-h));
   }
+  /* The figures take the room the screen gives them, rather than sitting in the middle of it. */
   .decision {
-    justify-content: center;
-    padding: 18px 16px;
-    gap: 14px;
+    justify-content: flex-start;
+    padding: 16px 16px 20px;
+    gap: 12px;
   }
-  /* The log is the screen, and scrolls inside it. In the column it is a flex item, so it has to be
-     told to stop growing before a height means anything. */
+  .decision .claims {
+    flex: 1;
+  }
+  .decision .claims > div {
+    flex: 1;
+    align-content: center;
+  }
+  /* One long section, not a scrolling box inside a snapping page: a section taller than the screen
+     is left alone by snapping, so the log scrolls with the page instead of fighting it. */
   .log {
     flex: none;
-    height: calc(100svh - 8px);
+    height: auto;
     max-height: none;
-    overflow: auto;
+    overflow: visible;
   }
 }
 
