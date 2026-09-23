@@ -1,6 +1,7 @@
 import { applyEvent, buildView, emptyView, type GameEvent, type TableView } from '@ab/core/view'
 import { describe, expect, it } from 'vitest'
 import { spread, stepFrom } from '../lib/spread'
+import { latestStudy, studyKind, type ReportEntry } from '../lib/reports'
 import { initialFeed, LOG_LIMIT, reduceFeed } from '../lib/feed'
 import { card, chips, fallbackNotice, ms, pct, shortModel, usd } from '../lib/format'
 import { logLine } from '../lib/log'
@@ -160,5 +161,20 @@ describe('paper spreads', () => {
     expect(spread(5, 1, 5)).toMatchObject({ pages: [5], canForward: false })
     // Back from the end lands on the spread before it.
     expect(spread(stepFrom(5, -1, 2, 5), 2, 5).pages).toEqual([3, 4])
+  })
+})
+
+describe('which study the Research page shows', () => {
+  const entry = (id: string, kind = 'llm') => ({ dir: id, report: { study: { id }, players: [{ playerId: 'a', kind }] } }) as unknown as ReportEntry
+  it('tells results from pilots and rehearsals', () => {
+    expect(studyKind(entry('main-2026-09').report)).toBe('study')
+    expect(studyKind(entry('smoke-2026-09c').report)).toBe('pilot')
+    expect(studyKind(entry('pilot-1').report)).toBe('pilot')
+    expect(studyKind(entry('main-2026-09-mock').report)).toBe('rehearsal')
+    expect(studyKind(entry('main', 'mock').report)).toBe('rehearsal')
+  })
+  it('shows the newest real study, never a pilot: a 20-hand smoke test is not a result', () => {
+    expect(latestStudy([entry('smoke-2026-09c'), entry('x-mock'), entry('main-2026-09')])?.dir).toBe('main-2026-09')
+    expect(latestStudy([entry('smoke-2026-09c'), entry('x-mock')])).toBeNull()
   })
 })

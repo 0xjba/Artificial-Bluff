@@ -4,7 +4,7 @@ import { connection } from 'next/server'
 import { PaperViewer } from '../../components/research/PaperViewer'
 import { WatchLive } from '../../components/research/WatchLive'
 import { researchCaveat, researchTiles } from '../../lib/research'
-import { isRehearsal, latestStudy, listReports, paperPages, readDecisions, type ReportEntry } from '../../lib/reports'
+import { latestStudy, studyKind, listReports, paperPages, readDecisions, type ReportEntry } from '../../lib/reports'
 import styles from './research.module.css'
 
 export const metadata: Metadata = { title: 'Research · artificialBluff' }
@@ -53,8 +53,9 @@ export default async function Research({ searchParams }: { searchParams: Promise
   const { preview } = await searchParams
   const reports = listReports()
   const study = latestStudy(reports)
-  // Development only: the layout can be seen on a rehearsal before a real study exists, clearly marked.
-  const rehearsal = !study && preview === 'rehearsal' && process.env.NODE_ENV !== 'production' ? (reports.find((e) => isRehearsal(e.report)) ?? null) : null
+  // Development only: before a real study exists, the page can be seen on a pilot or a rehearsal, clearly marked.
+  const previewKind = preview === 'pilot' || preview === 'rehearsal' ? preview : null
+  const rehearsal = !study && previewKind && process.env.NODE_ENV !== 'production' ? (reports.find((e) => studyKind(e.report) === previewKind) ?? null) : null
   const shown = study ?? rehearsal
   const ev = shown ? evidence(shown) : null
   const f = ev?.facts
@@ -64,7 +65,13 @@ export default async function Research({ searchParams }: { searchParams: Promise
   return (
     <div className={`${styles['research-page']} research-light`}>
       <WatchLive />
-      {rehearsal ? <div className={styles.rehearsal}>Rehearsal on mock players: a preview of the layout, not results.</div> : null}
+      {rehearsal ? (
+        <div className={styles.rehearsal}>
+          {previewKind === 'pilot'
+            ? `Pilot run of ${rehearsal.report.study.hands} hands on real models: a check of the pipeline, too few hands for results.`
+            : 'Rehearsal on mock players: a preview of the layout, not results.'}
+        </div>
+      ) : null}
 
       <section className={styles.intro}>
         <span className={styles.kicker}>RESEARCH</span>
