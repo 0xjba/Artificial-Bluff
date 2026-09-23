@@ -954,6 +954,12 @@ button.tag.live {
 }
 .log .all-hands {
   display: block;
+}
+/* Only a phone hides part of the log, so only a phone needs this way to the rest. */
+.log .all-hands.older {
+  display: none;
+}
+.log .all-hands {
   margin-top: 10px;
   text-align: center;
   border: 1px solid var(--rule-2);
@@ -1332,7 +1338,7 @@ button.tag.live {
     scroll-snap-align: start;
     /* The seats hang off the rim at both ends: without this room the top pair slides under the
        header and the bottom one lands on the seek bar. */
-    padding: 22px 4px 60px;
+    padding: 22px 4px 76px;
     /* Fills the screen the header leaves, so the bar rests at the bottom of the table's screen. */
     min-height: calc(100svh - var(--header-h) - 61px);
   }
@@ -1349,7 +1355,7 @@ button.tag.live {
   }
   /* Sized so the table, its bar and the header fit one screen, whatever the screen is. */
   .felt {
-    width: min(420px, 100%, calc((100svh - 200px) * 404 / 610));
+    width: min(420px, 100%, calc((100svh - 215px) * 404 / 610));
   }
   .decision,
   .log {
@@ -1370,12 +1376,24 @@ button.tag.live {
     align-content: center;
   }
   /* One long section, not a scrolling box inside a snapping page: a section taller than the screen
-     is left alone by snapping, so the log scrolls with the page instead of fighting it. */
+     is left alone by snapping, so the log scrolls with the page instead of fighting it. Bounded by
+     what it holds rather than by a scrollbar — the last three hands, and a way to the rest — so the
+     page stops growing as the game goes on. */
   .log {
     flex: none;
     height: auto;
     max-height: none;
     overflow: visible;
+  }
+  .log .hand-group:nth-of-type(n + 4) {
+    display: none;
+  }
+  /* And the six newest rows of each hand kept: enough to see how it went, inside one screen. */
+  .log .hand-group ol li:nth-child(n + 7) {
+    display: none;
+  }
+  .log .all-hands.older {
+    display: block;
   }
 }
 
