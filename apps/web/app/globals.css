@@ -1437,9 +1437,17 @@ button.tag.live {
     /* Fills the screen the header leaves, so the bar rests at the bottom of the table's screen. */
     min-height: calc(100svh - var(--header-h) - 61px);
   }
+  /* The table's screen is sized to end with the bar, but that is arithmetic on a header and a bar
+     whose heights a real phone can render a few pixels differently, and the bar has no snap point of
+     its own: a few pixels off and it sat just below the fold, then under the header once the page
+     snapped on. Sticky, it holds the bottom edge whenever its place is below the fold and scrolls
+     away with the table once you move past it, so it is on screen whenever the table is. */
   .seek {
     order: 2;
-    padding-bottom: 12px;
+    position: sticky;
+    bottom: 0;
+    z-index: 20;
+    padding-bottom: calc(12px + env(safe-area-inset-bottom));
   }
   /* The bar is its own instruction on a touch screen, and the line costs two rows of this screen. */
   .seek p {
