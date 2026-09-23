@@ -28,6 +28,18 @@ describe('time shift', () => {
     expect(reduceFeed(state, { type: 'snapshot', channel: { ...channel, id: 'c2' }, view: buildView([]) }, name).history).toEqual([])
   })
 
+  it('keeps the true chance with the decision on screen: a new hand does not blank it', async () => {
+    const events = await mockGame(2)
+    let state = reduceFeed(initialFeed(), { type: 'snapshot', channel, view: buildView([]) }, name)
+    let blanked = 0
+    for (const e of events) {
+      state = reduceFeed(state, { type: 'event', channelId: 'c1', event: e }, name, cachedTableEquity)
+      // The panel shows a decision until the next one replaces it, across the gap between hands.
+      if (state.view.lastDecision && state.decisionEquity === null) blanked++
+    }
+    expect(blanked).toBe(0)
+  })
+
   it('rebuilds the screen at any point of the history', async () => {
     const events = await mockGame(3)
     const at = feedAt(channel, events, 60, name)
