@@ -56,6 +56,7 @@ describe('research figures', () => {
       seat({ playerId: 'hex', kind: 'jev', biasPts: -1, errorPts: 2, costPerDecisionUsd: 0.0009, latencyMeanMs: 240, decisions: 100, fallbacks: 0 }),
       seat({ playerId: 'pill', biasPts: 28, errorPts: 31, costPerDecisionUsd: 0.214, latencyMeanMs: 1620, decisions: 100, fallbacks: 3 }),
     ],
+    models: [],
   }
 
   it('says only what the numbers say', () => {
@@ -63,7 +64,7 @@ describe('research figures', () => {
     // PILL states the closest chances, HEX is the cheapest: then the headline names both.
     const split = { ...table, seats: [table.seats[0]!, seat({ playerId: 'pill', biasPts: 1, errorPts: 1, costPerDecisionUsd: 0.05 })] }
     expect(researchHeadline(split)).toBe('PILL states the chances closest to the truth; HEX costs the least per decision.')
-    expect(researchHeadline({ games: 0, hands: 0, seats: [] })).toBe('Not enough hands yet to say anything.')
+    expect(researchHeadline({ games: 0, hands: 0, seats: [], models: [] })).toBe('Not enough hands yet to say anything.')
   })
 
   it('turns the table into figures, and drops ratios that are not really differences', () => {
@@ -74,7 +75,7 @@ describe('research figures', () => {
     expect(m[3]!.value).toBe('238×') // $0.214 against $0.0009
     expect(m[4]!.value).toBe('6.8×') // 1.62 s against 240 ms
     expect(m.some((x) => x.what.includes('decisions logged across 80 hands'))).toBe(true)
-    expect(researchMetrics({ games: 1, hands: 1, seats: [table.seats[0]!] }).some((x) => x.what.includes('across 1 hand,'))).toBe(true) // not "1 hands"
+    expect(researchMetrics({ games: 1, hands: 1, seats: [table.seats[0]!], models: [] }).some((x) => x.what.includes('across 1 hand,'))).toBe(true) // not "1 hands"
     expect(m.some((x) => x.value === '3 of 200')).toBe(true) // fallbacks
     const alike = { ...table, seats: [table.seats[0]!, seat({ playerId: 'pill', biasPts: 2, errorPts: 9, costPerDecisionUsd: 0.001, latencyMeanMs: 250 })] }
     const flat = researchMetrics(alike)

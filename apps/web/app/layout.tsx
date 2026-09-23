@@ -1,6 +1,7 @@
 import type { Metadata } from 'next'
 import { Archivo, Chivo_Mono } from 'next/font/google'
 import Link from 'next/link'
+import { SiteFooter } from '../components/SiteFooter'
 import { SiteNav } from '../components/SiteNav'
 import './globals.css'
 
@@ -25,6 +26,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           <div id="site-status" className="site-status" />
         </header>
         <main>{children}</main>
+        <SiteFooter />
       </body>
     </html>
   )

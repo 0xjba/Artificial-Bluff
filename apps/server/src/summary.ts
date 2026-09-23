@@ -41,11 +41,26 @@ export interface SeatSummary {
   style: PlayStyle
 }
 
+/**
+ * One model's record across the games counted, wherever it sat. The seats are the house and the
+ * models move between them, so this is the view a Models page ranks: a seat's record mixes every
+ * model that has played it.
+ */
+export interface ModelSummary extends Omit<SeatSummary, 'playerId' | 'models'> {
+  /** Seats it has played in, newest game first (as `models` is on a seat). */
+  seats: string[]
+}
+
 export interface ModelsTable {
   games: number
   hands: number
   /** Best first, by chips won. */
   seats: SeatSummary[]
+  /**
+   * Best first, by chips won per hundred hands: models will have played very different numbers of
+   * hands, and chips won would rank the one that played most.
+   */
+  models: ModelSummary[]
 }
 
 /** One hand of a game, as the Replays page lists it. */
@@ -200,31 +215,84 @@ export function modelsTable(store: EventStore, cache: SummaryCache = new Map()):
     }
   }
   const scored = analyses.flatMap((a) => a.scored)
-  for (const seat of seats.values()) {
-    const seated = hands.filter((h) => h.seats.some((s) => s.playerId === seat.playerId))
-    const metrics = playerMetrics(hands, seat.playerId)
-    const said = scored.filter((d) => d.playerId === seat.playerId && d.winProbability !== null && !d.fallback)
-    seat.hands = seated.length
-    seat.handsWon = seated.filter((h) => h.mainPotWinners.includes(seat.playerId)).length
-    seat.winRate = seat.hands ? seat.handsWon / seat.hands : null
-    seat.chipsWon = seated.reduce((sum, h) => sum + (h.net[seat.playerId] ?? 0), 0)
-    const bb = seated.reduce((sum, h) => sum + (h.net[seat.playerId] ?? 0) / h.bigBlind, 0)
-    seat.bb100 = seat.hands ? (bb / seat.hands) * 100 : null
-    seat.decisions = metrics.decisions
-    seat.latencyMeanMs = metrics.latencyMeanMs
-    seat.costUsd = metrics.costUsd
-    seat.costPerDecisionUsd = metrics.costPerDecisionUsd
-    seat.fallbacks = Object.values(metrics.fallbacks).reduce((sum, n) => sum + n, 0)
-    seat.style = metrics.style
-    seat.statedDecisions = said.length
-    seat.biasPts = said.length ? (said.reduce((sum, d) => sum + (d.winProbability! - d.expectedShare), 0) / said.length) * 100 : null
-    seat.errorPts = said.length ? (said.reduce((sum, d) => sum + Math.abs(d.winProbability! - d.expectedShare), 0) / said.length) * 100 : null
-  }
+  for (const seat of seats.values()) Object.assign(seat, record(hands, seat.playerId, stated(scored, seat.playerId)))
   return {
     games: analyses.length,
     hands: hands.length,
     seats: [...seats.values()].sort((a, b) => b.chipsWon - a.chipsWon),
+    models: modelSummaries(analyses),
   }
+}
+
+type Record_ = Omit<SeatSummary, 'playerId' | 'kind' | 'model' | 'models' | 'games'>
+
+/** The decisions where a player stated its own win chance, and answered itself. */
+const stated = (scored: readonly ScoredDecision[], playerId: string) => scored.filter((d) => d.playerId === playerId && d.winProbability !== null && !d.fallback)
+
+/** A player's record from its hands and the win chances it stated in them. */
+function record(hands: readonly HandRecord[], playerId: string, said: readonly ScoredDecision[]): Record_ {
+  const seated = hands.filter((h) => h.seats.some((s) => s.playerId === playerId))
+  const metrics = playerMetrics(hands, playerId)
+  const handsWon = seated.filter((h) => h.mainPotWinners.includes(playerId)).length
+  const bb = seated.reduce((sum, h) => sum + (h.net[playerId] ?? 0) / h.bigBlind, 0)
+  return {
+    hands: seated.length,
+    handsWon,
+    winRate: seated.length ? handsWon / seated.length : null,
+    chipsWon: seated.reduce((sum, h) => sum + (h.net[playerId] ?? 0), 0),
+    bb100: seated.length ? (bb / seated.length) * 100 : null,
+    decisions: metrics.decisions,
+    latencyMeanMs: metrics.latencyMeanMs,
+    costUsd: metrics.costUsd,
+    costPerDecisionUsd: metrics.costPerDecisionUsd,
+    fallbacks: Object.values(metrics.fallbacks).reduce((sum, n) => sum + n, 0),
+    style: metrics.style,
+    statedDecisions: said.length,
+    biasPts: said.length ? (said.reduce((sum, d) => sum + (d.winProbability! - d.expectedShare), 0) / said.length) * 100 : null,
+    errorPts: said.length ? (said.reduce((sum, d) => sum + Math.abs(d.winProbability! - d.expectedShare), 0) / said.length) * 100 : null,
+  }
+}
+
+/**
+ * A hand with one seat's id replaced. A model's hands come from several games and seats; renamed to
+ * one id, they are counted by the same code as a seat's, exactly, rather than by averaging averages.
+ */
+function renameSeat(hand: HandRecord, from: string, to: string): HandRecord {
+  const id = (p: string) => (p === from ? to : p)
+  const keyed = <T>(r: Record<string, T>) => Object.fromEntries(Object.entries(r).map(([k, v]) => [id(k), v]))
+  return {
+    ...hand,
+    seats: hand.seats.map((s) => ({ ...s, playerId: id(s.playerId) })),
+    holes: keyed(hand.holes),
+    decisions: hand.decisions.map((d) => ({ ...d, playerId: id(d.playerId) })),
+    folded: hand.folded.map(id),
+    sawFlop: hand.sawFlop.map(id),
+    showdown: hand.showdown.map(id),
+    mainPotWinners: hand.mainPotWinners.map(id),
+    net: keyed(hand.net),
+  }
+}
+
+/**
+ * Every model's record, wherever it sat. Each seat a model played is renamed to the model in its own
+ * copy of that game's hands, so a model that played two seats of one game counts both, once each.
+ */
+function modelSummaries(analyses: readonly GameAnalysis[]): ModelSummary[] {
+  const byModel = new Map<string, { kind: PlayerKind; seats: string[]; games: Set<number>; hands: HandRecord[]; said: ScoredDecision[] }>()
+  analyses.forEach((a, game) => {
+    for (const p of a.players.values()) {
+      const as = `model:${p.model}`
+      const entry = byModel.get(p.model) ?? { kind: p.kind, seats: [], games: new Set<number>(), hands: [], said: [] }
+      if (!entry.seats.includes(p.id)) entry.seats.push(p.id)
+      entry.games.add(game)
+      for (const h of a.hands) if (h.seats.some((s) => s.playerId === p.id)) entry.hands.push(renameSeat(h, p.id, as))
+      for (const d of stated(a.scored, p.id)) entry.said.push({ ...d, playerId: as })
+      byModel.set(p.model, entry)
+    }
+  })
+  return [...byModel.entries()]
+    .map(([model, e]) => ({ model, kind: e.kind, seats: e.seats, games: e.games.size, ...record(e.hands, `model:${model}`, e.said) }))
+    .sort((a, b) => (b.bb100 ?? -Infinity) - (a.bb100 ?? -Infinity))
 }
 
 /** Read = what a seat said against what was true, worst first (one entry per seat). */

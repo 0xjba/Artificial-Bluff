@@ -1,6 +1,5 @@
 import type { ModelsTable } from '@ab/server'
 import type { Metadata } from 'next'
-import Link from 'next/link'
 import { connection } from 'next/server'
 import { ReportViewer } from '../../components/research/ReportViewer'
 import { SeatStrip } from '../../components/research/SeatStrip'
@@ -161,19 +160,6 @@ export default async function Research() {
         </div>
       </section>
 
-      <footer className={styles['research-footer']}>
-        <div className={styles.inner}>
-          <span className={styles.logo}>
-            ARTIFICIAL<span>BLUFF</span>
-          </span>
-          <span className={styles.blurb}>A research benchmark that happens to be watchable. Chips are play money; models spend real tokens.</span>
-          <span className={styles.links}>
-            <Link href="/models">Models</Link>
-            <Link href="/replays">Replays</Link>
-            <Link href="/play">Run a table</Link>
-          </span>
-        </div>
-      </footer>
     </div>
   )
 }

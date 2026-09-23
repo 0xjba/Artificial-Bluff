@@ -2,7 +2,11 @@ import { EventStore } from '@ab/core'
 import { describe, expect, it } from 'vitest'
 import type { HandRecord } from '@ab/analysis'
 import { handIndex, modelsTable, SUMMARY_CACHE_GAMES, type SummaryCache } from '../src/summary'
+import { extractHands } from '@ab/analysis'
+import { CallingStation, MockLlm, TagBot } from '@ab/players'
 import { playLiveGame } from './fixtures'
+
+const extractHandsOf = (store: EventStore, gameId: string) => extractHands(store.events(gameId))
 
 describe('models table', () => {
   it('sums every finished live game: chips, hands won, speed, spend, honesty and style', async () => {
@@ -38,6 +42,34 @@ describe('models table', () => {
     expect(table.seats).toEqual([...table.seats].sort((a, b) => b.chipsWon - a.chipsWon)) // best first
   })
 
+  it('also counts by model, wherever each one sat: the seats are the house, the models move', async () => {
+    const store = new EventStore()
+    // The same two models, in swapped seats from one game to the next; the bots stay put.
+    await playLiveGame(store, 'live-a', 8, [new MockLlm('hex', 'mock/alpha'), new TagBot('pill'), new MockLlm('block', 'mock/beta'), new CallingStation('drip'), new MockLlm('nimbus', 'mock/gamma')])
+    await playLiveGame(store, 'live-b', 6, [new MockLlm('hex', 'mock/beta'), new TagBot('pill'), new MockLlm('block', 'mock/alpha'), new CallingStation('drip'), new MockLlm('nimbus', 'mock/gamma')])
+    store.setStatus('live-a', 'ended')
+    store.setStatus('live-b', 'ended')
+    const table = modelsTable(store)
+    const byModel = new Map(table.models.map((m) => [m.model, m]))
+    expect([...byModel.keys()].sort()).toEqual(['bot/calling-station', 'bot/tag', 'mock/alpha', 'mock/beta', 'mock/gamma'])
+
+    // alpha played HEX in the first game and BLOCK in the second: one row, both games, both seats
+    // (newest game first).
+    const alpha = byModel.get('mock/alpha')!
+    expect(alpha).toMatchObject({ games: 2, seats: ['block', 'hex'] })
+    const seatHands = (gameId: string, seat: string) => extractHandsOf(store, gameId).filter((h) => h.seats.some((s) => s.playerId === seat)).length
+    expect(alpha.hands).toBe(seatHands('live-a', 'hex') + seatHands('live-b', 'block'))
+    expect(alpha.costPerDecisionUsd).toBeCloseTo(alpha.costUsd / alpha.decisions, 6)
+    expect(alpha.errorPts).not.toBeNull()
+
+    // Every seat in every game is exactly one model, so chips are still conserved across the rows.
+    expect(table.models.reduce((sum, m) => sum + m.chipsWon, 0)).toBe(0)
+    expect(table.models.reduce((sum, m) => sum + m.hands, 0)).toBe(table.seats.reduce((sum, s) => sum + s.hands, 0))
+    // Ranked by chips per hundred hands, which stays comparable when models have played unequal numbers of hands.
+    const ranked = table.models.filter((m) => m.bb100 !== null).map((m) => m.bb100!)
+    expect(ranked).toEqual([...ranked].sort((a, b) => b - a))
+  })
+
   it('keeps only the newest games in its cache', async () => {
     const store = new EventStore()
     const cache: SummaryCache = new Map()
@@ -52,7 +84,7 @@ describe('models table', () => {
 
   it('has nothing to show before any game has finished', () => {
     const store = new EventStore()
-    expect(modelsTable(store)).toEqual({ games: 0, hands: 0, seats: [] })
+    expect(modelsTable(store)).toEqual({ games: 0, hands: 0, seats: [], models: [] })
   })
 })
 
