@@ -30,7 +30,7 @@ describe('Mascot', () => {
     for (const c of CAST) {
       for (const moment of ['deciding', 'all_in', 'won', 'eliminated', 'fallback'] as const) {
         for (const t of [0.3, 1.5, 3, 5]) {
-          const html = renderToStaticMarkup(<Mascot shape={c.shape} cue={cueFor(moment, c.id === 'jev')} frozenAt={t} />)
+          const html = renderToStaticMarkup(<Mascot shape={c.shape} cue={cueFor(moment, c.id === 'hex')} frozenAt={t} />)
           expect(html, `${c.id}/${moment}@${t}`).not.toMatch(/NaN|undefined|Infinity/)
           for (const [, hex] of html.matchAll(/stop-color="#([0-9a-f]{6})"/g)) {
             expect(hex!.slice(0, 2) === hex!.slice(2, 4) && hex!.slice(2, 4) === hex!.slice(4, 6), `ring colour #${hex}`).toBe(true)

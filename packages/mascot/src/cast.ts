@@ -16,7 +16,7 @@ export interface Character {
  * glance, and no seat is a circle (that would read as the x.ai bot the engine was measured from).
  */
 export const CAST: readonly Character[] = [
-  { id: 'jev', name: 'JEV', shape: 'hexagone', color: '#E8B04A' },
+  { id: 'hex', name: 'HEX', shape: 'hexagone', color: '#E8B04A' },
   { id: 'pill', name: 'PILL', shape: 'capsule', color: '#EFE6D6' },
   { id: 'block', name: 'BLOCK', shape: 'squircle', color: '#D9534F' },
   { id: 'drip', name: 'DRIP', shape: 'goutte', color: '#3FA98C' },
@@ -32,9 +32,16 @@ const SPARE_COLORS: readonly string[] = ['#9DB8AE', '#E2756F', '#8FD6BD', '#E8B0
 /** Shapes handed to seats outside the cast, in turn (still never a circle). */
 const SPARE_SHAPES: readonly ShapeId[] = ['galet', 'triangle', 'hexagone', 'capsule', 'squircle', 'goutte', 'nuage']
 
+/**
+ * Seat ids from before a seat was renamed. The characters are the house, not the models that sit in
+ * them, so a game played under the old id is still that seat when it is replayed.
+ */
+const FORMER_IDS: Record<string, string> = { jev: 'hex' }
+
 /** The character for a seat: from the cast by id, else a spare shape by seat index and the id in capitals. */
 export function characterFor(playerId: string, seatIndex = 0): Character {
-  const known = CAST.find((c) => c.id === playerId)
+  const id = FORMER_IDS[playerId] ?? playerId
+  const known = CAST.find((c) => c.id === id)
   if (known) return known
   return { id: playerId, name: playerId.toUpperCase(), shape: SPARE_SHAPES[seatIndex % SPARE_SHAPES.length]!, color: SPARE_COLORS[seatIndex % SPARE_COLORS.length]! }
 }

@@ -6,7 +6,7 @@ import { Hub, type FeedMessage } from '../src/hub'
 
 async function liveGame(hub: Hub, maxHands = 6): Promise<GameEvent[]> {
   const store = new EventStore()
-  const players = [new MockLlm('jev'), new TagBot('pill'), new MockLlm('block'), new CallingStation('drip'), new MockLlm('nimbus')]
+  const players = [new MockLlm('hex'), new TagBot('pill'), new MockLlm('block'), new CallingStation('drip'), new MockLlm('nimbus')]
   hub.begin({ mode: 'live', title: 'LIVE', gameId: 'g' })
   await runTournamentGame({
     gameId: 'g', players, tournament: { ...liveTurboConfig('hub'), maxHands }, store, decisionTimeoutMs: 1000, budgetUsd: 100,
@@ -43,7 +43,7 @@ describe('Hub', () => {
       else client = withEquity(client, m.equity, m.estimated)
     })
     const store = new EventStore()
-    const players = [new MockLlm('jev'), new TagBot('pill'), new MockLlm('block'), new CallingStation('drip'), new MockLlm('nimbus')]
+    const players = [new MockLlm('hex'), new TagBot('pill'), new MockLlm('block'), new CallingStation('drip'), new MockLlm('nimbus')]
     hub.begin({ mode: 'live', title: 'LIVE', gameId: 'g' })
     await runTournamentGame({
       gameId: 'g', players, tournament: { ...liveTurboConfig('step'), maxHands: 8 }, store, decisionTimeoutMs: 1000, budgetUsd: 100,

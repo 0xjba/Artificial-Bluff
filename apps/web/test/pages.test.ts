@@ -35,7 +35,7 @@ const hand = (over: Partial<HandSummary>): HandSummary => ({
   pot: 100,
   won: { jev: 100 },
   bigBlind: 50,
-  players: ['jev', 'pill'],
+  players: ['hex', 'pill'],
   winners: ['jev'],
   shown: [],
   busted: [],
@@ -43,7 +43,7 @@ const hand = (over: Partial<HandSummary>): HandSummary => ({
   seconds: 45,
   reads: [],
   tags: [],
-  headline: 'JEV wins 100 after everyone else folded',
+  headline: 'HEX wins 100 after everyone else folded',
   startSeq: 1,
   ...over,
 })
@@ -53,22 +53,22 @@ describe('research figures', () => {
     games: 2,
     hands: 80,
     seats: [
-      seat({ playerId: 'jev', kind: 'jev', biasPts: -1, errorPts: 2, costPerDecisionUsd: 0.0009, latencyMeanMs: 240, decisions: 100, fallbacks: 0 }),
+      seat({ playerId: 'hex', kind: 'jev', biasPts: -1, errorPts: 2, costPerDecisionUsd: 0.0009, latencyMeanMs: 240, decisions: 100, fallbacks: 0 }),
       seat({ playerId: 'pill', biasPts: 28, errorPts: 31, costPerDecisionUsd: 0.214, latencyMeanMs: 1620, decisions: 100, fallbacks: 3 }),
     ],
   }
 
   it('says only what the numbers say', () => {
-    expect(researchHeadline(table)).toBe('The cheapest seat is also the one whose stated chances sit closest to the truth: JEV.')
-    // PILL states the closest chances, JEV is the cheapest: then the headline names both.
+    expect(researchHeadline(table)).toBe('The cheapest seat is also the one whose stated chances sit closest to the truth: HEX.')
+    // PILL states the closest chances, HEX is the cheapest: then the headline names both.
     const split = { ...table, seats: [table.seats[0]!, seat({ playerId: 'pill', biasPts: 1, errorPts: 1, costPerDecisionUsd: 0.05 })] }
-    expect(researchHeadline(split)).toBe('PILL states the chances closest to the truth; JEV costs the least per decision.')
+    expect(researchHeadline(split)).toBe('PILL states the chances closest to the truth; HEX costs the least per decision.')
     expect(researchHeadline({ games: 0, hands: 0, seats: [] })).toBe('Not enough hands yet to say anything.')
   })
 
   it('turns the table into figures, and drops ratios that are not really differences', () => {
     const m = researchMetrics(table)
-    expect(m[0]).toEqual({ value: '2 pts', what: "JEV's stated win chance sits this far from the true one, on average" })
+    expect(m[0]).toEqual({ value: '2 pts', what: "HEX's stated win chance sits this far from the true one, on average" })
     expect(m[1]!.value).toBe('31 pts')
     expect(m[2]).toEqual({ value: '+28 pts', what: 'PILL talks itself up by this much on average, over and under cancelled' })
     expect(m[3]!.value).toBe('238×') // $0.214 against $0.0009

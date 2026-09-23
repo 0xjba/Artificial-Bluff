@@ -13,7 +13,7 @@ import {
 } from '../src/tournament'
 import type { HandResult } from '../src/types'
 
-const ids = ['jev', 'pill', 'block', 'drip', 'nimbus']
+const ids = ['hex', 'pill', 'block', 'drip', 'nimbus']
 
 function result(stacks: Record<string, number>): HandResult {
   return { handId: null, showdown: false, awards: [], hands: {}, board: [], stacks, net: {} }
@@ -42,10 +42,10 @@ describe('tournament', () => {
 
   it('rotates the button clockwise, skipping busted players', () => {
     let t = createTournament(ids, liveTurboConfig('s'))
-    t = rec(t, result({ jev: 6000, pill: 0, block: 3000, drip: 3000, nimbus: 3000 }))
+    t = rec(t, result({ hex: 6000, pill: 0, block: 3000, drip: 3000, nimbus: 3000 }))
     expect(t.buttonSeat).toBe(2) // seat 1 (pill) is out
     const cfg = nextHandConfig(t)
-    expect(cfg.seats.map((s) => s.id)).toEqual(['jev', 'block', 'drip', 'nimbus'])
+    expect(cfg.seats.map((s) => s.id)).toEqual(['hex', 'block', 'drip', 'nimbus'])
     expect(cfg.buttonIndex).toBe(1)
   })
 

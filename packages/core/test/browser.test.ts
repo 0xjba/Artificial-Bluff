@@ -32,7 +32,7 @@ describe('browser entry (@ab/core/browser)', () => {
   it('plays a whole tournament into a MemoryStore', async () => {
     const store = new MemoryStore()
     const seen: number[] = []
-    const players = [new MockLlm('jev'), new TagBot('pill'), new MockLlm('block'), new CallingStation('drip'), new MockLlm('nimbus')]
+    const players = [new MockLlm('hex'), new TagBot('pill'), new MockLlm('block'), new CallingStation('drip'), new MockLlm('nimbus')]
     const t = await runTournamentGame({ gameId: 'g', players, tournament: { ...liveTurboConfig('mem'), maxHands: 30 }, store, decisionTimeoutMs: 1000, budgetUsd: 100, onEvent: (e) => seen.push(e.seq) })
     const events = store.events('g')
     expect(events.map((e) => e.seq)).toEqual(seen)

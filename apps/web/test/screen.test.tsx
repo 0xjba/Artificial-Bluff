@@ -21,9 +21,9 @@ describe('Broadcast screen', () => {
     const cut = events.findIndex((e, i) => i > 30 && e.type === 'decision')
     const view = buildView(events.slice(0, cut + 1))
     const html = renderToStaticMarkup(
-      <Broadcast channel={{ mode: 'live', title: 'LIVE' }} view={view} log={[{ seq: 1, ts: Date.UTC(2026, 8, 22, 12, 4), kind: 'action', tag: 'RAISE', text: 'JEV raises to 300' }]} decisionEquity={0.3} />,
+      <Broadcast channel={{ mode: 'live', title: 'LIVE' }} view={view} log={[{ seq: 1, ts: Date.UTC(2026, 8, 22, 12, 4), kind: 'action', tag: 'RAISE', text: 'HEX raises to 300' }]} decisionEquity={0.3} />,
     )
-    for (const who of ['JEV', 'PILL', 'BLOCK', 'DRIP', 'NIMBUS']) expect(html).toContain(`<b>${who}</b>`)
+    for (const who of ['HEX', 'PILL', 'BLOCK', 'DRIP', 'NIMBUS']) expect(html).toContain(`<b>${who}</b>`)
     expect(html).toContain('mock/jev') // the model, in the players panel
     // A mascot per seat on the felt, named with what it is doing; the panel's are decorative.
     expect(html.match(/aria-label="[A-Z]+, [a-z ]+"/g)!.length).toBe(view.seats.length)
@@ -31,7 +31,7 @@ describe('Broadcast screen', () => {
     expect(html).toContain('LIVE')
     expect(html).toContain('AI SAID')
     expect(html).toContain('>30%</b>') // the true chance, against what the model said
-    expect(html).toContain('JEV raises to 300')
+    expect(html).toContain('HEX raises to 300')
     expect(html).toContain('RAISE')
     expect(html).toContain('turn sound on') // the sound toggle sits beside the LIVE tag
     expect(html).toContain('WHO IS PLAYING')
@@ -88,7 +88,7 @@ describe('end to end', () => {
   it('follows a live mock game from the server feed and renders it', async () => {
     const app = await startApp(
       { ...parseServerConfig({}), port: 0, dbPath: ':memory:', mock: true, paceMs: 5, decisionTimeoutMs: 1000, replayPaceMs: 5, cooldownMs: 0, adminToken: null },
-      { specs: [], make: () => [new MockLlm('jev', 'mock/jev'), new TagBot('pill'), new MockLlm('block'), new CallingStation('drip'), new MockLlm('nimbus')] },
+      { specs: [], make: () => [new MockLlm('hex', 'mock/jev'), new TagBot('pill'), new MockLlm('block'), new CallingStation('drip'), new MockLlm('nimbus')] },
       () => undefined,
     )
     try {
@@ -214,7 +214,7 @@ describe('screen pieces', () => {
   it('shows each seat\'s win chance, in the panel and on the seat', async () => {
     const events = await mockGame(2)
     const cut = events.findIndex((e) => e.type === 'decision')
-    const view = withEquity(buildView(events.slice(0, cut + 1)), { jev: 0.36, pill: 0.64 }, true)
+    const view = withEquity(buildView(events.slice(0, cut + 1)), { hex: 0.36, pill: 0.64 }, true)
     const html = renderToStaticMarkup(<Broadcast channel={{ mode: 'live', title: 'LIVE' }} view={view} log={[]} decisionEquity={null} />)
     expect(html.match(/Win chances/g)!.length).toBe(view.seats.length * 2) // once per seat, once per panel row
     // The ≈ of an estimate is its own mark, so it can be set lighter than the number it qualifies.

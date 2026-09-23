@@ -99,14 +99,14 @@ describe('Broadcast sounds', () => {
 
   it('is silent until unmuted, then plays one sound per appended line, also after a restart; rebuilt logs are silent', () => {
     mount(<Broadcast channel={{ mode: 'live', title: 'LIVE' }} view={emptyViewForTest()} log={[]} decisionEquity={null} />)
-    const a = line(5, 'JEV raises to 300')
+    const a = line(5, 'HEX raises to 300')
     render([a])
     expect(played).toEqual([]) // muted by default
     clickLabel('turn sound on')
     const b = line(6, 'PILL folds')
     render([a, b])
     expect(played).toEqual(['fold'])
-    render([line(1, 'Hand 1'), line(2, 'DRIP folds'), line(3, 'JEV raises to 300')]) // seeking or joining rebuilds the log at once
+    render([line(1, 'Hand 1'), line(2, 'DRIP folds'), line(3, 'HEX raises to 300')]) // seeking or joining rebuilds the log at once
     expect(played).toEqual(['fold'])
     render([]) // a restart or a new programme clears the log
     render([line(1, 'BLOCK calls 50')]) // low event numbers again

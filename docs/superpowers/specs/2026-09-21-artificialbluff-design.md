@@ -34,7 +34,7 @@ Jev API reference is saved in `docs/jev/`.
 | Spectator betting | Not in v1 |
 | Brand | "artificialBluff", Broadcast direction (felt green, brass, Barlow) |
 | Mascots | bloub engine (MIT), neutral white, distinct shape per player, shape kept through all animations |
-| Names | Persistent character + always-visible model badge (JEV, PILL, BLOCK, DRIP, NIMBUS) |
+| Names | Persistent character + always-visible model badge (HEX, PILL, BLOCK, DRIP, NIMBUS). HEX was JEV until 2026-09-23: the characters are the house, so any model can sit in any seat. Old event logs still carry the seat id `jev` and are mapped to HEX. |
 
 ## 3. Architecture
 
@@ -279,7 +279,7 @@ TEN branding and parody personas.
 ### 7.2 Site design (revamp, 2026-09-22)
 
 From the user's design pack, with mock, wrong and redundant parts corrected. Fonts: Archivo and Chivo Mono.
-Mascots are **coloured** per seat (JEV gold, PILL cream, BLOCK red, DRIP teal, NIMBUS purple), which supersedes
+Mascots are **coloured** per seat (HEX gold, PILL cream, BLOCK red, DRIP teal, NIMBUS purple), which supersedes
 the earlier white-only rule; the colour is also the seat's accent on bars and cards.
 
 - **Live (/)**: portrait felt, seats on the rim (bottom seat first), pot and board in the middle, "who is playing"
@@ -314,7 +314,7 @@ the earlier white-only rule; the colour is also the seat's accent on bars and ca
 - **Direction C, Broadcast.** Felt `#0B2A24`, panel `#0E3029` / `#123A32`, rule `#1F4A40`, cream text `#F3EBDD`,
   muted `#9DB8AE`, brass accent `#E8B04A`, alert red `#D9534F`. Type: Barlow Condensed (display), Barlow (body).
 - **Mascots:** vendored bloub engine (MIT, credited in `/about` and `LICENSE-THIRD-PARTY`). All bodies neutral
-  white `#F5F3EE`; decorative rings/comet trails white (no rainbow). Distinct shapes: JEV hexagon, PILL capsule,
+  white `#F5F3EE`; decorative rings/comet trails white (no rainbow). Distinct shapes: HEX hexagon, PILL capsule,
   BLOCK squircle, DRIP droplet, NIMBUS cloud. Engine change: narrative states keep the player's own body shape
   (`orbit` spins it instead of a triangle; states drawn as a circle draw the shape at that size; the "!" glyphs
   are unchanged). No circle and no black body, to stay clear of the xAI bot identity. Package `@ab/mascot`

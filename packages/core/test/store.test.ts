@@ -8,7 +8,7 @@ import type { DecisionEvent } from '../src/events'
 import { canonicalJson, configHash, EventStore, SCHEMA_VERSION } from '../src/store'
 
 const decision = (over: Partial<DecisionEvent> = {}): DecisionEvent => ({
-  type: 'decision', handId: 'hand-0', street: 'preflop', playerId: 'jev', position: 'BTN', model: 'jev-1.13.0',
+  type: 'decision', handId: 'hand-0', street: 'preflop', playerId: 'hex', position: 'BTN', model: 'jev-1.13.0',
   optionId: 'call', label: 'Call 100', action: { type: 'call' }, chipsIn: 100, pot: 150, currentBet: 100, toCall: 100,
   winProbability: 0.5, confidence: 0.4, optionProbabilities: { call: 0.6, fold: 0.4 }, reasoning: null,
   latencyMs: 120, inputTokens: 500, outputTokens: 2, reasoningTokens: 0, costUsd: 0.000021, retries: 0,
@@ -46,7 +46,7 @@ describe('EventStore', () => {
     expect(store.gameCost('g1')).toBeCloseTo(0.03)
     const rows = store.db.prepare('SELECT player_id, fallback, fallback_kind, action_type FROM decisions ORDER BY seq').all()
     expect(rows).toEqual([
-      { player_id: 'jev', fallback: 0, fallback_kind: null, action_type: 'call' },
+      { player_id: 'hex', fallback: 0, fallback_kind: null, action_type: 'call' },
       { player_id: 'pill', fallback: 1, fallback_kind: 'timeout', action_type: 'call' },
     ])
   })

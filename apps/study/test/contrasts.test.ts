@@ -3,7 +3,7 @@ import { parseStudyConfig } from '../src/config'
 import { holm, pairedContrasts, tTestPValue } from '../src/contrasts'
 import { emptyProgress, handKeyOf } from '../src/progress'
 
-const ids = ['jev', 'pill', 'block', 'drip', 'nimbus']
+const ids = ['hex', 'pill', 'block', 'drip', 'nimbus']
 const config = parseStudyConfig({
   id: 'c',
   lineup: ids.map((id) => ({ id, kind: 'mock' })),
@@ -47,17 +47,17 @@ describe('tTestPValue', () => {
 describe('pairedContrasts', () => {
   it('compares the focus player with each other player by block, with Holm correction', () => {
     const p = emptyProgress()
-    // Every rotation of group g: jev wins (100 + g) chips from pill; block and drip trade 50 chips each way by group.
+    // Every rotation of group g: hex wins (100 + g) chips from pill; block and drip trade 50 chips each way by group.
     for (let g = 0; g < 8; g++) {
       for (let r = 0; r < 5; r++) {
         const swing = g % 2 === 0 ? 50 : -50
-        p.valid.set(handKeyOf(g, r), { jev: 100 + g, pill: -(100 + g), block: swing, drip: -swing, nimbus: 0 })
+        p.valid.set(handKeyOf(g, r), { hex: 100 + g, pill: -(100 + g), block: swing, drip: -swing, nimbus: 0 })
       }
     }
-    const rows = pairedContrasts(p, config, 8, 'jev')
+    const rows = pairedContrasts(p, config, 8, 'hex')
     expect(rows.map((r) => r.otherId)).toEqual(['pill', 'block', 'drip', 'nimbus'])
     const vsPill = rows[0]!
-    // jev minus pill per group: 2 (100 + g) chips per rotation / 100 bb * 100 = 2 (100 + g) bb/100; blocks average groups 0-3 and 4-7.
+    // hex minus pill per group: 2 (100 + g) chips per rotation / 100 bb * 100 = 2 (100 + g) bb/100; blocks average groups 0-3 and 4-7.
     expect(vsPill.diff.mean).toBeCloseTo(2 * 103.5, 9)
     expect(vsPill.pValue).not.toBeNull()
     for (const r of rows) {

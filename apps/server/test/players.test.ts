@@ -10,7 +10,7 @@ const lineupFile = (players: unknown[]) => {
   return path
 }
 const seats = [
-  { id: 'jev', kind: 'jev', model: 'jev-1.13.0' },
+  { id: 'hex', kind: 'jev', model: 'jev-1.13.0' },
   { id: 'pill', kind: 'llm', model: 'vendor/model' },
   { id: 'drip', kind: 'bot', bot: 'tag' },
 ]
@@ -19,7 +19,7 @@ const catalog = async () => new Map([['vendor/model', { id: 'vendor/model', supp
 describe('live players', () => {
   it('turns paid seats into free mocks', () => {
     expect(mockSpecs(seats as never)).toEqual([
-      { id: 'jev', kind: 'mock', model: 'mock/jev-1.13.0' },
+      { id: 'hex', kind: 'mock', model: 'mock/jev-1.13.0' },
       { id: 'pill', kind: 'mock', model: 'mock/vendor/model' },
       { id: 'drip', kind: 'bot', bot: 'tag' },
     ])

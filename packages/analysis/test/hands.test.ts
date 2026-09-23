@@ -99,8 +99,8 @@ describe('extractHands', () => {
 
   it('reads player kinds and models from game_started', () => {
     const info = playerInfo([
-      { type: 'game_started', kind: 'study', configHash: 'h', players: [{ id: 'jev', kind: 'jev', model: 'jev-1.13.0' }], gameId: 'g', seq: 1, ts: 0 },
+      { type: 'game_started', kind: 'study', configHash: 'h', players: [{ id: 'hex', kind: 'jev', model: 'jev-1.13.0' }], gameId: 'g', seq: 1, ts: 0 },
     ])
-    expect(info.get('jev')).toEqual({ id: 'jev', kind: 'jev', model: 'jev-1.13.0' })
+    expect(info.get('hex')).toEqual({ id: 'hex', kind: 'jev', model: 'jev-1.13.0' })
   })
 })

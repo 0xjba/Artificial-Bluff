@@ -25,7 +25,7 @@ const moments: Array<{ moment: Moment; label: string; at: number }> = [
 ]
 
 const cast = CAST.map(
-  (c) => `<figure><div class="card${c.id === 'jev' ? ' jev' : ''}">${renderToStaticMarkup(
+  (c) => `<figure><div class="card${c.id === 'hex' ? ' jev' : ''}">${renderToStaticMarkup(
     <Mascot id={`cast-${c.id}`} shape={c.shape} cue={cueFor('waiting')} frozenAt={0.6} size={150} paper={PANEL} title={`${c.name}, waiting`} />,
   )}</div><figcaption><b>${c.name}</b><br>${c.shape}</figcaption></figure>`,
 ).join('')

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { parseStudyConfig } from '../src/config'
 
-const lineup = ['jev', 'pill', 'block', 'drip', 'nimbus'].map((id) => ({ id, kind: 'mock' as const }))
+const lineup = ['hex', 'pill', 'block', 'drip', 'nimbus'].map((id) => ({ id, kind: 'mock' as const }))
 const base = { id: 'pilot', lineup, masterSeed: 'm', budgetUsd: 5, targetHalfWidthBb100: 10, minGroups: 40, maxGroups: 200 }
 
 describe('parseStudyConfig', () => {

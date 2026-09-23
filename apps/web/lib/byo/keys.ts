@@ -1,7 +1,7 @@
 /**
  * The visitor's own API keys. They stay in this browser: in this tab's session storage by default,
  * or in local storage when the visitor asks to be remembered on this device. They are sent only to
- * OpenRouter (directly) and, for a Jev seat, to TypeSafe through our relay (see relay.ts).
+ * OpenRouter (directly) and, for a seat playing Jev, to TypeSafe through our relay (see relay.ts).
  */
 export interface Keys {
   openrouter: string | null
