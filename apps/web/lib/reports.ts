@@ -15,6 +15,8 @@ export const REPORT_FILES: Record<string, string> = {
   'report.json': 'application/json',
   'decisions.csv': 'text/csv; charset=utf-8',
   'decisions.json': 'application/json',
+  'hands.csv': 'text/csv; charset=utf-8',
+  'events.jsonl': 'application/x-ndjson',
   'paper.pdf': 'application/pdf',
 }
 
@@ -77,6 +79,12 @@ export function studyKind(report: StudyReport): 'study' | 'pilot' | 'rehearsal' 
 
 /** The newest study that real models played to the end of its protocol, if one has a report. */
 export const latestStudy = (entries: ReportEntry[]) => entries.find((e) => studyKind(e.report) === 'study') ?? null
+
+/** Which of the servable files a study's report has (older reports lack the newer ones). */
+export function availableFiles(dirName: string, dir = REPORTS_DIR): string[] {
+  if (!SAFE_ID.test(dirName)) return []
+  return Object.keys(REPORT_FILES).filter((f) => existsSync(join(dir, dirName, f)))
+}
 
 /** A study's scored decisions (decisions.json), which the page's figures are computed from. */
 export function readDecisions(dirName: string, dir = REPORTS_DIR): ScoredDecision[] {

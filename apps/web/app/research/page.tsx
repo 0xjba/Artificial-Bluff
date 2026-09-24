@@ -4,7 +4,7 @@ import { connection } from 'next/server'
 import { PaperViewer } from '../../components/research/PaperViewer'
 import { WatchLive } from '../../components/research/WatchLive'
 import { researchCaveat, researchTiles } from '../../lib/research'
-import { latestStudy, studyKind, listReports, paperPages, readDecisions, type ReportEntry } from '../../lib/reports'
+import { availableFiles, latestStudy, studyKind, listReports, paperPages, readDecisions, type ReportEntry } from '../../lib/reports'
 import styles from './research.module.css'
 
 export const metadata: Metadata = { title: 'Research · artificialBluff' }
@@ -37,11 +37,20 @@ const MEASURES = [
   'Every decision re-scored from all the cards',
 ]
 
+/** The downloads under the paper, in reading order; each shows only if the study's report has it. */
+const DATA_FILES = [
+  { file: 'decisions.csv', label: 'every decision (CSV)' },
+  { file: 'hands.csv', label: 'every hand (CSV)' },
+  { file: 'report.json', label: 'every number (JSON)' },
+  { file: 'events.jsonl', label: 'the full event log (JSONL)' },
+]
+
 const TITLE = 'Stated confidence against true equity in AI-vs-AI Texas Hold’em'
 
 /** A study's report, its decisions reduced to the facts the page and the paper share, and its paper. */
-function evidence(entry: ReportEntry): { facts: PaperFacts; pages: number; base: string } {
+function evidence(entry: ReportEntry): { facts: PaperFacts; pages: number; base: string; files: string[] } {
   return {
+    files: availableFiles(entry.dir),
     facts: paperFacts(entry.report, readDecisions(entry.dir)),
     pages: paperPages(entry.dir),
     base: `/research/${encodeURIComponent(entry.dir)}`,
@@ -157,7 +166,13 @@ export default async function Research({ searchParams }: { searchParams: Promise
             </div>
             <PaperViewer src={`${ev.base}/paper.pdf`} download={`${ev.base}/paper.pdf`} pages={ev.pages} />
             <p className={styles.data}>
-              The data behind every figure: <a href={`${ev.base}/decisions.csv`}>every decision (CSV)</a> · <a href={`${ev.base}/report.json`}>every number (JSON)</a>
+              The data behind every figure:{' '}
+              {DATA_FILES.filter((d) => ev.files.includes(d.file)).map((d, i) => (
+                <span key={d.file}>
+                  {i > 0 ? ' · ' : null}
+                  <a href={`${ev.base}/${d.file}`}>{d.label}</a>
+                </span>
+              ))}
             </p>
           </div>
         </section>

@@ -1,7 +1,10 @@
 import { applyEvent, buildView, emptyView, type GameEvent, type TableView } from '@ab/core/view'
 import { describe, expect, it } from 'vitest'
 import { spread, stepFrom } from '../lib/spread'
-import { latestStudy, studyKind, type ReportEntry } from '../lib/reports'
+import { availableFiles, latestStudy, REPORT_FILES, studyKind, type ReportEntry } from '../lib/reports'
+import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { initialFeed, LOG_LIMIT, reduceFeed } from '../lib/feed'
 import { card, chips, fallbackNotice, ms, pct, shortModel, usd } from '../lib/format'
 import { logLine } from '../lib/log'
@@ -176,5 +179,17 @@ describe('which study the Research page shows', () => {
   it('shows the newest real study, never a pilot: a 20-hand smoke test is not a result', () => {
     expect(latestStudy([entry('smoke-2026-09c'), entry('x-mock'), entry('main-2026-09')])?.dir).toBe('main-2026-09')
     expect(latestStudy([entry('smoke-2026-09c'), entry('x-mock')])).toBeNull()
+  })
+})
+
+describe('a study\'s data files', () => {
+  it('serves the per-hand table and the whole event log too, and lists only the files a report has', () => {
+    expect(REPORT_FILES['hands.csv']).toMatch(/^text\/csv/)
+    expect(REPORT_FILES['events.jsonl']).toMatch(/json/)
+    const root = mkdtempSync(join(tmpdir(), 'ab-files-'))
+    mkdirSync(join(root, 's1'))
+    for (const f of ['decisions.csv', 'report.json', 'notes.txt']) writeFileSync(join(root, 's1', f), 'x')
+    expect(availableFiles('s1', root).sort()).toEqual(['decisions.csv', 'report.json'])
+    expect(availableFiles('../s1', root)).toEqual([])
   })
 })
