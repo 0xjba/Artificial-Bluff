@@ -1,6 +1,6 @@
 import { canonicalJson } from '@ab/core'
 import { DEFAULT_MENU_CONFIG, neighbourBlockSize } from '@ab/engine'
-import { ACTION_INSTRUCTIONS, JEV_INPUT_PRICE_PER_MTOK, systemPrompt, WIN_INSTRUCTIONS, type PlayerSpec } from '@ab/players'
+import { ACTION_INSTRUCTIONS, DECOMPOSED_RULE, JEV_INPUT_PRICE_PER_MTOK, STRENGTH_INSTRUCTIONS, STRENGTH_LEVELS, systemPrompt, WIN_INSTRUCTIONS, type PlayerSpec } from '@ab/players'
 import type { StudyConfig } from './config'
 
 /**
@@ -9,13 +9,21 @@ import type { StudyConfig } from './config'
  * run gets, so topping up the budget and resuming doesn't change the study.
  */
 export function preregistration(config: StudyConfig, adaptedLineup: PlayerSpec[], extra: Record<string, unknown> = {}): Record<string, unknown> {
+  // Only studies with a decomposed Jev seat carry its questions and rule, so earlier records are unchanged.
+  const decomposed = adaptedLineup.some((s) => s.kind === 'jev' && s.mode === 'decomposed')
   const record = {
     kind: 'artificialBluff study',
     version: 1,
     study: { ...preregisteredConfig(config), lineup: adaptedLineup },
     seating: { design: 'duplicate, cyclic rotations of a per-group base order', neighbourBlock: neighbourBlockSize(adaptedLineup.length) },
     menu: DEFAULT_MENU_CONFIG,
-    prompts: { llmSystem: systemPrompt(config.handFacts ?? false), jevAction: ACTION_INSTRUCTIONS, jevWin: WIN_INSTRUCTIONS },
+    prompts: {
+      llmSystem: systemPrompt(config.handFacts ?? false),
+      jevAction: ACTION_INSTRUCTIONS,
+      jevWin: WIN_INSTRUCTIONS,
+      ...(decomposed ? { jevStrength: STRENGTH_INSTRUCTIONS, jevStrengthLevels: [...STRENGTH_LEVELS] } : {}),
+    },
+    ...(decomposed ? { jevDecomposed: DECOMPOSED_RULE } : {}),
     jevMove:
       'the kind of move with the most total weight in the action probabilities (fold; check or call; bet or raise, all sizes), ' +
       "then the most likely option of that kind; ties keep TypeSafe's own choice",

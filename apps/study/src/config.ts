@@ -73,8 +73,10 @@ function parseSeat(raw: unknown, index: number): PlayerSpec {
     return s.model
   }
   switch (s.kind) {
-    case 'jev':
-      return { id: s.id, kind: 'jev', model: model() }
+    case 'jev': {
+      if (s.mode !== undefined && s.mode !== 'choice' && s.mode !== 'decomposed') throw new Error(`study config: ${where}.mode must be "choice" or "decomposed"`)
+      return { id: s.id, kind: 'jev', model: model(), ...(s.mode !== undefined ? { mode: s.mode } : {}) }
+    }
     case 'llm': {
       const seat: PlayerSpec = { id: s.id, kind: 'llm', model: model() }
       if (s.reasoning !== undefined) {

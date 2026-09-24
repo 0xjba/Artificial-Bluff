@@ -22,6 +22,13 @@ describe('parseStudyConfig', () => {
     expect(() => parseStudyConfig({ ...base, handFacts: 'yes' })).toThrow(/"handFacts" must be true or false/)
   })
 
+  it('takes a Jev seat\'s mode, and adds nothing when it is left out', () => {
+    const jev = (extra: Record<string, unknown>) => parseStudyConfig({ ...base, lineup: [{ id: 'hex', kind: 'jev', model: 'jev-1.13.0', ...extra }, ...lineup.slice(1)] }).lineup[0]
+    expect(jev({ mode: 'decomposed' })).toEqual({ id: 'hex', kind: 'jev', model: 'jev-1.13.0', mode: 'decomposed' })
+    expect(jev({})).toEqual({ id: 'hex', kind: 'jev', model: 'jev-1.13.0' })
+    expect(() => jev({ mode: 'fast' })).toThrow(/mode must be "choice" or "decomposed"/)
+  })
+
   it('rejects unknown keys, so typos cannot silently fall back to defaults', () => {
     expect(() => parseStudyConfig({ ...base, checkevery: 4 })).toThrow(/unknown key\(s\): checkevery/)
     expect(() => parseStudyConfig({ ...base, format: { smallBlind: 50, bigBlind: 100, stackInBigBlinds: 100, ante: 10 } })).toThrow(/unknown format key/)
