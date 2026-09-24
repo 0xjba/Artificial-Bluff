@@ -194,6 +194,16 @@ describe('playHand', () => {
     expect(first('x')).toMatchObject({ provider: 'Groq', rawReply: 'hmm', fallback: true })
   })
 
+  it('shows every player its hand facts when the game turns them on', async () => {
+    const seen: Array<boolean> = []
+    const watcher = (id: string) => ({ id, kind: 'mock' as const, model: 'w', decide: async (o: Parameters<Player['decide']>[0]) => { seen.push(o.facts.hand !== undefined); return { ok: true as const, decision: { optionId: o.options.some((x) => x.id === 'check') ? ('check' as const) : ('fold' as const), winProbability: null, confidence: null, optionProbabilities: null, reasoning: null }, usage: NO_USAGE, model: 'w' } } })
+    await playHand({ config: config(['a', 'b']), players: byId([watcher('a'), watcher('b')]), sink: memorySink(), decisionTimeoutMs: 100, handFacts: true })
+    await playHand({ config: config(['a', 'b']), players: byId([watcher('a'), watcher('b')]), sink: memorySink(), decisionTimeoutMs: 100 })
+    expect(seen.length).toBeGreaterThanOrEqual(2)
+    expect(seen[0]).toBe(true)
+    expect(seen.at(-1)).toBe(false)
+  })
+
   it('emits each street dealt during an all-in run-out, then showdown and pots', async () => {
     const shove = new Scripted('a', () => ({ ok: true, decision: { optionId: 'all_in', winProbability: 0.8, confidence: 0.9, optionProbabilities: null, reasoning: 'aces' }, usage: NO_USAGE, model: 'scripted' }))
     const sink = memorySink()

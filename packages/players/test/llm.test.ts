@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest'
 import { LlmPlayer, type LlmPlayerOptions } from '../src/llm/llm-player'
 import { OpenRouterError, chatCompletion } from '../src/llm/openrouter'
 import { parseDecision } from '../src/llm/parse'
-import { SYSTEM_PROMPT, WIN_CONDITION, responseFormat } from '../src/llm/prompt'
+import { SYSTEM_PROMPT, WIN_CONDITION, responseFormat, systemPrompt } from '../src/llm/prompt'
 import { buildObservation } from '../src/observation'
 
 const obs = buildObservation(
@@ -158,6 +158,19 @@ describe('LlmPlayer', () => {
     // Bounded, so one runaway reply can't bloat the log.
     const long = await make(fakeFetch([{ content: 'x'.repeat(5000) }, { content: 'y' }]).fn).decide(obs, signal)
     expect(!long.ok && long.rawReply!.length).toBeLessThanOrEqual(2 * 1000 + 5 + 2)
+  })
+
+  it('describes the hand facts in the system prompt only when the state carries them', async () => {
+    // The prompt the first study ran on is unchanged.
+    expect(systemPrompt(false)).toBe(SYSTEM_PROMPT)
+    expect(systemPrompt(true)).toContain('"hand"')
+    const withHand = { ...obs, facts: { ...obs.facts, hand: { made: 'ace-king suited', startingHandTopPct: 4 } } }
+    const fake = fakeFetch([{ content: valid }, { content: valid }])
+    await make(fake.fn).decide(withHand, signal)
+    await make(fake.fn).decide(obs, signal)
+    const system = (i: number) => (fake.requests[i]!.body.messages as Array<{ content: string }>)[0]!.content
+    expect(system(0)).toBe(systemPrompt(true))
+    expect(system(1)).toBe(SYSTEM_PROMPT)
   })
 
   it('retries once with the specific error, summing usage', async () => {

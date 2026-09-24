@@ -16,6 +16,12 @@ describe('parseStudyConfig', () => {
     })
   })
 
+  it('takes hand facts as an explicit choice, and adds nothing when it is left out', () => {
+    expect(parseStudyConfig({ ...base, handFacts: true })).toMatchObject({ handFacts: true })
+    expect(parseStudyConfig(base)).not.toHaveProperty('handFacts')
+    expect(() => parseStudyConfig({ ...base, handFacts: 'yes' })).toThrow(/"handFacts" must be true or false/)
+  })
+
   it('rejects unknown keys, so typos cannot silently fall back to defaults', () => {
     expect(() => parseStudyConfig({ ...base, checkevery: 4 })).toThrow(/unknown key\(s\): checkevery/)
     expect(() => parseStudyConfig({ ...base, format: { smallBlind: 50, bigBlind: 100, stackInBigBlinds: 100, ante: 10 } })).toThrow(/unknown format key/)

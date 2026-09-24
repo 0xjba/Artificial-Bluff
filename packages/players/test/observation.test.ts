@@ -1,4 +1,4 @@
-import { applyAction, buildMenu, createHand, deriveSeed, mulberry32, type HandState } from '@ab/engine'
+import { applyAction, buildMenu, createHand, deriveSeed, describeHand, mulberry32, type HandState } from '@ab/engine'
 import { describe, expect, it } from 'vitest'
 import { buildObservation } from '../src/observation'
 
@@ -117,5 +117,14 @@ describe('buildObservation', () => {
   it('throws when nobody is to act', () => {
     const s = applyAction(start([1000, 1000]), { type: 'fold' })
     expect(() => buildObservation(s)).toThrow(/nobody/)
+  })
+
+  it('adds what the player holds only when the game turns hand facts on, from their own cards only', () => {
+    const s = start([10_000, 10_000, 10_000])
+    const plain = buildObservation(s)
+    expect(plain.facts).not.toHaveProperty('hand')
+    const withFacts = buildObservation(s, buildMenu(s), { handFacts: true })
+    expect(withFacts.facts.hand).toEqual(describeHand(withFacts.hole, withFacts.board))
+    expect(withFacts.facts.hand!.made).toMatch(/suited|offsuit|pair of/)
   })
 })

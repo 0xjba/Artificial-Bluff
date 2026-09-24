@@ -1,5 +1,7 @@
-import { EventStore, type EventBody, type GameEvent } from '@ab/core'
-import { CallingStation, MockLlm, RandomBot, TagBot, type Player } from '@ab/players'
+import { configHash, EventStore, type EventBody, type GameEvent } from '@ab/core'
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
+import { CallingStation, MockLlm, RandomBot, TagBot, type Player, type PlayerSpec } from '@ab/players'
 import { describe, expect, it } from 'vitest'
 import { parseStudyConfig, type StudyConfig } from '../src/config'
 import { preregistration } from '../src/prereg'
@@ -245,6 +247,28 @@ describe('runStudy', () => {
     expect(record.prompts.llmSystem).toContain('win this hand')
     // How Jev's probabilities become a move is part of the protocol, not a detail of the code.
     expect(record.jevMove).toContain('total weight')
+  })
+})
+
+describe('hand facts in a study', () => {
+  it('shows them to every player when the study turns them on, and says so in the language models\' prompt', async () => {
+    let shown = 0
+    let asked = 0
+    const watch = (p: Player): Player => ({ id: p.id, kind: p.kind, model: p.model, decide: (o, sig) => { asked++; if (o.facts.hand) shown++; return p.decide(o, sig) } })
+    const c = config({ handFacts: true, minGroups: 4, maxGroups: 4 })
+    await run(c, tags().map(watch), new EventStore())
+    expect(asked).toBeGreaterThan(0)
+    expect(shown).toBe(asked)
+    const record = preregistration(c, c.lineup) as { study: Record<string, unknown>; prompts: Record<string, string> }
+    expect(record.study).toMatchObject({ handFacts: true })
+    expect(record.prompts.llmSystem).toContain('"hand"')
+  })
+
+  it('leaves the first study\'s pre-registration exactly as committed', () => {
+    const root = join(import.meta.dirname, '../../..')
+    const committed = JSON.parse(readFileSync(join(root, 'studies/prereg/main-2026-09.json'), 'utf8')) as { study: { lineup: PlayerSpec[] } }
+    const main = parseStudyConfig(JSON.parse(readFileSync(join(root, 'studies/main.example.json'), 'utf8')))
+    expect(configHash(preregistration(main, committed.study.lineup))).toBe(readFileSync(join(root, 'studies/prereg/main-2026-09.sha256'), 'utf8').trim())
   })
 })
 

@@ -156,6 +156,7 @@ export async function runStudy(opts: RunStudyOptions): Promise<StudyOutcome> {
           players,
           sink,
           decisionTimeoutMs: config.decisionTimeoutMs,
+          ...(config.handFacts ? { handFacts: true } : {}),
           stopSpending: () => {
             if (overBudget()) capped = true
             return capped

@@ -1,6 +1,6 @@
 import type { DecideResult, Observation, Player, Usage } from '../types'
 import { parseDecision } from './parse'
-import { SYSTEM_PROMPT, responseFormat, userMessage } from './prompt'
+import { responseFormat, systemPrompt, userMessage } from './prompt'
 import { chatCompletion, type ChatMessage, type ChatRequest, type OpenRouterConfig } from './openrouter'
 
 /**
@@ -69,7 +69,7 @@ export class LlmPlayer implements Player {
 
   async decide(obs: Observation, signal: AbortSignal): Promise<DecideResult> {
     const messages: ChatMessage[] = [
-      { role: 'system', content: SYSTEM_PROMPT },
+      { role: 'system', content: systemPrompt(obs.facts.hand !== undefined) },
       { role: 'user', content: userMessage(obs) },
     ]
     const usage: Usage = { inputTokens: 0, outputTokens: 0, reasoningTokens: 0, costUsd: 0, retries: 0 }

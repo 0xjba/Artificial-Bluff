@@ -35,6 +35,8 @@ export interface PlayHandOptions {
   /** Study hands: recorded on hand_started. */
   duplicate?: DuplicateInfo
   menu?: Partial<MenuConfig>
+  /** Show every player its hand facts (made hand, draws and outs, starting-hand rank). */
+  handFacts?: boolean
   now?: () => number
   sleep?: (ms: number) => Promise<void>
 }
@@ -141,7 +143,7 @@ export async function playHand(opts: PlayHandOptions): Promise<HandResult> {
     const seat = state.seats[seatIndex]!
     const player = opts.players.get(seat.id)!
     const menu = buildMenu(state, opts.menu)
-    const obs = buildObservation(state, menu)
+    const obs = buildObservation(state, menu, { handFacts: opts.handFacts ?? false })
     opts.sink.append({ type: 'turn_started', handId, playerId: seat.id, options: obs.options })
 
     const started = now()
