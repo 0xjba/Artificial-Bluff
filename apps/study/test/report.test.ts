@@ -97,6 +97,28 @@ function rawWith(lineup: unknown[]) {
   return { id: 'f', lineup, masterSeed: 'm', budgetUsd: 1, targetHalfWidthBb100: 1, minGroups: 2, maxGroups: 2, checkEvery: 2 }
 }
 
+describe('calibration with uncertainty', () => {
+  it('reports every player\'s calibration with intervals, and the focus compared with each on the same blocks', async () => {
+    const c = config({ minGroups: 8, maxGroups: 8 })
+    const store = new EventStore()
+    await run(c, mixed(), store)
+    const { report } = analyseStudy(store, c, { focusId: 'hex', generatedAt: at })
+    expect(report.calibrationStats!.players.map((p) => p.playerId)).toEqual(ids)
+    // Two measures (Brier against the pot won, and error on matched spots) against each other player that
+    // states chances: the calling stations state none, so they aren't compared.
+    const compared = new Set(report.calibrationStats!.contrasts.map((x) => x.otherId))
+    expect(compared.has('drip')).toBe(true)
+    expect(compared.has('block') || compared.has('nimbus')).toBe(false)
+    expect(report.calibrationStats!.contrasts.every((x) => x.measure === 'brierA' || x.measure === 'matchedError')).toBe(true)
+    expect(JSON.parse(JSON.stringify(report.calibrationStats))).toEqual(report.calibrationStats)
+    const hex = report.calibrationStats!.players[0]!
+    // The pooled Brier matches the report's own calibration figure for the same decisions.
+    expect(hex.brierA.value).toBeCloseTo(report.calibration.find((x) => x.playerId === 'hex')!.winA.brier!, 12)
+    // Every hand's first decision is a matched spot, one per player per group.
+    expect(hex.matched.n).toBeLessThanOrEqual(8)
+  })
+})
+
 describe('decisionsCsv', () => {
   it('writes one quoted row per decision', async () => {
     const store = new EventStore()
