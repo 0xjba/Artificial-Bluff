@@ -106,16 +106,18 @@ describe('calibration with uncertainty', () => {
     expect(report.calibrationStats!.players.map((p) => p.playerId)).toEqual(ids)
     // Two measures (Brier against the pot won, and error on matched spots) against each other player that
     // states chances: the calling stations state none, so they aren't compared.
-    const compared = new Set(report.calibrationStats!.contrasts.map((x) => x.otherId))
-    expect(compared.has('drip')).toBe(true)
-    expect(compared.has('block') || compared.has('nimbus')).toBe(false)
-    expect(report.calibrationStats!.contrasts.every((x) => x.measure === 'brierA' || x.measure === 'matchedError')).toBe(true)
+    // They still make decisions, so they are compared on decisions at identical spots.
+    const on = (m: string) => new Set(report.calibrationStats!.contrasts.filter((x) => x.measure === m).map((x) => x.otherId))
+    expect(on('brierA').has('drip')).toBe(true)
+    expect(on('brierA').has('block') || on('brierA').has('nimbus')).toBe(false)
+    expect(on('matchedDecision').has('nimbus')).toBe(true)
     expect(JSON.parse(JSON.stringify(report.calibrationStats))).toEqual(report.calibrationStats)
     const hex = report.calibrationStats!.players[0]!
     // The pooled Brier matches the report's own calibration figure for the same decisions.
     expect(hex.brierA.value).toBeCloseTo(report.calibration.find((x) => x.playerId === 'hex')!.winA.brier!, 12)
-    // Every hand's first decision is a matched spot, one per player per group.
-    expect(hex.matched.n).toBeLessThanOrEqual(8)
+    // At least every hand's first decision is a matched spot; identical later spots add more.
+    expect(hex.matched.n).toBeGreaterThanOrEqual(1)
+    expect(hex.matched.n).toBeLessThanOrEqual(hex.n)
   })
 })
 

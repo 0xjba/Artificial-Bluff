@@ -1,7 +1,7 @@
 import { configHash, EventStore } from '@ab/core'
 import { adaptLineup, createPlayers, fetchModelCatalog, type PlayerEnv, type PlayerSpec } from '@ab/players'
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
-import { join } from 'node:path'
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { dirname, join } from 'node:path'
 import { parseStudyConfig, type StudyConfig } from './config'
 import { assertPreregMatches, preregistration } from './prereg'
 import { readStoreProgress } from './progress'
@@ -10,7 +10,7 @@ import { decisionsCsv, eventsJsonl, handsCsv } from './exports'
 import { renderReportHtml } from './html'
 import { renderPaperHtml } from './paper'
 import { printPdf } from './pdf'
-import { analyseStudy, analysedGroupCount, focusPlayer } from './report'
+import { analyseStudy, analysedGroupCount, focusPlayer, type StudyReport } from './report'
 import { runStudy, type StudyOutcome } from './run'
 
 export function loadStudyConfig(path: string): StudyConfig {
@@ -128,6 +128,17 @@ export function statusCommand(config: StudyConfig, mock: boolean, store: EventSt
  * paper: paper.html, printed to paper.pdf when a Chrome is available (`print` is injectable for tests).
  * Free: reads the event log only. Returns the files written.
  */
+/** A pilot study's report, from beside this study's report directory, if it has been generated. */
+function readPilotReport(outDir: string, id: string): StudyReport | null {
+  const path = join(dirname(outDir), id, 'report.json')
+  if (!existsSync(path)) return null
+  try {
+    return JSON.parse(readFileSync(path, 'utf8')) as StudyReport
+  } catch {
+    return null
+  }
+}
+
 export function reportCommand(
   config: StudyConfig,
   mock: boolean,
@@ -148,7 +159,7 @@ export function reportCommand(
     ['decisions.json', `${JSON.stringify(decisions)}\n`],
     ['hands.csv', handsCsv(hands, events)],
     ['events.jsonl', eventsJsonl(events)],
-    ['paper.html', renderPaperHtml(report, decisions, { mock })],
+    ['paper.html', renderPaperHtml(report, decisions, { mock, pilots: (config.pilots ?? []).map((p) => ({ ...p, report: readPilotReport(outDir, p.id) })) })],
   ]
   const written = files.map(([name, content]) => {
     const path = join(outDir, name)

@@ -282,6 +282,16 @@ describe('hand facts in a study', () => {
     expect(plain.jevMove).toContain('total weight')
   })
 
+  it('states the primary outcomes in the record when the study names them', () => {
+    const c = config({ primary: 'matched-spots' })
+    const record = preregistration(c, c.lineup) as { primaryOutcomes?: string; secondaryOutcomes?: string; study: Record<string, unknown> }
+    expect(record.primaryOutcomes).toContain('identical')
+    expect(record.primaryOutcomes).toContain('Holm')
+    expect(record.secondaryOutcomes).toContain('chips')
+    expect(record.study).toMatchObject({ primary: 'matched-spots' })
+    expect(preregistration(config(), config().lineup)).not.toHaveProperty('primaryOutcomes')
+  })
+
   it('leaves the first study\'s pre-registration exactly as committed', () => {
     const root = join(import.meta.dirname, '../../..')
     const committed = JSON.parse(readFileSync(join(root, 'studies/prereg/main-2026-09.json'), 'utf8')) as { study: { lineup: PlayerSpec[] } }

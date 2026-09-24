@@ -37,6 +37,10 @@ export interface StudyConfig {
   bootstrapResamples: number
   /** Show every player its hand facts (made hand, draws and outs, starting-hand rank). Absent: off. */
   handFacts?: boolean
+  /** The pre-registered primary outcomes: 'matched-spots' (see prereg.ts). Absent: none named. */
+  primary?: 'matched-spots'
+  /** Earlier studies this one builds on, each with the lesson that shaped this protocol (for the paper). */
+  pilots?: Array<{ id: string; lesson: string }>
 }
 
 /** Minimum number of neighbour blocks before the CI stopping rule may fire. */
@@ -44,7 +48,7 @@ export const MIN_BLOCKS_BEFORE_STOPPING = 10
 
 const KEYS = new Set([
   'id', 'lineup', 'masterSeed', 'format', 'decisionTimeoutMs', 'budgetUsd', 'targetHalfWidthBb100',
-  'minGroups', 'maxGroups', 'checkEvery', 'concurrency', 'bootstrapResamples', 'handFacts',
+  'minGroups', 'maxGroups', 'checkEvery', 'concurrency', 'bootstrapResamples', 'handFacts', 'primary', 'pilots',
 ])
 const NAME = /^[a-z0-9][a-z0-9._-]*$/i
 
@@ -162,6 +166,18 @@ export function parseStudyConfig(input: unknown): StudyConfig {
   if (raw.handFacts !== undefined) {
     if (typeof raw.handFacts !== 'boolean') throw new Error('study config: "handFacts" must be true or false')
     config.handFacts = raw.handFacts
+  }
+  if (raw.primary !== undefined) {
+    if (raw.primary !== 'matched-spots') throw new Error('study config: "primary" must be "matched-spots"')
+    config.primary = raw.primary
+  }
+  if (raw.pilots !== undefined) {
+    if (!Array.isArray(raw.pilots)) throw new Error('study config: "pilots" must be a list')
+    config.pilots = raw.pilots.map((p: unknown, i) => {
+      const x = p as Raw
+      if (!x || typeof x.id !== 'string' || !NAME.test(x.id) || typeof x.lesson !== 'string' || x.lesson.trim() === '') throw new Error(`study config: pilots[${i}] needs an id and a lesson`)
+      return { id: x.id, lesson: x.lesson }
+    })
   }
   if (config.budgetUsd <= 0) throw new Error('study config: "budgetUsd" must be positive')
   if (config.targetHalfWidthBb100 <= 0) throw new Error('study config: "targetHalfWidthBb100" must be positive')

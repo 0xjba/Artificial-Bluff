@@ -1,0 +1,30 @@
+{
+  "_note": "The decisive study: the question and protocol settled by the two pilots, fixed before the first hand. 1,000 hands (200 groups of 5), a fixed size: no stopping on results. Primary outcomes: Jev minus each language model on identical spots (estimate error; continue-or-fold accuracy). Expected cost about $45-50 at ~$0.045 a hand; the $60 cap is a safety limit above it, so the size, not the budget, ends the study. Rehearse free with --mock; --live spends real money and needs the user's go-ahead.",
+  "id": "final-2026-09",
+  "lineup": [
+    { "id": "hex", "kind": "jev", "model": "jev-1.13.0", "mode": "two-step" },
+    { "id": "pill", "kind": "llm", "model": "anthropic/claude-fable-5.1", "reasoning": "minimal" },
+    { "id": "block", "kind": "llm", "model": "openai/gpt-6-astra", "reasoning": "minimal" },
+    { "id": "drip", "kind": "llm", "model": "google/gemini-3.8-flash", "reasoning": "minimal" },
+    { "id": "nimbus", "kind": "llm", "model": "meta-llama/llama-4-maverick" }
+  ],
+  "masterSeed": "artificialbluff-final-2026-09",
+  "handFacts": true,
+  "primary": "matched-spots",
+  "pilots": [
+    {
+      "id": "main-2026-09",
+      "lesson": "Jev was asked one question, and a pre-registered rule of ours moved its answer towards raising in 31% of its decisions; players had no hand facts. Jev was last against the pot actually won and made the fewest right decisions at identical spots. We dropped the rule: from then on, code changes no model's move."
+    },
+    {
+      "id": "jev-ablation-2026-09",
+      "lesson": "With hand facts for every player, Jev asked in two parts (the kind of action, then the amount) and played exactly as it picked. Against Gemini 3.8 Flash and Llama 4 Maverick, its stated chances at identical spots were closer to the truth than both, while its decisions there trailed Gemini's; it won significantly more chips than both at a table where Llama's losses funded the winners. This study keeps that protocol and restores the full line-up of the first."
+    }
+  ],
+  "budgetUsd": 60,
+  "targetHalfWidthBb100": 10,
+  "minGroups": 200,
+  "maxGroups": 200,
+  "checkEvery": 20,
+  "concurrency": 3
+}
