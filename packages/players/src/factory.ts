@@ -1,3 +1,4 @@
+import { offlineTypeSafeFetch } from './jev/offline'
 import { CallingStation, RandomBot, TagBot } from './bots'
 import { JevPlayer } from './jev/jev-player'
 import { LlmPlayer, type ReasoningMode } from './llm/llm-player'
@@ -7,7 +8,15 @@ import type { Player } from './types'
 
 /** One seat in a line-up config. `id` is the character name (e.g. "jev", "pill"). */
 export type PlayerSpec =
-  | { id: string; kind: 'jev'; model: string }
+  | {
+      id: string
+      kind: 'jev'
+      model: string
+      /** 'decomposed': a win Noul and a strength Score, the move chosen in code. Absent: one Choice. */
+      mode?: 'choice' | 'decomposed'
+      /** Answered by an offline stand-in for TypeSafe's API (free rehearsals): no key, no network. */
+      offline?: boolean
+    }
   | { id: string; kind: 'llm'; model: string; reasoning?: ReasoningMode; structuredOutput?: boolean; sendTemperature?: boolean }
   | { id: string; kind: 'bot'; bot: 'random' | 'calling-station' | 'tag'; seed?: number }
   | { id: string; kind: 'mock'; model?: string; inputPricePerMTok?: number }
@@ -21,8 +30,10 @@ export interface PlayerEnv {
 export function createPlayer(spec: PlayerSpec, env: PlayerEnv, fetchImpl?: Fetch): Player {
   switch (spec.kind) {
     case 'jev': {
+      const mode = spec.mode ? { mode: spec.mode } : {}
+      if (spec.offline) return new JevPlayer({ id: spec.id, model: spec.model, ...mode, client: { apiKey: 'offline', fetch: offlineTypeSafeFetch() } })
       if (!env.TYPESAFE_API_KEY) throw new Error(`${spec.id}: TYPESAFE_API_KEY is not set`)
-      return new JevPlayer({ id: spec.id, model: spec.model, client: { apiKey: env.TYPESAFE_API_KEY, ...(fetchImpl ? { fetch: fetchImpl } : {}) } })
+      return new JevPlayer({ id: spec.id, model: spec.model, ...mode, client: { apiKey: env.TYPESAFE_API_KEY, ...(fetchImpl ? { fetch: fetchImpl } : {}) } })
     }
     case 'llm': {
       if (!env.OPENROUTER_API_KEY) throw new Error(`${spec.id}: OPENROUTER_API_KEY is not set`)

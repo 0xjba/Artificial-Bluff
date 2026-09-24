@@ -264,6 +264,17 @@ describe('hand facts in a study', () => {
     expect(record.prompts.llmSystem).toContain('"hand"')
   })
 
+  it('pre-registers the decomposed questions and rule only when a seat uses them', () => {
+    const c = config({ lineup: [{ id: 'hex', kind: 'jev', model: 'jev-1.13.0', mode: 'decomposed' }, ...ids.slice(1).map((id) => ({ id, kind: 'mock' }))] })
+    const record = preregistration(c, c.lineup) as { prompts: Record<string, unknown>; jevDecomposed?: string }
+    expect(record.prompts.jevStrength).toContain('How strong is your hand')
+    expect(record.prompts.jevStrengthLevels).toHaveLength(5)
+    expect(record.jevDecomposed).toContain('below the pot odds')
+    const plain = preregistration(config(), config().lineup) as { prompts: Record<string, unknown>; jevDecomposed?: string }
+    expect(plain.prompts).not.toHaveProperty('jevStrength')
+    expect(plain).not.toHaveProperty('jevDecomposed')
+  })
+
   it('leaves the first study\'s pre-registration exactly as committed', () => {
     const root = join(import.meta.dirname, '../../..')
     const committed = JSON.parse(readFileSync(join(root, 'studies/prereg/main-2026-09.json'), 'utf8')) as { study: { lineup: PlayerSpec[] } }

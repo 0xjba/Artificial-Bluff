@@ -19,8 +19,13 @@ export function loadStudyConfig(path: string): StudyConfig {
 
 /** A free dry run: every paid seat becomes a mock, under a separate study id so data never mixes. */
 export function mockVariant(config: StudyConfig): StudyConfig {
+  // Jev seats keep the real player, answered offline, so a rehearsal runs its request and move code.
   const lineup: PlayerSpec[] = config.lineup.map((s) =>
-    s.kind === 'jev' || s.kind === 'llm' ? { id: s.id, kind: 'mock', model: `mock/${s.model}` } : s,
+    s.kind === 'jev'
+      ? { id: s.id, kind: 'jev', model: `mock/${s.model}`, ...(s.mode ? { mode: s.mode } : {}), offline: true }
+      : s.kind === 'llm'
+        ? { id: s.id, kind: 'mock', model: `mock/${s.model}` }
+        : s,
   )
   return { ...config, id: `${config.id}-mock`, lineup }
 }

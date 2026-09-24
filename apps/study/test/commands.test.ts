@@ -34,7 +34,9 @@ describe('study commands (mock mode: free, no network, no keys)', () => {
   it('turns paid seats into mocks under a separate study id', () => {
     const m = mockVariant(config)
     expect(m.id).toBe('smoke-mock')
-    expect(m.lineup.map((s) => s.kind)).toEqual(['mock', 'mock', 'bot', 'mock', 'bot'])
+    // Jev seats keep the real player, answered by an offline stand-in, so a rehearsal runs its code.
+    expect(m.lineup.map((s) => s.kind)).toEqual(['jev', 'mock', 'bot', 'mock', 'bot'])
+    expect(m.lineup[0]).toMatchObject({ id: 'hex', kind: 'jev', offline: true })
     expect(m.lineup[1]).toEqual({ id: 'pill', kind: 'mock', model: 'mock/vendor/frontier' })
   })
 
