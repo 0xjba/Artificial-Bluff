@@ -1,0 +1,26 @@
+# Behind a Cloudflare Tunnel: Cloudflare terminates HTTPS, so Caddy listens on plain HTTP inside the
+# compose network only (no ports are published). Same limits and headers as deploy/Caddyfile.
+{
+	auto_https off
+}
+
+:80 {
+	# The TypeSafe relay for /play only takes small Jev calls (the app checks too).
+	@relay path /api/typesafe/*
+	request_body @relay {
+		max_size 64KB
+	}
+	# No `encode`: compressing the spectator feed (Server-Sent Events) would hold events back.
+	reverse_proxy web:3000 {
+		# Stream the feed straight through.
+		flush_interval -1
+	}
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options nosniff
+		Referrer-Policy strict-origin-when-cross-origin
+		# Pages may only call this site and OpenRouter (/play keeps visitors' keys in the browser).
+		Content-Security-Policy "connect-src 'self' https://openrouter.ai"
+		-Server
+	}
+}
