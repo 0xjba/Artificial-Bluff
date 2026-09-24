@@ -24,6 +24,8 @@ export interface ModelFacts {
   playerId: string
   model: string
   kind: string
+  /** A Jev seat's mode, from the pre-registered line-up ('choice' when not stated). */
+  mode: 'choice' | 'decomposed' | null
   /** How the paper names it: the model, not the seat (seats are the house, models move between them). */
   label: string
   focus: boolean
@@ -73,6 +75,8 @@ export interface PaperFacts {
    * pick, by the kind of move it played instead; null when the log doesn't record the pick.
    */
   moveRule: { moves: number; changed: number; toRaise: number; toCall: number; toFold: number } | null
+  /** Another seat of the focus's own kind (the one-question Jev beside a decomposed one), if any. */
+  sibling: ModelFacts | null
   /** The pre-registered headline outcome (A): who had the lowest Brier score, and where the focus ranked. */
   outcome: { best: ModelFacts | null; focusRank: number | null; of: number }
   /** Against the true chance (C): whether the focus had the lowest ECE, and the best other model on it. */
@@ -93,6 +97,9 @@ const by = <T>(xs: readonly T[], key: (x: T) => number | null, dir: 1 | -1): T |
 
 /** Everything the paper states, computed once from the report and the scored decisions. */
 export function paperFacts(report: StudyReport, decisions: readonly ScoredDecision[]): PaperFacts {
+  const lineup = ((report.study.preregistration as { study?: { lineup?: Array<{ id?: string; mode?: string }> } }).study?.lineup ?? []) as Array<{ id?: string; mode?: string }>
+  const modeOf = (id: string, kind: string) => (kind === 'jev' ? (lineup.find((s) => s.id === id)?.mode === 'decomposed' ? 'decomposed' : 'choice') : null)
+  const twoWays = report.players.some((p) => modeOf(p.playerId, p.kind) === 'decomposed') && report.players.filter((p) => p.kind === 'jev').length > 1
   const facts = report.players.map((p): ModelFacts => {
     const m = report.metrics.find((x) => x.playerId === p.playerId)
     const cal = report.calibration.find((x) => x.playerId === p.playerId)
@@ -112,12 +119,15 @@ export function paperFacts(report: StudyReport, decisions: readonly ScoredDecisi
     const counts = new Map<string, number>()
     for (const d of served) counts.set(d.provider!, (counts.get(d.provider!) ?? 0) + 1)
     const hosts = [...counts].map(([name, n]) => ({ name, share: n / served.length })).sort((a, b) => b.share - a.share || a.name.localeCompare(b.name))
+    const mode = modeOf(p.playerId, p.kind)
     return {
       hosts,
       playerId: p.playerId,
       model: p.model,
       kind: p.kind,
-      label: modelLabel(p.kind, p.model),
+      mode,
+      // With two Jevs at the table, each is named by how it was asked.
+      label: twoWays && mode ? `Jev (${mode === 'decomposed' ? 'decomposed' : 'one question'}, ${p.model})` : modelLabel(p.kind, p.model),
       focus: p.playerId === report.focusId,
       answered: own.length,
       latencyP50Ms: fin(m?.latencyP50Ms),
@@ -141,13 +151,17 @@ export function paperFacts(report: StudyReport, decisions: readonly ScoredDecisi
   })
   const focus = facts.find((f) => f.focus) ?? facts[0]!
   const others = facts.filter((f) => f !== focus)
+  // Speed, cost and closeness to the truth are claims against the general-purpose models: a second
+  // seat of the focus's own kind is compared with it separately (sibling).
+  const sibling = others.find((o) => o.kind === focus.kind) ?? null
+  const rivals = others.some((o) => o.kind !== focus.kind) ? others.filter((o) => o.kind !== focus.kind) : others
   const ratio = (a: number | null, b: number | null) => (a !== null && b !== null && b > 0 ? a / b : null)
-  const fastestOther = by(others, (f) => f.latencyP50Ms, 1)
-  const slowestOther = by(others, (f) => f.latencyP50Ms, -1)
-  const cheapestOther = by(others, (f) => f.costPerDecisionUsd, 1)
-  const dearestOther = by(others, (f) => f.costPerDecisionUsd, -1)
-  const bestOther = by(others, (f) => f.offTruthPts, 1)
-  const worstOther = by(others, (f) => f.offTruthPts, -1)
+  const fastestOther = by(rivals, (f) => f.latencyP50Ms, 1)
+  const slowestOther = by(rivals, (f) => f.latencyP50Ms, -1)
+  const cheapestOther = by(rivals, (f) => f.costPerDecisionUsd, 1)
+  const dearestOther = by(rivals, (f) => f.costPerDecisionUsd, -1)
+  const bestOther = by(rivals, (f) => f.offTruthPts, 1)
+  const worstOther = by(rivals, (f) => f.offTruthPts, -1)
   return {
     study: report.study,
     generatedAt: report.generatedAt,
@@ -166,10 +180,11 @@ export function paperFacts(report: StudyReport, decisions: readonly ScoredDecisi
       timesCheaperThanCheapest: ratio(cheapestOther?.costPerDecisionUsd ?? null, focus.costPerDecisionUsd),
       timesCheaperThanDearest: ratio(dearestOther?.costPerDecisionUsd ?? null, focus.costPerDecisionUsd),
     },
-    truth: { focusBest: focus.offTruthPts !== null && others.every((o) => o.offTruthPts === null || focus.offTruthPts! < o.offTruthPts), bestOther, worstOther },
+    truth: { focusBest: focus.offTruthPts !== null && rivals.every((o) => o.offTruthPts === null || focus.offTruthPts! < o.offTruthPts), bestOther, worstOther },
     significantChipWins: others.filter((o) => o.vsFocus?.significant && (o.vsFocus.mean ?? 0) > 0),
     significantChipLosses: others.filter((o) => o.vsFocus?.significant && (o.vsFocus.mean ?? 0) < 0),
     moveRule: moveRuleOf(decisions.filter((d) => d.playerId === focus.playerId && !d.fallback)),
+    sibling,
     outcome: (() => {
       const ranked = facts.filter((x) => x.brierA !== null).sort((a, b) => a.brierA! - b.brierA!)
       const at = ranked.indexOf(focus)
@@ -228,9 +243,10 @@ const listOf = (xs: string[]) => (xs.length <= 1 ? (xs[0] ?? '') : `${xs.slice(0
 const range = (xs: Array<number | null>, fmt: (x: number | null) => string) => {
   const v = xs.filter((x): x is number => x !== null)
   if (!v.length) return '–'
-  const lo = Math.min(...v)
-  const hi = Math.max(...v)
-  return lo === hi ? fmt(lo) : `${fmt(lo)}–${fmt(hi)}`
+  const lo = fmt(Math.min(...v))
+  const hi = fmt(Math.max(...v))
+  // Compared as printed: two values that round alike are one figure, not "6%–6%".
+  return lo === hi ? lo : `${lo}–${hi}`
 }
 
 /** 1st, 2nd, 3rd, 4th… */
@@ -391,12 +407,21 @@ export function renderPaperHtml(report: StudyReport, decisions: readonly ScoredD
   const block = prereg.seating?.neighbourBlock ?? 4
   const date = opts.date ?? new Date(report.generatedAt).toLocaleDateString('en-GB', { month: 'long', year: 'numeric' })
   const author = opts.author ?? 'Jobin Ayathil'
-  const focusName = f.focus.kind === 'jev' ? 'Jev' : f.focus.label
-  const otherNames = f.others.map((o) => o.label)
+  // With two Jevs at the table, each is named by how it was asked.
+  const jevName = (m: ModelFacts) => (f.sibling && m.mode ? `Jev (${m.mode === 'decomposed' ? 'decomposed' : 'one question'})` : 'Jev')
+  const focusName = f.focus.kind === 'jev' ? jevName(f.focus) : f.focus.label
+  const siblingName = f.sibling ? jevName(f.sibling) : ''
+  const rivalsAll = f.sibling ? f.others.filter((o) => o !== f.sibling) : f.others
+  const otherNames = rivalsAll.map((o) => o.label)
+  const twoWays = f.sibling !== null && f.focus.mode === 'decomposed'
+  const handFacts = Boolean((prereg as { study?: { handFacts?: boolean } }).study?.handFacts)
+  const decomposedRule = (prereg as { jevDecomposed?: string }).jevDecomposed
   const hands = report.study.hands
   const groups = report.study.analysedGroups
   const blocks = report.study.blocks
-  const title = 'Stated Confidence Against True Equity: A Typed-Readout Decision Model and General-Purpose Language Models at No-Limit Texas Hold’em'
+  const title = twoWays
+    ? 'One Question or Two: Asking a Typed-Readout Decision Model to Play No-Limit Texas Hold’em'
+    : 'Stated Confidence Against True Equity: A Typed-Readout Decision Model and General-Purpose Language Models at No-Limit Texas Hold’em'
 
   // ---- sentences built from facts ----
   const speedLine =
@@ -434,7 +459,7 @@ export function renderPaperHtml(report: StudyReport, decisions: readonly ScoredD
     return `${[up.length ? say(up, 'overstated') : '', down.length ? say(down, 'understated') : ''].filter(Boolean).join('; ')}.`
   })()
 
-  const others = f.others
+  const others = rivalsAll
   /** How the text names a model: the focus by its short name. */
   const nameOf = (m: ModelFacts) => (m.focus ? focusName : esc(m.label))
   // Level with the best as printed (three decimals): named together, the focus first.
@@ -477,6 +502,26 @@ export function renderPaperHtml(report: StudyReport, decisions: readonly ScoredD
       ? ''
       : `${focusName} played ${pctOf(vpipOf(f.focus))} of hands before the flop and raised first in ${pctOf(pfrOf(f.focus))}; the language models played ${range(others.map(vpipOf), (x) => pctOf(x))} and raised first in ${range(others.map(pfrOf), (x) => pctOf(x))}.`
 
+  const siblingLine = (() => {
+    const sib = f.sibling
+    if (!sib || !twoWays) return ''
+    const c = sib.vsFocus
+    const chips =
+      c && c.mean !== null
+        ? `${focusName} minus ${siblingName}: ${signed(c.mean)} bb/100 (95% CI ${n1(c.low)} to ${n1(c.high)}; Holm p ${pOf(c.pHolm)}), ${c.significant ? 'significant' : 'not significant'} after the pre-registered correction`
+        : ''
+    const cmp = (what: string, a: number | null, b: number | null, fmt: (x: number | null) => string, lowerBetter = true) =>
+      a === null || b === null ? '' : `${what} ${fmt(a)} against ${fmt(b)}${a === b ? '' : (a < b) === lowerBetter ? ` (${focusName} better)` : ` (${siblingName} better)`}`
+    const parts = [
+      cmp('Brier against the pot actually won', f.focus.brierA, sib.brierA, (x) => n1(x, 3)),
+      cmp('ECE against the true chance', f.focus.eceC, sib.eceC, (x) => n1(x, 3)),
+      cmp('points off the true chance', f.focus.offTruthPts, sib.offTruthPts, (x) => n1(x)),
+      cmp('folds right', f.focus.foldRight.rate, sib.foldRight.rate, (x) => pctOf(x), false),
+      cmp('calls right', f.focus.callRight.rate, sib.callRight.rate, (x) => pctOf(x), false),
+    ].filter(Boolean)
+    return `The pre-registered comparison between the two ways of asking: ${chips || 'no chip contrast was computed'}. On the same hands, ${focusName} against ${siblingName}: ${parts.join('; ')}.`
+  })()
+
   const discussCalibration = (() => {
     const rank = f.outcome.focusRank
     if (rank === null) return f.truth.focusBest ? `${focusName}’s stated chances sat closer to the truth than every language model’s.` : ''
@@ -498,7 +543,7 @@ export function renderPaperHtml(report: StudyReport, decisions: readonly ScoredD
     f.cost.timesCheaperThanCheapest !== null && f.cost.timesCheaperThanCheapest >= CLAIM_RATIO ? `${times(f.cost.timesCheaperThanCheapest)} cheaper than the cheapest` : '',
   ].filter(Boolean)
   const conclusionHtml = [
-    conclusion.length ? `${conclusion.join(' and ')}.` : '',
+    conclusion.length ? `${conclusion[0]!.startsWith(focusName) ? '' : `${focusName} was `}${conclusion.join(' and ')}.` : '',
     f.outcome.focusRank === null ? '' : f.outcome.focusRank === 1 ? `Against the pot actually won, the pre-registered headline, its stated chances scored best.` : `Against the pot actually won, the pre-registered headline, its stated chances ranked ${ord(f.outcome.focusRank)} of ${f.outcome.of}.`,
     f.calibration.focusBestEce ? `Against the true chance they were the best calibrated on average${narrowest ? ', but the least spread out' : ''}.` : '',
     f.significantChipWins.length || f.significantChipLosses.length ? chipLine : `No chip difference was significant at ${hands.toLocaleString('en-US')} hands.`,
@@ -548,12 +593,19 @@ export function renderPaperHtml(report: StudyReport, decisions: readonly ScoredD
     .join('')}</tbody></table>`
   // Studies before the rule was pre-registered played TypeSafe's single most likely option.
   const moveRule = (prereg as { jevMove?: string }).jevMove
-    ? ' Raising comes in several sizes while calling is one option, so the single most likely option would under-count raising; the move played is the kind of move with the most total weight (fold, check or call, bet or raise), then the most likely option of that kind.'
+    ? `${twoWays ? ' When Jev is asked this way, raising' : ' Raising'} comes in several sizes while calling is one option, so the single most likely option would under-count raising; the move played is the kind of move with the most total weight (fold, check or call, bet or raise), then the most likely option of that kind.`
     : ' The move played is its single most likely option.'
   const prompts = (prereg as { prompts?: Record<string, string> }).prompts ?? {}
-  const promptNames: Record<string, string> = { jevAction: `${focusName}: which action`, jevWin: `${focusName}: win question`, llmSystem: 'Language models: system prompt' }
-  const promptsHtml = Object.entries(prompts)
-    .map(([k, v]) => `<h3>${esc(promptNames[k] ?? k)}</h3><p class="note"><code>${esc(v)}</code></p>`)
+  const oneQuestion = twoWays ? siblingName : focusName
+  const promptNames: Record<string, string> = {
+    jevAction: `${oneQuestion}: which action`,
+    jevWin: `${twoWays ? 'Jev' : focusName}: win question`,
+    jevStrength: `${focusName}: hand strength`,
+    jevStrengthLevels: `${focusName}: hand strength levels`,
+    llmSystem: 'Language models: system prompt',
+  }
+  const promptsHtml = Object.entries(prompts as Record<string, unknown>)
+    .map(([k, v]) => `<h3>${esc(promptNames[k] ?? k)}</h3>${Array.isArray(v) ? `<ol start="0" class="note">${v.map((x) => `<li>${esc(String(x))}</li>`).join('')}</ol>` : `<p class="note"><code>${esc(String(v))}</code></p>`}`)
     .join('')
   const recordRows: Array<[string, unknown]> = [
     ['Stopping rule', (prereg as { stopping?: string }).stopping],
@@ -580,12 +632,17 @@ export function renderPaperHtml(report: StudyReport, decisions: readonly ScoredD
   const sectionsHtml = `
 <h2>1 Introduction</h2>
 <p>A decision model that will act on someone’s behalf should know how likely it is to be right. Stated confidence is easy to ask for and hard to check: most tasks settle slowly, if at all, and their outcomes mix judgement with luck. Poker settles both problems. Every decision is a choice under hidden information, priced in chips, and resolved within seconds; and once every hole card is known, the chance a player had of winning at the moment it acted can be computed exactly.</p>
-<p>We use this to measure ${esc(focusName)}, TypeSafe’s typed-readout decision model, against ${listOf(otherNames.map(esc))}. Each model plays the same deals from every seat. At each decision it states its chance of winning the hand, and we compare that claim with the true chance computed from all the cards. We also record how long each decision took, what it cost, how often a model failed to answer, whether its folds and calls were right against the pot odds, and how many chips it won.</p>
+<p>${twoWays ? `We use this to ask whether Jev, TypeSafe’s typed-readout decision model, plays better when a broad judgment is broken into narrow questions and composed in code, as TypeSafe recommends: ${esc(focusName)} and ${esc(siblingName)} sit at the same table with ${listOf(otherNames.map(esc))}.` : `We use this to measure ${esc(focusName)}, TypeSafe’s typed-readout decision model, against ${listOf(otherNames.map(esc))}.`} Each model plays the same deals from every seat. At each decision it states its chance of winning the hand, and we compare that claim with the true chance computed from all the cards. We also record how long each decision took, what it cost, how often a model failed to answer, whether its folds and calls were right against the pot odds, and how many chips it won.</p>
 <p>Our contributions are a pre-registered protocol for measuring stated confidence against true equity in multi-player games, an analysis of ${report.study.decisions.toLocaleString('en-US')} decisions over ${hands.toLocaleString('en-US')} hands, and the decision-level data behind every figure.</p>
 
 <h2>2 Background</h2>
 <h3>2.1 Typed readout</h3>
-<p>${esc(focusName)} does not write text. It is sent the table state and a fixed set of named options, and returns a probability for each option together with its answer to a second typed question: the probability that it wins the hand. Its answers can only come from the options offered, so every answer is legal by construction; numbers such as bet sizes stay in code.${moveRule}</p>
+<p>${esc(twoWays ? 'Jev' : focusName)} does not write text. It is sent the table state and a fixed set of named options, and returns a probability for each option together with its answer to a second typed question: the probability that it wins the hand. Its answers can only come from the options offered, so every answer is legal by construction; numbers such as bet sizes stay in code.${moveRule}</p>
+${
+  twoWays && decomposedRule
+    ? `<p>${esc(focusName)} is asked differently, the way TypeSafe recommends for judgments that depend on several factors: two narrow questions in one request, the chance of winning the hand and how strong the hand is against what the opponents still in are likely to hold (a score over five described levels), and the move is chosen in code from the two answers. The pre-registered rule: ${esc(decomposedRule)}. ${esc(siblingName)} is asked the single question described above.</p>`
+    : ''
+}
 <h3>2.2 General-purpose models</h3>
 <p>The language models receive the same state as JSON, with the same options, and reply with the option they choose, their stated chance of winning, a confidence in the move and one line of reasoning. An answer that cannot be parsed, names an option that was not offered, or arrives after ${Math.round((prereg.study?.decisionTimeoutMs ?? 20000) / 1000)} seconds is replaced by check-or-fold and counted as a fallback.</p>
 <h3>2.3 Related work</h3>
@@ -594,6 +651,11 @@ export function renderPaperHtml(report: StudyReport, decisions: readonly ScoredD
 <h2>3 Method</h2>
 <h3>3.1 Game</h3>
 <p>No-Limit Texas Hold’em, ${all.length}-handed, with blinds of ${fmt.smallBlind ?? 50}/${fmt.bigBlind ?? 100} and ${fmt.stackInBigBlinds ?? 100} big blinds behind at the start of every hand. The engine offers each player a priced menu of legal actions (fold, check or call, and raises in steps of ${prereg.menu?.chipUnit ?? 25} chips) and settles every pot, including side pots; no model ever writes a number.</p>
+${
+  handFacts
+    ? `<p>Every player is also given hand facts computed from its own cards and the board, never anyone else’s: the made hand, named by where it sits (for example “one pair: kings (top pair, queen kicker)”), any straight or flush draws its own cards are part of, with their outs, and before the flop how its starting hand ranks among all 1,326.</p>`
+    : ''
+}
 <h3>3.2 Duplicate seating</h3>
 <p>Luck in the cards is removed by design. A group deals one seeded card order ${all.length} times, rotating the players through the seats, so every model receives every hand from every seat. Groups are analysed in neighbour blocks of ${block}, which also balances who sits next to whom. The study analysed ${groups} groups in ${blocks} blocks.</p>
 <h3>3.3 Measures</h3>
@@ -640,6 +702,9 @@ ${chipTable}
 <p class="tablecap"><b>Table 7.</b> Play style.</p>
 ${styleTable}
 
+${siblingLine ? `<h3>4.6 One question or two</h3>
+<p>${siblingLine}</p>
+` : ''}
 <h2>5 Discussion</h2>
 <p>${discussCalibration}</p>
 ${discussStyle ? `<p>${discussStyle}</p>` : ''}
@@ -685,7 +750,7 @@ ${recordHtml}`
 <p class="meta">Technical report · ${esc(date)} · study <code>${esc(report.study.id)}</code> · pre-registration <code>${esc(report.study.configHash.slice(0, 12))}</code></p>
 </header>
 <section class="abstract"><h2>Abstract</h2>
-<p>We compare ${esc(focusName)}, a typed-readout decision model, with ${otherNames.length} general-purpose language models (${listOf(otherNames.map(esc))}) at ${all.length}-handed No-Limit Texas Hold’em, over ${hands.toLocaleString('en-US')} hands and ${report.study.decisions.toLocaleString('en-US')} decisions in a duplicate format that deals every card order to every seat. At each decision the model states its chance of winning, which we score against the true chance computed from every hole card. ${speedLine} ${costLine} ${outcomeLine} ${eceLine} ${chipLine} The study was pre-registered, and the decision-level data are published with this report.</p>
+<p>${twoWays ? `We compare two ways of asking Jev, TypeSafe’s typed-readout decision model, to play ${all.length}-handed No-Limit Texas Hold’em: one question that picks among the offered options (${esc(siblingName)}), and two narrow questions, a win chance and a hand-strength score, that code turns into a move (${esc(focusName)}). Both play ${listOf(otherNames.map(esc))}${handFacts ? ', and every player is given hand facts computed from its own cards' : ''}, over ${hands.toLocaleString('en-US')} hands and ${report.study.decisions.toLocaleString('en-US')} decisions in a duplicate format that deals every card order to every seat. ` : `We compare ${esc(focusName)}, a typed-readout decision model, with ${otherNames.length} general-purpose language models (${listOf(otherNames.map(esc))}) at ${all.length}-handed No-Limit Texas Hold’em, over ${hands.toLocaleString('en-US')} hands and ${report.study.decisions.toLocaleString('en-US')} decisions in a duplicate format that deals every card order to every seat. `}At each decision the model states its chance of winning, which we score against the true chance computed from every hole card. ${speedLine} ${costLine} ${outcomeLine} ${eceLine} ${chipLine}${siblingLine ? ` ${siblingLine}` : ''} The study was pre-registered, and the decision-level data are published with this report.</p>
 </section>
 ${figPipeline}
 <div class="cols">${sectionsHtml}</div>
