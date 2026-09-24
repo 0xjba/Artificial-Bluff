@@ -35,6 +35,8 @@ export interface StudyConfig {
   concurrency: number
   /** Bootstrap resamples for the sensitivity-check CIs. */
   bootstrapResamples: number
+  /** Show every player its hand facts (made hand, draws and outs, starting-hand rank). Absent: off. */
+  handFacts?: boolean
 }
 
 /** Minimum number of neighbour blocks before the CI stopping rule may fire. */
@@ -42,7 +44,7 @@ export const MIN_BLOCKS_BEFORE_STOPPING = 10
 
 const KEYS = new Set([
   'id', 'lineup', 'masterSeed', 'format', 'decisionTimeoutMs', 'budgetUsd', 'targetHalfWidthBb100',
-  'minGroups', 'maxGroups', 'checkEvery', 'concurrency', 'bootstrapResamples',
+  'minGroups', 'maxGroups', 'checkEvery', 'concurrency', 'bootstrapResamples', 'handFacts',
 ])
 const NAME = /^[a-z0-9][a-z0-9._-]*$/i
 
@@ -153,6 +155,11 @@ export function parseStudyConfig(input: unknown): StudyConfig {
     checkEvery: int(raw, 'checkEvery', block, 20),
     concurrency: int(raw, 'concurrency', 1, 2, 16),
     bootstrapResamples: int(raw, 'bootstrapResamples', 1000, 2000),
+  }
+  // Only when set: a key the first study didn't have must not change its pre-registration.
+  if (raw.handFacts !== undefined) {
+    if (typeof raw.handFacts !== 'boolean') throw new Error('study config: "handFacts" must be true or false')
+    config.handFacts = raw.handFacts
   }
   if (config.budgetUsd <= 0) throw new Error('study config: "budgetUsd" must be positive')
   if (config.targetHalfWidthBb100 <= 0) throw new Error('study config: "targetHalfWidthBb100" must be positive')

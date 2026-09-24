@@ -1,4 +1,4 @@
-import type { Card, OptionId, Position, Street } from '@ab/engine'
+import type { Card, OptionId, Position, Street, HandFacts } from '@ab/engine'
 
 export interface SeatView {
   position: Position
@@ -13,6 +13,8 @@ export interface SeatView {
 
 /** Arithmetic computed by code so no player has to do it. */
 export interface Facts {
+  /** What the player holds (made hand, draws and outs, starting-hand rank); only when the game turns hand facts on. */
+  hand?: HandFacts
   smallBlind: number
   bigBlind: number
   /** All chips in the middle, including this street's bets. */

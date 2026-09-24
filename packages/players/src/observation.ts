@@ -1,4 +1,4 @@
-import { buildMenu, legalActions, positions, potSize, type HandState, type MenuOption } from '@ab/engine'
+import { buildMenu, describeHand, legalActions, positions, potSize, type HandState, type MenuOption } from '@ab/engine'
 import type { Observation, SeatView } from './types'
 
 const round1 = (x: number) => Math.round(x * 10) / 10
@@ -13,8 +13,13 @@ const VERB: Record<string, string> = {
   raise: 'raises to',
 }
 
+export interface ObservationOptions {
+  /** Add `facts.hand`: the made hand, draws and outs, and the starting hand's rank, from the player's own cards. */
+  handFacts?: boolean
+}
+
 /** The observation for the player to act. `menu` defaults to the engine's shared menu. */
-export function buildObservation(state: HandState, menu: MenuOption[] = buildMenu(state)): Observation {
+export function buildObservation(state: HandState, menu: MenuOption[] = buildMenu(state), opts: ObservationOptions = {}): Observation {
   if (state.toAct === null) throw new Error('buildObservation: nobody is to act')
   const me = state.seats[state.toAct]!
   const names = positions(state.seats.length, state.config.buttonIndex)
@@ -61,6 +66,7 @@ export function buildObservation(state: HandState, menu: MenuOption[] = buildMen
       potOddsPct: toCall > 0 ? round1((100 * toCall) / (winnablePot + toCall)) : 0,
       effectiveStackBb: round1(effective / bigBlind),
       spr: state.street === 'preflop' ? null : round1(effective / Math.max(1, potAtStreetStart)),
+      ...(opts.handFacts ? { hand: describeHand(me.hole, state.board) } : {}),
     },
     options: menu.map((o) => ({ id: o.id, label: o.label })),
   }
