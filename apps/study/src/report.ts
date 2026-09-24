@@ -11,6 +11,8 @@ import {
   type ShareCache,
 } from '@ab/analysis'
 import type { EventStore, GameEvent, GameStatus, StudyEndReason } from '@ab/core'
+import { neighbourBlockSize } from '@ab/engine'
+import { calibrationStats, type CalibrationContrast, type PlayerCalibrationStats } from './calibration-stats'
 import type { StudyConfig } from './config'
 import { pairedContrasts, type Contrast } from './contrasts'
 import { assertPreregMatches } from './prereg'
@@ -60,6 +62,8 @@ export interface StudyReport {
   contrasts: Contrast[]
   metrics: PlayerMetrics[]
   calibration: PlayerCalibration[]
+  /** Calibration with 95% cluster-bootstrap intervals, a skill score, matched spots, and the focus's paired comparisons. Absent in older reports. */
+  calibrationStats?: { players: PlayerCalibrationStats[]; contrasts: CalibrationContrast[] }
   notes: string[]
 }
 
@@ -171,6 +175,15 @@ export function analyseStudy(store: EventStore, config: StudyConfig, opts: { foc
     contrasts: pairedContrasts(progress, config, groups, opts.focusId),
     metrics: config.lineup.map((s) => playerMetrics(hands, s.id)),
     calibration: config.lineup.map((s) => calibrationOf(s.id)),
+    calibrationStats: calibrationStats({
+      decisions,
+      groupOf: new Map(events.flatMap((e) => (e.type === 'hand_started' && e.handId !== null && e.duplicate ? [[e.handId, e.duplicate.groupIndex] as const] : []))),
+      blockSize: neighbourBlockSize(config.lineup.length),
+      players: config.lineup.map((s) => s.id),
+      focusId: opts.focusId,
+      resamples: config.bootstrapResamples,
+      seed: `${config.masterSeed}:calibration`,
+    }),
     notes: [
       'VPIP and PFR leave out walks (hands with no preflop decision). AF is postflop bets and raises per call (undefined with no calls); WTSD is showdowns per hand seen to the flop.',
       'bb/100: 95% Student t CIs over neighbour blocks of seed groups (df = blocks - 1); the percentile bootstrap CI is a sensitivity check. Per-player CIs are marginal: claims about Jev versus another player rest on the pre-registered paired contrasts (Jev minus each other seat, Holm-corrected over those comparisons); no other pairwise claims are made.',
