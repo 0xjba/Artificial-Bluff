@@ -113,6 +113,7 @@ function scoreDecisionsStub(): DecisionRecord {
     handId: 'x', index: 0, playerId: 'p', street: 'preflop', position: 'SB', model: 'm', optionId: 'call', actionType: 'call',
     chipsIn: 0, pot: 0, winnablePot: 0, toCall: 0, stackBefore: 0, board: [], live: ['p', 'q'], winProbability: null, confidence: null,
     optionProbabilities: null, latencyMs: 0, inputTokens: 0, outputTokens: 0, reasoningTokens: 0, costUsd: 0, retries: 0,
-    fallback: false, fallbackKind: null, mainPotShare: 0, stackChange: 0,
+    fallback: false, fallbackKind: null, fallbackReason: null, reasoning: null, jevChoice: null, provider: null, rawReply: null,
+    at: '', mainPotShare: 0, stackChange: 0,
   }
 }

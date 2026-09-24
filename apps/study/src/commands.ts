@@ -6,7 +6,7 @@ import { parseStudyConfig, type StudyConfig } from './config'
 import { assertPreregMatches, preregistration } from './prereg'
 import { readStoreProgress } from './progress'
 import { summarize, type StudySummary } from './results'
-import { decisionsCsv } from './exports'
+import { decisionsCsv, eventsJsonl, handsCsv } from './exports'
 import { renderReportHtml } from './html'
 import { renderPaperHtml } from './paper'
 import { printPdf } from './pdf'
@@ -118,7 +118,8 @@ export function statusCommand(config: StudyConfig, mock: boolean, store: EventSt
 
 /**
  * Writes the study report to `outDir`: report.html (self-contained), report.json (every number in the
- * report), decisions.csv and decisions.json (one row per analysed decision, with its outcomes), and the
+ * report), decisions.csv and decisions.json (one row per analysed decision, with its outcomes), hands.csv
+ * (one row per analysed hand and player), events.jsonl (the whole log, which everything is computed from), and the
  * paper: paper.html, printed to paper.pdf when a Chrome is available (`print` is injectable for tests).
  * Free: reads the event log only. Returns the files written.
  */
@@ -133,13 +134,15 @@ export function reportCommand(
 ): string[] {
   const c = mock ? mockVariant(config) : config
   const started = Date.now()
-  const { report, decisions } = analyseStudy(store, c, { focusId: focusPlayer(config), generatedAt })
+  const { report, decisions, hands, events } = analyseStudy(store, c, { focusId: focusPlayer(config), generatedAt })
   mkdirSync(outDir, { recursive: true })
   const files: Array<[string, string]> = [
     ['report.html', renderReportHtml(report)],
     ['report.json', `${JSON.stringify(report, null, 2)}\n`],
     ['decisions.csv', decisionsCsv(decisions)],
     ['decisions.json', `${JSON.stringify(decisions)}\n`],
+    ['hands.csv', handsCsv(hands, events)],
+    ['events.jsonl', eventsJsonl(events)],
     ['paper.html', renderPaperHtml(report, decisions, { mock })],
   ]
   const written = files.map(([name, content]) => {

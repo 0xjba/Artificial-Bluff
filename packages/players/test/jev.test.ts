@@ -40,6 +40,7 @@ describe('JevPlayer', () => {
         confidence: 0.41,
         optionProbabilities: { fold: 0.1, call: 0.6, all_in: 0.3 },
         reasoning: null,
+        jevChoice: 'call',
       },
       usage: { inputTokens: 500, outputTokens: 3, reasoningTokens: 0, costUsd: (500 * 0.042) / 1e6, retries: 0 },
       model: 'jev-1.13.0',
@@ -132,5 +133,7 @@ describe('JevPlayer', () => {
     const res = await jev.decide(obs, signal)
     expect(res.ok && res.decision.optionId).toBe(raises[0])
     expect(res.ok && res.decision.optionProbabilities).toEqual(probabilities)
+    // TypeSafe's own pick is kept too, so the write-up can say how often the rule changed the move.
+    expect(res.ok && res.decision.jevChoice).toBe('call')
   })
 })

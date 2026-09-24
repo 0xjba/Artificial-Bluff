@@ -11,6 +11,9 @@ import { chatCompletion, type ChatMessage, type ChatRequest, type OpenRouterConf
  * - 'low': {effort: 'low', exclude: true} and the same allowance, for models without 'minimal'
  * - 'omit': models without a reasoning parameter: send nothing
  */
+/** Characters kept of each unusable reply. */
+const RAW_REPLY_CHARS = 1000
+
 export type ReasoningMode = 'off' | 'minimal' | 'low' | 'omit'
 
 /** Reasoning modes that spend hidden tokens before the answer, and so need a larger allowance. */
@@ -71,25 +74,31 @@ export class LlmPlayer implements Player {
     ]
     const usage: Usage = { inputTokens: 0, outputTokens: 0, reasoningTokens: 0, costUsd: 0, retries: 0 }
     let servedBy = this.model
+    let provider: string | null = null
+    // What the model wrote on each attempt, bounded, so an unusable answer can be read later.
+    const replies: string[] = []
+    const rawReply = () => replies.map((r) => (r.length > RAW_REPLY_CHARS ? `${r.slice(0, RAW_REPLY_CHARS)}…` : r)).join('\n---\n')
     for (let attempt = 0; attempt < 2; attempt++) {
       if (attempt > 0) usage.retries++
       let res
       try {
         res = await chatCompletion(this.#options.openrouter, this.request(messages, obs), signal)
       } catch (e) {
-        return { ok: false, error: (e as Error).message, kind: 'infra', usage, model: servedBy }
+        return { ok: false, error: (e as Error).message, kind: 'infra', usage, model: servedBy, provider }
       }
       usage.inputTokens += res.promptTokens
       usage.outputTokens += res.completionTokens
       usage.reasoningTokens += res.reasoningTokens
       usage.costUsd += res.cost
       servedBy = res.model
+      provider = res.provider ?? provider
+      replies.push(res.content)
       if (res.error) {
         // A provider failure reported inside a 200: not the model's fault, and retrying won't help.
-        return { ok: false, error: `provider error: ${res.error}`, kind: 'infra', usage, model: servedBy }
+        return { ok: false, error: `provider error: ${res.error}`, kind: 'infra', usage, model: servedBy, provider }
       }
       if (res.finishReason === 'length') {
-        return { ok: false, error: 'truncated: reply hit max_tokens', kind: 'model', usage, model: servedBy }
+        return { ok: false, error: 'truncated: reply hit max_tokens', kind: 'model', usage, model: servedBy, provider, rawReply: rawReply() }
       }
       const problem = res.refused
         ? 'the reply was a refusal'
@@ -97,8 +106,8 @@ export class LlmPlayer implements Player {
           ? 'the reply was empty'
           : null
       const parsed = problem === null ? parseDecision(res.content, obs) : ({ ok: false, error: problem } as const)
-      if (parsed.ok) return { ok: true, decision: parsed.decision, usage, model: servedBy }
-      if (attempt === 1) return { ok: false, error: `invalid output: ${parsed.error}`, kind: 'model', usage, model: servedBy }
+      if (parsed.ok) return { ok: true, decision: parsed.decision, usage, model: servedBy, provider }
+      if (attempt === 1) return { ok: false, error: `invalid output: ${parsed.error}`, kind: 'model', usage, model: servedBy, provider, rawReply: rawReply() }
       // Don't echo an empty assistant turn back: some providers reject it.
       if (res.content.trim() !== '') messages.push({ role: 'assistant', content: res.content })
       messages.push({ role: 'user', content: `That reply was invalid: ${parsed.error}. Reply again with only the JSON object.` })

@@ -62,6 +62,8 @@ export interface Decision {
   optionProbabilities: Partial<Record<OptionId, number>> | null
   /** Short free-text reasoning (LLMs), or null. */
   reasoning: string | null
+  /** Jev only: TypeSafe's own pick, before `chooseMove` settles the move played. */
+  jevChoice?: OptionId
 }
 
 export interface Usage {
@@ -84,9 +86,23 @@ export const NO_USAGE: Readonly<Usage> = Object.freeze({ inputTokens: 0, outputT
 export type FailureKind = 'model' | 'infra'
 
 /** A failed decision still reports what it cost: failed calls are billed too. */
+/** What the call itself reported, kept in the log for the write-up. */
+interface CallTrace {
+  /** The host OpenRouter routed the call to (e.g. "Anthropic", "Fireworks"), when it says. */
+  provider?: string | null
+}
+
 export type DecideResult =
-  | { ok: true; decision: Decision; usage: Usage; model: string }
-  | { ok: false; error: string; kind: FailureKind; usage: Usage; model: string }
+  | ({ ok: true; decision: Decision; usage: Usage; model: string } & CallTrace)
+  | ({
+      ok: false
+      error: string
+      kind: FailureKind
+      usage: Usage
+      model: string
+      /** What the model wrote when its answer couldn't be used (each attempt, bounded). */
+      rawReply?: string
+    } & CallTrace)
 
 export type PlayerKind = 'jev' | 'llm' | 'bot' | 'mock'
 

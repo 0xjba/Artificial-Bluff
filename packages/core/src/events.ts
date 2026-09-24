@@ -70,6 +70,12 @@ export interface DecisionEvent {
   fallbackKind: FallbackKind | null
   /** The player's error, "timeout", "invalid option: x", or "auto: too many failures". */
   fallbackReason: string | null
+  /** Jev only: TypeSafe's own pick, before the pre-registered rule settled the move. Absent in older logs. */
+  jevChoice?: OptionId | null
+  /** The host OpenRouter routed the call to, when it said. Absent in older logs. */
+  provider?: string | null
+  /** What the model wrote when its answer couldn't be used (bounded). Absent in older logs. */
+  rawReply?: string | null
 }
 
 export type FallbackKind = 'model' | 'infra' | 'timeout' | 'auto'

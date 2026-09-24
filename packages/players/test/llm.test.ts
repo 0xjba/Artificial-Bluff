@@ -18,6 +18,7 @@ interface Reply {
   finish?: string
   refusal?: string
   reasoningTokens?: number
+  provider?: string
   body?: string
 }
 
@@ -31,6 +32,7 @@ function fakeFetch(replies: Reply[]) {
       r.body ??
       JSON.stringify({
         model: 'vendor/model-2026',
+        ...(r.provider ? { provider: r.provider } : {}),
         choices: [{ finish_reason: r.finish ?? 'stop', message: { content: r.content ?? null, refusal: r.refusal ?? null } }],
         usage: {
           prompt_tokens: 400,
@@ -96,6 +98,12 @@ describe('chatCompletion', () => {
     await expect(chatCompletion({ apiKey: 'k', fetch: fn }, { model: 'm', messages: [] })).rejects.toBeInstanceOf(OpenRouterError)
   })
 
+  it('reads which host served the call, when OpenRouter says', async () => {
+    const { fn } = fakeFetch([{ content: 'x', provider: 'Fireworks' }, { content: 'x' }])
+    expect(await chatCompletion({ apiKey: 'k', fetch: fn }, { model: 'm', messages: [] })).toMatchObject({ provider: 'Fireworks' })
+    expect(await chatCompletion({ apiKey: 'k', fetch: fn }, { model: 'm', messages: [] })).toMatchObject({ provider: null })
+  })
+
   it('reads finish reason, refusal and reasoning tokens', async () => {
     const { fn } = fakeFetch([{ content: 'x', finish: 'length', reasoningTokens: 120, refusal: 'no' }])
     const r = await chatCompletion({ apiKey: 'k', fetch: fn }, { model: 'm', messages: [] })
@@ -133,6 +141,23 @@ describe('LlmPlayer', () => {
     expect(omit.requests[0]!.body).not.toHaveProperty('reasoning')
     expect(omit.requests[0]!.body).not.toHaveProperty('response_format')
     expect(omit.requests[0]!.body).not.toHaveProperty('provider')
+  })
+
+  it('reports the host that served the answer, for success and failure alike', async () => {
+    const ok = await make(fakeFetch([{ content: valid, provider: 'Anthropic' }]).fn).decide(obs, signal)
+    expect(ok).toMatchObject({ ok: true, provider: 'Anthropic' })
+    const bad = await make(fakeFetch([{ content: 'hmm', provider: 'Google' }, { content: 'no', provider: 'Google AI Studio' }]).fn).decide(obs, signal)
+    expect(bad).toMatchObject({ ok: false, provider: 'Google AI Studio' })
+  })
+
+  it('keeps what the model actually wrote when its answer could not be used', async () => {
+    const invalid = await make(fakeFetch([{ content: 'hmm' }, { content: 'still no' }]).fn).decide(obs, signal)
+    expect(invalid).toMatchObject({ ok: false, rawReply: 'hmm\n---\nstill no' })
+    const cut = await make(fakeFetch([{ content: '{"action":"ca', finish: 'length' }]).fn).decide(obs, signal)
+    expect(cut).toMatchObject({ ok: false, rawReply: '{"action":"ca' })
+    // Bounded, so one runaway reply can't bloat the log.
+    const long = await make(fakeFetch([{ content: 'x'.repeat(5000) }, { content: 'y' }]).fn).decide(obs, signal)
+    expect(!long.ok && long.rawReply!.length).toBeLessThanOrEqual(2 * 1000 + 5 + 2)
   })
 
   it('retries once with the specific error, summing usage', async () => {

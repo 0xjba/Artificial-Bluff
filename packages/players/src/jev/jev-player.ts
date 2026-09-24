@@ -136,6 +136,7 @@ export class JevPlayer implements Player {
         confidence: action.confidence,
         optionProbabilities,
         reasoning: null,
+        jevChoice: action.choice as OptionId,
       },
       usage,
       model: res.model,
