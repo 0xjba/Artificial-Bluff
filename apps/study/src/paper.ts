@@ -517,7 +517,8 @@ export function renderPaperHtml(report: StudyReport, decisions: readonly ScoredD
         ? `${focusName} minus ${siblingName}: ${signed(c.mean)} bb/100 (95% CI ${n1(c.low)} to ${n1(c.high)}; Holm p ${pOf(c.pHolm)}), ${c.significant ? 'significant' : 'not significant'} after the pre-registered correction`
         : ''
     const cmp = (what: string, a: number | null, b: number | null, fmt: (x: number | null) => string, lowerBetter = true) =>
-      a === null || b === null ? '' : `${what} ${fmt(a)} against ${fmt(b)}${a === b ? '' : (a < b) === lowerBetter ? ` (${focusName} better)` : ` (${siblingName} better)`}`
+      // Compared as printed: two values that read the same are level, whichever is smaller underneath.
+      a === null || b === null ? '' : `${what} ${fmt(a)} against ${fmt(b)}${fmt(a) === fmt(b) ? ' (level)' : (a < b) === lowerBetter ? ` (${focusName} better)` : ` (${siblingName} better)`}`
     const parts = [
       cmp('Brier against the pot actually won', f.focus.brierA, sib.brierA, (x) => n1(x, 3)),
       cmp('ECE against the true chance', f.focus.eceC, sib.eceC, (x) => n1(x, 3)),
@@ -537,7 +538,20 @@ export function renderPaperHtml(report: StudyReport, decisions: readonly ScoredD
     if (bestA) return `${focusName} scored best against the pot actually won, the pre-registered headline, though ${esc(f.calibration.bestOtherEce?.label ?? 'another model')}’s stated chances were better calibrated against the true chance.`
     if (bestC)
       return `The two calibration measures disagree about ${focusName}. Against the true chance at the moment of the decision its stated chances were the best calibrated on average, yet against the pot actually won, the pre-registered headline, it ranked ${ord(rank)} of ${f.outcome.of}. A Brier score against a won-or-lost outcome rewards confident estimates that turn out right${narrowest ? `, and ${focusName}’s stayed nearer the middle than any language model’s` : ''}; the headline outcome also counts what happened after the decision, including the player’s own later folds.`
+    if (f.outcome.best && f.outcome.best === f.calibration.bestOtherEce)
+      return `Calibration did not favour ${focusName}: ${esc(f.outcome.best.label)} scored best on both, against the pot actually won and against the true chance.`
     return `Calibration did not favour ${focusName}: ${esc(f.outcome.best?.label ?? 'another model')} scored best against the pot actually won, and ${esc(f.calibration.bestOtherEce?.label ?? 'another model')} against the true chance.`
+  })()
+  // A chip result is discussed with the table it was won at: a model that lost heavily is where chips came from.
+  const discussChips = (() => {
+    if (!f.significantChipWins.length && !f.significantChipLosses.length) return ''
+    const heavy = all.filter((m) => !m.focus && m.bb100.high !== null && m.bb100.high < 0)
+    const won = f.significantChipWins.length ? `${focusName} won significantly more chips than ${listOf(f.significantChipWins.map((o) => esc(o.label)))}` : ''
+    const lost = f.significantChipLosses.length ? `${won ? ' and' : `${focusName}`} significantly fewer than ${listOf(f.significantChipLosses.map((o) => esc(o.label)))}` : ''
+    const table = heavy.length
+      ? ` These are results at this table: ${listOf(heavy.map((m) => `${esc(m.label)} lost ${n1(Math.abs(m.bb100.mean ?? 0))} bb/100`))}, so much of what the others won came from ${heavy.length === 1 ? 'it' : 'them'}, and they say little about play against stronger opponents.`
+      : ''
+    return `After the pre-registered correction, ${won}${lost}.${table}`
   })()
   const moves = f.moveRule
   const discussStyle =
@@ -714,6 +728,7 @@ ${siblingLine ? `<h3>4.6 One question or two</h3>
 ` : ''}
 <h2>5 Discussion</h2>
 <p>${discussCalibration}</p>
+${discussChips ? `<p>${discussChips}</p>` : ''}
 ${discussStyle ? `<p>${discussStyle}</p>` : ''}
 <p>${f.cost.timesCheaperThanCheapest !== null && f.cost.timesCheaperThanCheapest >= CLAIM_RATIO ? `The differences in speed and cost are large enough to matter in deployment regardless of the chip result. ` : ''}Chip results need far more hands than calibration: a single decision contributes a full calibration point, while a chip difference only emerges over many hands, which is why the study was built around duplicate seating and a stopping rule on interval width.</p>
 

@@ -190,6 +190,23 @@ describe('a study of two Jevs', () => {
     expect(renderPaperHtml(report, decisions, { mock: true })).not.toMatch(/(\b[\d.]+%?)–\1(?![\d.])/)
   })
 
+  it('calls a tie a tie, names a model once when it is best on both measures, and discusses a chip result with its table', () => {
+    const { report, decisions } = withSibling()
+    const tied = {
+      ...report,
+      calibration: report.calibration.map((c) => (c.playerId === 'sib' ? { ...c, winA: { ...c.winA, brier: 0.2502 } } : c.playerId === 'pill' ? { ...c, winA: { ...c.winA, brier: 0.1 }, winC: { ...c.winC, ece: 0.005 } } : c)),
+      // The focus beat the language model, which lost heavily, significantly.
+      results: report.results.map((r) => (r.playerId === 'pill' ? { ...r, bb100: { mean: -300, low: -420, high: -180, halfWidth: 120 } } : r)),
+      contrasts: report.contrasts.map((c) => (c.otherId === 'pill' ? { ...c, diff: { mean: 312, low: 150, high: 474, halfWidth: 162 }, pHolm: 0.001, significant: true } : c)),
+    } as unknown as StudyReport
+    const html = renderPaperHtml(tied, decisions, { mock: false })
+    expect(html).toContain('Brier against the pot actually won 0.250 against 0.250 (level)')
+    expect(html).toContain('claude-fable-5.1 scored best on both')
+    const discussion = html.slice(html.indexOf('5 Discussion'), html.indexOf('6 Limitations'))
+    expect(discussion).toContain('won significantly more chips than claude-fable-5.1')
+    expect(discussion).toContain('claude-fable-5.1 lost 300.0 bb/100')
+  })
+
   it('reads a one-Jev study as before', () => {
     const { report, decisions } = crafted()
     const f = paperFacts(report, decisions)
