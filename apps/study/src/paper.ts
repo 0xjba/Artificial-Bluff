@@ -24,8 +24,8 @@ export interface ModelFacts {
   playerId: string
   model: string
   kind: string
-  /** A Jev seat's mode, from the pre-registered line-up ('choice' when not stated). */
-  mode: 'choice' | 'decomposed' | null
+  /** A Jev seat's mode, from the pre-registered line-up ('rule', the main study's, when not stated). */
+  mode: 'rule' | 'raw' | 'two-step' | null
   /** How the paper names it: the model, not the seat (seats are the house, models move between them). */
   label: string
   focus: boolean
@@ -75,7 +75,7 @@ export interface PaperFacts {
    * pick, by the kind of move it played instead; null when the log doesn't record the pick.
    */
   moveRule: { moves: number; changed: number; toRaise: number; toCall: number; toFold: number } | null
-  /** Another seat of the focus's own kind (the one-question Jev beside a decomposed one), if any. */
+  /** Another seat of the focus's own kind (the one-question Jev beside a two-step one), if any. */
   sibling: ModelFacts | null
   /** The pre-registered headline outcome (A): who had the lowest Brier score, and where the focus ranked. */
   outcome: { best: ModelFacts | null; focusRank: number | null; of: number }
@@ -84,6 +84,9 @@ export interface PaperFacts {
 }
 
 const moveKind = (id: string) => (id === 'fold' ? 'fold' : id === 'check' || id === 'call' ? 'call' : 'raise')
+
+/** How the paper names a Jev seat's mode when more than one Jev plays. */
+const MODE_NAME = { rule: 'one question, with rule', raw: 'one question', 'two-step': 'two-step' } as const
 
 /** The model's name as a reader knows it: Jev by name, an API model by its id without the provider. */
 export function modelLabel(kind: string, model: string): string {
@@ -98,8 +101,12 @@ const by = <T>(xs: readonly T[], key: (x: T) => number | null, dir: 1 | -1): T |
 /** Everything the paper states, computed once from the report and the scored decisions. */
 export function paperFacts(report: StudyReport, decisions: readonly ScoredDecision[]): PaperFacts {
   const lineup = ((report.study.preregistration as { study?: { lineup?: Array<{ id?: string; mode?: string }> } }).study?.lineup ?? []) as Array<{ id?: string; mode?: string }>
-  const modeOf = (id: string, kind: string) => (kind === 'jev' ? (lineup.find((s) => s.id === id)?.mode === 'decomposed' ? 'decomposed' : 'choice') : null)
-  const twoWays = report.players.some((p) => modeOf(p.playerId, p.kind) === 'decomposed') && report.players.filter((p) => p.kind === 'jev').length > 1
+  const modeOf = (id: string, kind: string): ModelFacts['mode'] => {
+    if (kind !== 'jev') return null
+    const mode = lineup.find((s) => s.id === id)?.mode
+    return mode === 'raw' || mode === 'two-step' ? mode : 'rule'
+  }
+  const twoJevs = report.players.filter((p) => p.kind === 'jev').length > 1
   const facts = report.players.map((p): ModelFacts => {
     const m = report.metrics.find((x) => x.playerId === p.playerId)
     const cal = report.calibration.find((x) => x.playerId === p.playerId)
@@ -127,7 +134,7 @@ export function paperFacts(report: StudyReport, decisions: readonly ScoredDecisi
       kind: p.kind,
       mode,
       // With two Jevs at the table, each is named by how it was asked.
-      label: twoWays && mode ? `Jev (${mode === 'decomposed' ? 'decomposed' : 'one question'}, ${p.model})` : modelLabel(p.kind, p.model),
+      label: twoJevs && mode ? `Jev (${MODE_NAME[mode]}, ${p.model})` : modelLabel(p.kind, p.model),
       focus: p.playerId === report.focusId,
       answered: own.length,
       latencyP50Ms: fin(m?.latencyP50Ms),
@@ -408,14 +415,13 @@ export function renderPaperHtml(report: StudyReport, decisions: readonly ScoredD
   const date = opts.date ?? new Date(report.generatedAt).toLocaleDateString('en-GB', { month: 'long', year: 'numeric' })
   const author = opts.author ?? 'Jobin Ayathil'
   // With two Jevs at the table, each is named by how it was asked.
-  const jevName = (m: ModelFacts) => (f.sibling && m.mode ? `Jev (${m.mode === 'decomposed' ? 'decomposed' : 'one question'})` : 'Jev')
+  const jevName = (m: ModelFacts) => (f.sibling && m.mode ? `Jev (${MODE_NAME[m.mode]})` : 'Jev')
   const focusName = f.focus.kind === 'jev' ? jevName(f.focus) : f.focus.label
   const siblingName = f.sibling ? jevName(f.sibling) : ''
   const rivalsAll = f.sibling ? f.others.filter((o) => o !== f.sibling) : f.others
   const otherNames = rivalsAll.map((o) => o.label)
-  const twoWays = f.sibling !== null && f.focus.mode === 'decomposed'
+  const twoWays = f.sibling !== null && f.focus.mode === 'two-step'
   const handFacts = Boolean((prereg as { study?: { handFacts?: boolean } }).study?.handFacts)
-  const decomposedRule = (prereg as { jevDecomposed?: string }).jevDecomposed
   const hands = report.study.hands
   const groups = report.study.analysedGroups
   const blocks = report.study.blocks
@@ -600,8 +606,8 @@ export function renderPaperHtml(report: StudyReport, decisions: readonly ScoredD
   const promptNames: Record<string, string> = {
     jevAction: `${oneQuestion}: which action`,
     jevWin: `${twoWays ? 'Jev' : focusName}: win question`,
-    jevStrength: `${focusName}: hand strength`,
-    jevStrengthLevels: `${focusName}: hand strength levels`,
+    jevKind: `${focusName}: which kind of action`,
+    jevSize: `${focusName}: which amount`,
     llmSystem: 'Language models: system prompt',
   }
   const promptsHtml = Object.entries(prompts as Record<string, unknown>)
@@ -612,7 +618,8 @@ export function renderPaperHtml(report: StudyReport, decisions: readonly ScoredD
     ['Intervals', (prereg as { intervals?: string }).intervals],
     ['Comparisons', (prereg as { contrasts?: string }).contrasts],
     ['Seating', (prereg as { seating?: { design?: string } }).seating?.design],
-    [`${focusName}’s move`, (prereg as { jevMove?: string }).jevMove],
+    [`${twoWays ? 'Jev (one question, with rule)' : focusName}’s move`, (prereg as { jevMove?: string }).jevMove],
+    ...Object.entries((prereg as { jevModes?: Record<string, string> }).jevModes ?? {}).map(([m, rule]): [string, unknown] => [`Jev (${MODE_NAME[m as keyof typeof MODE_NAME] ?? m})’s move`, rule]),
     ['Prices', (prereg as { prices?: { jevInputUsdPerMTok?: number; llm?: string } }).prices ? `${focusName}: $${prereg.prices?.jevInputUsdPerMTok} per million input tokens; language models: ${(prereg as { prices?: { llm?: string } }).prices?.llm ?? ''}` : null],
     ['Master seed', prereg.study?.masterSeed],
   ]
@@ -632,15 +639,15 @@ export function renderPaperHtml(report: StudyReport, decisions: readonly ScoredD
   const sectionsHtml = `
 <h2>1 Introduction</h2>
 <p>A decision model that will act on someone’s behalf should know how likely it is to be right. Stated confidence is easy to ask for and hard to check: most tasks settle slowly, if at all, and their outcomes mix judgement with luck. Poker settles both problems. Every decision is a choice under hidden information, priced in chips, and resolved within seconds; and once every hole card is known, the chance a player had of winning at the moment it acted can be computed exactly.</p>
-<p>${twoWays ? `We use this to ask whether Jev, TypeSafe’s typed-readout decision model, plays better when a broad judgment is broken into narrow questions and composed in code, as TypeSafe recommends: ${esc(focusName)} and ${esc(siblingName)} sit at the same table with ${listOf(otherNames.map(esc))}.` : `We use this to measure ${esc(focusName)}, TypeSafe’s typed-readout decision model, against ${listOf(otherNames.map(esc))}.`} Each model plays the same deals from every seat. At each decision it states its chance of winning the hand, and we compare that claim with the true chance computed from all the cards. We also record how long each decision took, what it cost, how often a model failed to answer, whether its folds and calls were right against the pot odds, and how many chips it won.</p>
+<p>${twoWays ? `We use this to ask whether Jev, TypeSafe’s typed-readout decision model, plays better when the decision is asked in two narrower parts, as TypeSafe recommends for broad judgments, with Jev still making every pick: ${esc(focusName)} and ${esc(siblingName)} sit at the same table with ${listOf(otherNames.map(esc))}.` : `We use this to measure ${esc(focusName)}, TypeSafe’s typed-readout decision model, against ${listOf(otherNames.map(esc))}.`} Each model plays the same deals from every seat. At each decision it states its chance of winning the hand, and we compare that claim with the true chance computed from all the cards. We also record how long each decision took, what it cost, how often a model failed to answer, whether its folds and calls were right against the pot odds, and how many chips it won.</p>
 <p>Our contributions are a pre-registered protocol for measuring stated confidence against true equity in multi-player games, an analysis of ${report.study.decisions.toLocaleString('en-US')} decisions over ${hands.toLocaleString('en-US')} hands, and the decision-level data behind every figure.</p>
 
 <h2>2 Background</h2>
 <h3>2.1 Typed readout</h3>
 <p>${esc(twoWays ? 'Jev' : focusName)} does not write text. It is sent the table state and a fixed set of named options, and returns a probability for each option together with its answer to a second typed question: the probability that it wins the hand. Its answers can only come from the options offered, so every answer is legal by construction; numbers such as bet sizes stay in code.${moveRule}</p>
 ${
-  twoWays && decomposedRule
-    ? `<p>${esc(focusName)} is asked differently, the way TypeSafe recommends for judgments that depend on several factors: two narrow questions in one request, the chance of winning the hand and how strong the hand is against what the opponents still in are likely to hold (a score over five described levels), and the move is chosen in code from the two answers. The pre-registered rule: ${esc(decomposedRule)}. ${esc(siblingName)} is asked the single question described above.</p>`
+  twoWays
+    ? `<p>${esc(focusName)} is asked the same decision in two parts, together in one request: what kind of action (fold; check or call; bet or raise), and, among the bet and raise sizes offered, what amount. The move is the kind it chose, at the amount it chose when betting or raising; code changes nothing. ${esc(siblingName)} is asked the single question above, and its choice is played as returned. Splitting the question keeps the several raise sizes from dividing raising’s weight against the single call.</p>`
     : ''
 }
 <h3>2.2 General-purpose models</h3>
@@ -750,7 +757,7 @@ ${recordHtml}`
 <p class="meta">Technical report · ${esc(date)} · study <code>${esc(report.study.id)}</code> · pre-registration <code>${esc(report.study.configHash.slice(0, 12))}</code></p>
 </header>
 <section class="abstract"><h2>Abstract</h2>
-<p>${twoWays ? `We compare two ways of asking Jev, TypeSafe’s typed-readout decision model, to play ${all.length}-handed No-Limit Texas Hold’em: one question that picks among the offered options (${esc(siblingName)}), and two narrow questions, a win chance and a hand-strength score, that code turns into a move (${esc(focusName)}). Both play ${listOf(otherNames.map(esc))}${handFacts ? ', and every player is given hand facts computed from its own cards' : ''}, over ${hands.toLocaleString('en-US')} hands and ${report.study.decisions.toLocaleString('en-US')} decisions in a duplicate format that deals every card order to every seat. ` : `We compare ${esc(focusName)}, a typed-readout decision model, with ${otherNames.length} general-purpose language models (${listOf(otherNames.map(esc))}) at ${all.length}-handed No-Limit Texas Hold’em, over ${hands.toLocaleString('en-US')} hands and ${report.study.decisions.toLocaleString('en-US')} decisions in a duplicate format that deals every card order to every seat. `}At each decision the model states its chance of winning, which we score against the true chance computed from every hole card. ${speedLine} ${costLine} ${outcomeLine} ${eceLine} ${chipLine}${siblingLine ? ` ${siblingLine}` : ''} The study was pre-registered, and the decision-level data are published with this report.</p>
+<p>${twoWays ? `We compare two ways of asking Jev, TypeSafe’s typed-readout decision model, to play ${all.length}-handed No-Limit Texas Hold’em: one question that picks among the offered options (${esc(siblingName)}), and the same decision asked in two parts, what kind of action and what amount (${esc(focusName)}). In both, the move played is exactly what Jev picked. Both play ${listOf(otherNames.map(esc))}${handFacts ? ', and every player is given hand facts computed from its own cards' : ''}, over ${hands.toLocaleString('en-US')} hands and ${report.study.decisions.toLocaleString('en-US')} decisions in a duplicate format that deals every card order to every seat. ` : `We compare ${esc(focusName)}, a typed-readout decision model, with ${otherNames.length} general-purpose language models (${listOf(otherNames.map(esc))}) at ${all.length}-handed No-Limit Texas Hold’em, over ${hands.toLocaleString('en-US')} hands and ${report.study.decisions.toLocaleString('en-US')} decisions in a duplicate format that deals every card order to every seat. `}At each decision the model states its chance of winning, which we score against the true chance computed from every hole card. ${speedLine} ${costLine} ${outcomeLine} ${eceLine} ${chipLine}${siblingLine ? ` ${siblingLine}` : ''} The study was pre-registered, and the decision-level data are published with this report.</p>
 </section>
 ${figPipeline}
 <div class="cols">${sectionsHtml}</div>

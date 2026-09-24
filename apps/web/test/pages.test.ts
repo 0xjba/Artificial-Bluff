@@ -57,7 +57,7 @@ describe('research figures', () => {
     truthSpreadPts: 25,
     ...over,
   })
-  const jev = model({ playerId: 'hex', model: 'jev-1.13.0', kind: 'jev', mode: 'choice', label: 'Jev (jev-1.13.0)', focus: true, latencyP50Ms: 200, costPerDecisionUsd: 0.00005, fallbackRate: 0, offTruthPts: 6, biasPts: -1, foldRight: { n: 30, rate: 0.9 }, callRight: { n: 10, rate: 0.8 }, bb100: { mean: 5, low: -25, high: 35 }, vsFocus: null, brierA: 0.2, eceC: 0.02 })
+  const jev = model({ playerId: 'hex', model: 'jev-1.13.0', kind: 'jev', mode: 'rule', label: 'Jev (jev-1.13.0)', focus: true, latencyP50Ms: 200, costPerDecisionUsd: 0.00005, fallbackRate: 0, offTruthPts: 6, biasPts: -1, foldRight: { n: 30, rate: 0.9 }, callRight: { n: 10, rate: 0.8 }, bb100: { mean: 5, low: -25, high: 35 }, vsFocus: null, brierA: 0.2, eceC: 0.02 })
   const fable = model({ playerId: 'pill', label: 'claude-fable-5.1', latencyP50Ms: 3000, costPerDecisionUsd: 0.012, offTruthPts: 18, biasPts: 15, brierA: 0.12, eceC: 0.04 })
   const llama = model({ playerId: 'nimbus', label: 'llama-4-maverick', latencyP50Ms: 5000, costPerDecisionUsd: 0.0002, offTruthPts: 25, biasPts: -8, fallbackRate: 0.05, brierA: 0.15, eceC: 0.08 })
   const facts = (over: Partial<PaperFacts> = {}): PaperFacts => ({

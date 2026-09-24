@@ -264,15 +264,22 @@ describe('hand facts in a study', () => {
     expect(record.prompts.llmSystem).toContain('"hand"')
   })
 
-  it('pre-registers the decomposed questions and rule only when a seat uses them', () => {
-    const c = config({ lineup: [{ id: 'hex', kind: 'jev', model: 'jev-1.13.0', mode: 'decomposed' }, ...ids.slice(1).map((id) => ({ id, kind: 'mock' }))] })
-    const record = preregistration(c, c.lineup) as { prompts: Record<string, unknown>; jevDecomposed?: string }
-    expect(record.prompts.jevStrength).toContain('How strong is your hand')
-    expect(record.prompts.jevStrengthLevels).toHaveLength(5)
-    expect(record.jevDecomposed).toContain('below the pot odds')
-    const plain = preregistration(config(), config().lineup) as { prompts: Record<string, unknown>; jevDecomposed?: string }
-    expect(plain.prompts).not.toHaveProperty('jevStrength')
-    expect(plain).not.toHaveProperty('jevDecomposed')
+  it('pre-registers each Jev mode\'s questions and rule, and the main study\'s rule only where it is used', () => {
+    const jevs = [
+      { id: 'hex', kind: 'jev', model: 'jev-1.13.0', mode: 'two-step' },
+      { id: 'pill', kind: 'jev', model: 'jev-1.13.0', mode: 'raw' },
+    ]
+    const c = config({ lineup: [...jevs, ...ids.slice(2).map((id) => ({ id, kind: 'mock' }))] })
+    const record = preregistration(c, c.lineup) as { prompts: Record<string, unknown>; jevModes?: Record<string, string>; jevMove?: string }
+    expect(record.prompts.jevKind).toContain('Which kind of action')
+    expect(record.prompts.jevSize).toContain('which amount')
+    expect(Object.keys(record.jevModes!)).toEqual(['raw', 'two-step'])
+    expect(record.jevModes!['two-step']).toContain('code changes nothing')
+    expect(record).not.toHaveProperty('jevMove')
+    const plain = preregistration(config(), config().lineup) as { prompts: Record<string, unknown>; jevModes?: unknown; jevMove?: string }
+    expect(plain.prompts).not.toHaveProperty('jevKind')
+    expect(plain).not.toHaveProperty('jevModes')
+    expect(plain.jevMove).toContain('total weight')
   })
 
   it('leaves the first study\'s pre-registration exactly as committed', () => {

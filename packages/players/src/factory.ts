@@ -12,8 +12,8 @@ export type PlayerSpec =
       id: string
       kind: 'jev'
       model: string
-      /** 'decomposed': a win Noul and a strength Score, the move chosen in code. Absent: one Choice. */
-      mode?: 'choice' | 'decomposed'
+      /** 'raw': TypeSafe's choice as returned; 'two-step': kind and amount picked separately. Absent: the main study's rule. */
+      mode?: 'raw' | 'two-step'
       /** Answered by an offline stand-in for TypeSafe's API (free rehearsals): no key, no network. */
       offline?: boolean
     }

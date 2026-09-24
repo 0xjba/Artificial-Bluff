@@ -24,9 +24,11 @@ describe('parseStudyConfig', () => {
 
   it('takes a Jev seat\'s mode, and adds nothing when it is left out', () => {
     const jev = (extra: Record<string, unknown>) => parseStudyConfig({ ...base, lineup: [{ id: 'hex', kind: 'jev', model: 'jev-1.13.0', ...extra }, ...lineup.slice(1)] }).lineup[0]
-    expect(jev({ mode: 'decomposed' })).toEqual({ id: 'hex', kind: 'jev', model: 'jev-1.13.0', mode: 'decomposed' })
+    expect(jev({ mode: 'two-step' })).toEqual({ id: 'hex', kind: 'jev', model: 'jev-1.13.0', mode: 'two-step' })
+    expect(jev({ mode: 'raw' })).toMatchObject({ mode: 'raw' })
     expect(jev({})).toEqual({ id: 'hex', kind: 'jev', model: 'jev-1.13.0' })
-    expect(() => jev({ mode: 'fast' })).toThrow(/mode must be "choice" or "decomposed"/)
+    // The strategy-in-code design was dropped: code never decides when to fold or raise.
+    expect(() => jev({ mode: 'decomposed' })).toThrow(/mode must be "raw" or "two-step"/)
   })
 
   it('rejects unknown keys, so typos cannot silently fall back to defaults', () => {
