@@ -199,6 +199,9 @@ export async function playHand(opts: PlayHandOptions): Promise<HandResult> {
       fallback: fallbackReason !== null,
       fallbackKind,
       fallbackReason,
+      jevChoice: decision?.jevChoice ?? null,
+      provider: res.provider ?? null,
+      rawReply: (!res.ok && res.rawReply) || null,
     })
 
     const boardBefore = state.board.length

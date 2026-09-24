@@ -181,6 +181,19 @@ describe('playHand', () => {
     expect(decisions(sink.events).find((e) => e.playerId === 'x')).toMatchObject({ costUsd: 0.004, retries: 1, inputTokens: 900, reasoningTokens: 30, model: 'vendor/m', fallback: true, fallbackKind: 'model' })
   })
 
+  it('logs the host that served each call, Jev\'s own pick, and the raw reply when an answer was unusable', async () => {
+    const usage = { ...NO_USAGE }
+    const jev = new Scripted('j', () => ({ ok: true, decision: { optionId: 'call', winProbability: 0.4, confidence: 0.5, optionProbabilities: { call: 0.5 }, reasoning: null, jevChoice: 'fold' }, usage, model: 'jev-1' }))
+    const llm = new Scripted('l', () => ({ ok: true, decision: { optionId: 'call', winProbability: 0.4, confidence: 0.5, optionProbabilities: null, reasoning: 'ok' }, usage, model: 'v/m', provider: 'Fireworks' }))
+    const bad = new Scripted('x', () => ({ ok: false, error: 'invalid output: bad', kind: 'model', usage, model: 'v/m', provider: 'Groq', rawReply: 'hmm' }))
+    const sink = memorySink()
+    await playHand({ config: config(['j', 'l', 'x']), players: byId([jev, llm, bad]), sink, decisionTimeoutMs: 100 })
+    const first = (id: string) => decisions(sink.events).find((e) => e.playerId === id)
+    expect(first('j')).toMatchObject({ jevChoice: 'fold', provider: null, rawReply: null })
+    expect(first('l')).toMatchObject({ jevChoice: null, provider: 'Fireworks', rawReply: null })
+    expect(first('x')).toMatchObject({ provider: 'Groq', rawReply: 'hmm', fallback: true })
+  })
+
   it('emits each street dealt during an all-in run-out, then showdown and pots', async () => {
     const shove = new Scripted('a', () => ({ ok: true, decision: { optionId: 'all_in', winProbability: 0.8, confidence: 0.9, optionProbabilities: null, reasoning: 'aces' }, usage: NO_USAGE, model: 'scripted' }))
     const sink = memorySink()

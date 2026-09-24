@@ -93,7 +93,10 @@ describe('study commands (mock mode: free, no network, no keys)', () => {
       return true
     }
     const files = reportCommand(config, true, store, out, deps, '2026-09-22T00:00:00.000Z', print)
-    expect(files.map((f) => f.slice(out.length + 1))).toEqual(['report.html', 'report.json', 'decisions.csv', 'decisions.json', 'paper.html', 'paper.pdf'])
+    expect(files.map((f) => f.slice(out.length + 1))).toEqual(['report.html', 'report.json', 'decisions.csv', 'decisions.json', 'hands.csv', 'events.jsonl', 'paper.html', 'paper.pdf'])
+    // The whole log, one event per line: every figure can be recomputed from it.
+    const log = readFileSync(join(out, 'events.jsonl'), 'utf8').trimEnd().split('\n').map((l) => JSON.parse(l))
+    expect(log).toEqual(store.events('smoke-mock'))
     expect(printed[0]).toContain('REHEARSAL ON MOCK PLAYERS') // a mock study's paper says what it is
     // Without a Chrome the paper is still written as HTML, and the log says why there is no PDF.
     const bare = capture()

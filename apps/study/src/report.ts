@@ -66,6 +66,9 @@ export interface StudyReport {
 export interface StudyAnalysis {
   report: StudyReport
   decisions: ScoredDecision[]
+  /** The analysed hands, and the log snapshot they came from. */
+  hands: HandRecord[]
+  events: GameEvent[]
 }
 
 /** The analysis player: the first Jev seat of the (real, not mock) study config, else the first seat. */
@@ -178,5 +181,5 @@ export function analyseStudy(store: EventStore, config: StudyConfig, opts: { foc
       'Cost: LLMs as reported per call by OpenRouter; Jev as input tokens x the published price (see the pre-registration). "Spent" is everything the study paid for, including hands cut off by the budget cap and hands outside the analysed groups, so it can exceed the per-player totals, which cover analysed hands only.',
     ],
   }
-  return { report, decisions }
+  return { report, decisions, hands, events: [...events] }
 }

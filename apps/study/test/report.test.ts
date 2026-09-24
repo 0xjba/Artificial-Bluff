@@ -2,7 +2,7 @@ import { EventStore } from '@ab/core'
 import { CallingStation, MockLlm, TagBot, type Player } from '@ab/players'
 import { describe, expect, it } from 'vitest'
 import { parseStudyConfig, type StudyConfig } from '../src/config'
-import { decisionsCsv } from '../src/exports'
+import { decisionsCsv, handsCsv } from '../src/exports'
 import { preregistration } from '../src/prereg'
 import { analyseStudy, analysedGroupCount, focusPlayer, studyHands } from '../src/report'
 import { emptyProgress, handKeyOf } from '../src/progress'
@@ -108,9 +108,31 @@ describe('decisionsCsv', () => {
     expect(lines[0]!.split(',').slice(0, 3)).toEqual(['handId', 'index', 'playerId'])
     expect(decisionsCsv([{ ...decisions[0]!, model: 'a "quoted", model' }])).toContain('"a ""quoted"", model"')
     expect(lines[0]).toContain(',pot,winnablePot,toCall,')
+    expect(lines[0]).toContain(',fallbackKind,fallbackReason,jevChoice,provider,reasoning,rawReply,at,')
     // Text that a spreadsheet would evaluate is defused; negative numbers are not.
     const row = decisionsCsv([{ ...decisions[0]!, model: '=HYPERLINK("x")', stackChange: -150 }]).split('\n')[1]!
     expect(row).toContain(`"'=HYPERLINK(""x"")"`)
     expect(row.endsWith(',-150')).toBe(true)
+  })
+})
+
+describe('handsCsv', () => {
+  it('writes one row per hand and player, placed in the duplicate schedule, so bb/100 can be recomputed', async () => {
+    const c = config({ minGroups: 4, maxGroups: 4 })
+    const store = new EventStore()
+    await run(c, mixed(), store)
+    const { hands } = analyseStudy(store, c, { focusId: 'hex', generatedAt: at })
+    const lines = handsCsv(hands, store.events(c.id)).trimEnd().split('\n')
+    expect(lines[0]).toBe('handId,group,rotation,order,seed,attempt,playerId,position,hole,board,startStack,net,netBb,sawFlop,showdown,wonMainPot')
+    expect(lines).toHaveLength(hands.length * ids.length + 1)
+    const rows = lines.slice(1).map((l) => l.split(','))
+    // Every hand of 4 groups x 5 rotations, and chips only change hands: each hand nets to zero.
+    expect(new Set(rows.map((r) => `${r[1]}/${r[2]}`)).size).toBe(20)
+    const byHand = new Map<string, number>()
+    for (const r of rows) byHand.set(r[0]!, (byHand.get(r[0]!) ?? 0) + Number(r[11]))
+    expect([...byHand.values()].every((n) => n === 0)).toBe(true)
+    const first = rows[0]!
+    expect(Number(first[12])).toBe(Number(first[11]) / 100)
+    expect(first[8]).toMatch(/^[2-9TJQKA][cdhs] [2-9TJQKA][cdhs]$/)
   })
 })

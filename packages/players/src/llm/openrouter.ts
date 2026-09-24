@@ -25,6 +25,8 @@ export interface ChatResult {
   error: string | null
   /** Model that actually served the request. */
   model: string
+  /** The host OpenRouter routed the call to, when it says. */
+  provider: string | null
   promptTokens: number
   /** Billed completion tokens, including reasoning tokens. */
   completionTokens: number
@@ -75,6 +77,7 @@ export async function chatCompletion(
   const body = JSON.parse(text) as {
     error?: { message?: string } | string
     model?: string
+    provider?: string
     choices?: Array<{ finish_reason?: string | null; message?: { content?: string | null; refusal?: string | null } }>
     usage?: {
       prompt_tokens?: number
@@ -90,6 +93,7 @@ export async function chatCompletion(
     refused: Boolean(choice?.message?.refusal),
     error: body.error ? (typeof body.error === 'string' ? body.error : (body.error.message ?? 'provider error')) : null,
     model: body.model ?? request.model,
+    provider: typeof body.provider === 'string' ? body.provider : null,
     promptTokens: body.usage?.prompt_tokens ?? 0,
     completionTokens: body.usage?.completion_tokens ?? 0,
     reasoningTokens: body.usage?.completion_tokens_details?.reasoning_tokens ?? 0,

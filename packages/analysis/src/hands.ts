@@ -38,6 +38,18 @@ export interface DecisionRecord {
   retries: number
   fallback: boolean
   fallbackKind: FallbackKind | null
+  /** Why the runner substituted check-or-fold, if it did. */
+  fallbackReason: string | null
+  /** The model's one line of reasoning (language models), or null. */
+  reasoning: string | null
+  /** Jev only: TypeSafe's own pick, before the pre-registered rule settled the move; null otherwise or in older logs. */
+  jevChoice: OptionId | null
+  /** The host OpenRouter routed the call to, when it said. */
+  provider: string | null
+  /** What the model wrote when its answer couldn't be used. */
+  rawReply: string | null
+  /** When the decision was logged (ISO 8601). */
+  at: string
   /**
    * Calibration outcome A: the player's share of the main pot: 1 if they won it alone, 1/k if it was
    * split k ways, 0 if they lost it or folded at any point in the hand (side pots are ignored).
@@ -145,6 +157,12 @@ function buildHand(handId: string, events: HandEvent[]): HandRecord | null {
         retries: e.retries,
         fallback: e.fallback,
         fallbackKind: e.fallbackKind,
+        fallbackReason: e.fallbackReason,
+        reasoning: e.reasoning,
+        jevChoice: e.jevChoice ?? null,
+        provider: e.provider ?? null,
+        rawReply: e.rawReply ?? null,
+        at: new Date(e.ts).toISOString(),
       })
       stacks.set(e.playerId, stackBefore - e.chipsIn)
       if (e.action.type === 'fold') folded.add(e.playerId)

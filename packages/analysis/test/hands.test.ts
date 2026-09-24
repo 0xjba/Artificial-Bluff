@@ -45,6 +45,16 @@ describe('extractHands', () => {
     expect(hand!.showdown).toEqual(['a', 'c'])
   })
 
+  it('carries what a paper needs to quote: reasoning, failure reasons, Jev\'s own pick, host, raw reply and time', async () => {
+    const events = await playFixedHand([caller('a'), caller('b')], [['Ah', 'Ad'], ['Kh', 'Kd']], board)
+    const i = events.findIndex((e) => e.type === 'decision')
+    events[i] = { ...events[i]!, ts: 1_750_000_000_000, reasoning: 'aces', fallbackReason: null, jevChoice: 'fold', provider: 'Groq', rawReply: 'hmm' } as GameEvent
+    const [hand] = extractHands(events)
+    expect(hand!.decisions[0]).toMatchObject({ reasoning: 'aces', fallbackReason: null, jevChoice: 'fold', provider: 'Groq', rawReply: 'hmm', at: new Date(1_750_000_000_000).toISOString() })
+    // Logs written before these fields existed read as null, not undefined.
+    expect(hand!.decisions[1]).toMatchObject({ jevChoice: null, provider: null, rawReply: null })
+  })
+
   it('splits the main-pot share when the board plays', async () => {
     const events = await playFixedHand([caller('a'), caller('b')], [['2h', '3d'], ['2d', '3h']], ['As', 'Ks', 'Qs', 'Js', 'Ts'])
     const [hand] = extractHands(events)
