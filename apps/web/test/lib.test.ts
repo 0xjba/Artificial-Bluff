@@ -1,6 +1,7 @@
 import { applyEvent, buildView, emptyView, type GameEvent, type TableView } from '@ab/core/view'
 import { describe, expect, it } from 'vitest'
 import { spread, stepFrom } from '../lib/spread'
+import { BOARD_STAGGER_MS, boardDelay, DEAL_STEP_MS, holeDelay, wonHand } from '../lib/deal'
 import { availableFiles, latestStudy, REPORT_FILES, studyKind, type ReportEntry } from '../lib/reports'
 import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -191,5 +192,30 @@ describe('a study\'s data files', () => {
     for (const f of ['decisions.csv', 'report.json', 'notes.txt']) writeFileSync(join(root, 's1', f), 'x')
     expect(availableFiles('s1', root).sort()).toEqual(['decisions.csv', 'report.json'])
     expect(availableFiles('../s1', root)).toEqual([])
+  })
+})
+
+describe('dealing', () => {
+  const hand = { seatOrder: ['a', 'b', 'c', 'd'], buttonIndex: 1 }
+  it('deals hole cards one at a time round the table, starting left of the button, like a dealer', () => {
+    // Button is b, so c gets the first card, then d, a, b; then the second round.
+    expect(['c', 'd', 'a', 'b'].map((id) => holeDelay(hand, id, 0))).toEqual([0, 1, 2, 3].map((k) => k * DEAL_STEP_MS))
+    expect(holeDelay(hand, 'c', 1)).toBe(4 * DEAL_STEP_MS)
+    expect(holeDelay(hand, 'b', 1)).toBe(7 * DEAL_STEP_MS)
+    // A seat not in the hand (or no hand) gets no delay rather than a wrong one.
+    expect(holeDelay(hand, 'z', 0)).toBe(0)
+    expect(holeDelay(null, 'a', 1)).toBe(0)
+  })
+  it('turns the flop over left to right; the turn and river come alone', () => {
+    expect([0, 1, 2, 3, 4].map(boardDelay)).toEqual([0, BOARD_STAGGER_MS, 2 * BOARD_STAGGER_MS, 0, 0])
+  })
+  it('knows who won once the hand is over, and not before', () => {
+    const awards: Array<{ amount: number; winners: string[]; shares: Record<string, number> }> = [
+      { amount: 100, winners: ['a'], shares: { a: 100 } },
+      { amount: 40, winners: ['b', 'c'], shares: { b: 20, c: 20 } },
+    ]
+    expect(['a', 'b', 'c', 'd'].map((id) => wonHand({ ended: true, awards }, id))).toEqual([true, true, true, false])
+    expect(wonHand({ ended: false, awards }, 'a')).toBe(false)
+    expect(wonHand(null, 'a')).toBe(false)
   })
 })

@@ -3,7 +3,8 @@ import type { SeatView, TableView } from '@ab/core/view'
 import { characterFor, cueFor, EYE_INK, Mascot } from '@ab/mascot'
 import { chips, positionName, shortAction } from '../lib/format'
 import { seatMoment } from '../lib/moments'
-import { PlayingCard } from './PlayingCard'
+import { holeDelay, wonHand } from '../lib/deal'
+import { DealtCard, MuckedCards } from './PlayingCard'
 import { WinChance } from './WinChance'
 
 /** One poker chip, so the number beside it reads as chips and not money. */
@@ -29,8 +30,9 @@ export function Seat({ view, seat, index }: { view: TableView; seat: SeatView; i
   const { moment, jevDecided, key } = seatMoment(view, seat.playerId)
   const acting = view.hand?.toAct === seat.playerId
   const dim = seat.status === 'folded' || seat.status === 'out'
+  const won = wonHand(view.hand, seat.playerId)
   return (
-    <div className={`seat-card${acting ? ' acting' : ''}${dim ? ' dim' : ''}`} style={{ '--seat': who.color } as React.CSSProperties}>
+    <div className={`seat-card${acting ? ' acting' : ''}${dim ? ' dim' : ''}${won ? ' won' : ''}`} style={{ '--seat': who.color } as React.CSSProperties}>
       <span className="seat-face">
         <Mascot shape={who.shape} cue={cueFor(moment, jevDecided)} cueKey={key} size={54} ink={who.color} paper={EYE_INK} title={`${who.name}, ${moment.replace('_', ' ')}`} />
         {seat.position === 'BTN' ? (
@@ -48,7 +50,17 @@ export function Seat({ view, seat, index }: { view: TableView; seat: SeatView; i
         </span>
       </span>
       <span className="seat-cards">
-        {seat.hole && !dim ? seat.hole.map((c) => <PlayingCard key={c} code={c} small />) : [0, 1].map((i) => <span key={i} className="card gone">–</span>)}
+        {seat.hole && !dim ? (
+          seat.hole.map((c, i) => <DealtCard key={`${view.hand?.handId}-${c}`} code={c} small delay={holeDelay(view.hand, seat.playerId, i)} won={won} />)
+        ) : seat.hole && seat.status === 'folded' ? (
+          <MuckedCards key={view.hand?.handId} />
+        ) : (
+          [0, 1].map((i) => (
+            <span key={i} className="card gone">
+              –
+            </span>
+          ))
+        )}
       </span>
       <span className="seat-win" title="Chance this player wins the hand from here, from everyone's cards. The players can't see it.">
         <span>Win chances</span>
