@@ -1,0 +1,18 @@
+{
+  "_note": "Follow-up to main-2026-09: does Jev do better asked the way TypeSafe recommends? hex = Jev decomposed (a win Noul and a hand-strength Score, the move chosen in code), pill = Jev as in the main study (one Choice), against Gemini 3.8 Flash and Llama 4 Maverick. Every player sees hand facts (made hand, draws and outs, starting-hand rank). About $0.002-0.003 a hand, so $6 covers the 2,000-hand cap. Rehearse free with --mock; --live spends real money and needs the user's go-ahead.",
+  "id": "jev-ablation-2026-09",
+  "lineup": [
+    { "id": "hex", "kind": "jev", "model": "jev-1.13.0", "mode": "decomposed" },
+    { "id": "pill", "kind": "jev", "model": "jev-1.13.0" },
+    { "id": "drip", "kind": "llm", "model": "google/gemini-3.8-flash", "reasoning": "minimal" },
+    { "id": "nimbus", "kind": "llm", "model": "meta-llama/llama-4-maverick" }
+  ],
+  "masterSeed": "artificialbluff-jev-ablation-2026-09",
+  "handFacts": true,
+  "budgetUsd": 6,
+  "targetHalfWidthBb100": 10,
+  "minGroups": 100,
+  "maxGroups": 500,
+  "checkEvery": 50,
+  "concurrency": 3
+}

@@ -1,0 +1,84 @@
+{
+  "kind": "artificialBluff study",
+  "version": 1,
+  "study": {
+    "id": "jev-ablation-2026-09",
+    "masterSeed": "artificialbluff-jev-ablation-2026-09",
+    "format": {
+      "smallBlind": 50,
+      "bigBlind": 100,
+      "stackInBigBlinds": 100
+    },
+    "decisionTimeoutMs": 20000,
+    "targetHalfWidthBb100": 10,
+    "minGroups": 100,
+    "maxGroups": 500,
+    "checkEvery": 50,
+    "bootstrapResamples": 2000,
+    "handFacts": true,
+    "lineup": [
+      {
+        "id": "hex",
+        "kind": "jev",
+        "model": "jev-1.13.0",
+        "mode": "decomposed"
+      },
+      {
+        "id": "pill",
+        "kind": "jev",
+        "model": "jev-1.13.0"
+      },
+      {
+        "id": "drip",
+        "kind": "llm",
+        "model": "google/gemini-3.8-flash",
+        "reasoning": "minimal",
+        "structuredOutput": true,
+        "sendTemperature": true
+      },
+      {
+        "id": "nimbus",
+        "kind": "llm",
+        "model": "meta-llama/llama-4-maverick",
+        "structuredOutput": true,
+        "reasoning": "omit",
+        "sendTemperature": true
+      }
+    ]
+  },
+  "seating": {
+    "design": "duplicate, cyclic rotations of a per-group base order",
+    "neighbourBlock": 1
+  },
+  "menu": {
+    "chipUnit": 25,
+    "minGap": 0.05
+  },
+  "prompts": {
+    "llmSystem": "You are playing No-Limit Texas Hold'em. On each turn you receive the game state as JSON and choose exactly one of the offered options.\n\nThe state contains: your hole cards (\"hole\"), the board, your position, every seat's position, chips behind (\"stack\"), chips bet this street (\"bet\") and status (the seat with \"you\": true is you), this hand's action history, and computed facts: pot, amount to call, pot odds, effective stack in big blinds, stack-to-pot ratio, and your hand (\"hand\": your made hand, any straight or flush draws with their outs, and before the flop how your starting hand ranks among all starting hands). Opponents are identified only by position.\n\nEvery option offered is legal. \"Call X\" adds X chips; \"Bet X\", \"Raise to X\" and \"All-in X\" mean your total bet this street becomes X. In the history, \"posts\" and \"calls X\" show chips added, while \"bets X\" and \"raises to X\" show that player's street total.\n\nYour goal is to maximise your expected chips.\n\nReply with only a JSON object, no other text:\n{\"action\": \"<one option id>\", \"win_probability\": <number from 0 to 1: the probability that you win this hand, either at showdown or because every opponent folds>, \"confidence\": <number from 0 to 1: how sure you are this is the best action>, \"reasoning\": \"<at most 120 characters>\"}",
+    "jevAction": "You are the player marked \"you\": true in this No-Limit Texas Hold'em hand (\"stack\" is chips behind, \"bet\" is chips bet this street, \"facts\" are precomputed). \"Call X\" adds X chips; \"Bet X\", \"Raise to X\" and \"All-in X\" mean your total bet this street becomes X. Which action maximises your expected chips?",
+    "jevWin": "The player marked \"you\": true will win this hand, either at showdown or because every opponent folds.",
+    "jevStrength": "You are the player marked \"you\": true in this No-Limit Texas Hold'em hand (\"facts\" are precomputed). How strong is your hand against the hands the opponents still in are likely to hold, given the board and the betting so far?",
+    "jevStrengthLevels": [
+      "Very weak: behind almost every hand still in",
+      "Weak: behind most hands still in",
+      "Marginal: about even with the hands still in",
+      "Strong: ahead of most hands still in",
+      "Very strong: ahead of almost every hand still in"
+    ]
+  },
+  "jevDecomposed": "fold when the stated win chance is below the pot odds; bet or raise when the hand strength score is at least 3 (\"Strong\") and the win chance is at least 15 points above a fair share (1 / players still in); otherwise check or call. Size: the first offered of open_3bb, open_2_5bb, open_4bb, reraise_3x, reraise_2_5x, pot_75, pot_50, pot_100, pot_33, min_raise, all_in",
+  "jevMove": "the kind of move with the most total weight in the action probabilities (fold; check or call; bet or raise, all sizes), then the most likely option of that kind; ties keep TypeSafe's own choice",
+  "prices": {
+    "jevInputUsdPerMTok": 0.042,
+    "llm": "as reported per call by OpenRouter (usage.cost)"
+  },
+  "outcomes": {
+    "calibrationHeadline": "main-pot share: 1 if won alone, 1/k if split k ways, 0 if lost or folded at any point",
+    "calibrationSecond": "expected main-pot share at decision time from all hole cards (exact enumeration)",
+    "perAction": "confidence vs 0/1 per action type, never pooled: fold right if all-in equity < toCall / (winnable pot + toCall), call right if >= it; check and raise right if the player's stack did not shrink from the action to the end of the hand"
+  },
+  "contrasts": "the first jev seat minus each other seat in bb/100, paired by neighbour block: 95% t CI and two-sided paired t test, Holm correction over those n - 1 comparisons; no other pairwise claims",
+  "stopping": "every checkEvery groups: over the completed prefix of groups in whole neighbour blocks, stop when every player's 95% Student t CI (df = blocks - 1) half-width of bb/100 is at most targetHalfWidthBb100; never before minGroups (at least 10 blocks and a check boundary, unless the study has a fixed size); at most maxGroups; every check is logged as a study_checkpoint event; hands cut short by the budget cap are excluded and replayed on resume",
+  "intervals": "per-player 95% t CIs over neighbour blocks are marginal, not simultaneous; pairwise claims use paired contrasts with a Holm correction; percentile bootstrap CIs are reported as a sensitivity check"
+}

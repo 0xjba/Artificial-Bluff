@@ -117,6 +117,87 @@ function crafted(): { report: StudyReport; decisions: ScoredDecision[] } {
   return { report, decisions }
 }
 
+/**
+ * The follow-up study's shape: a decomposed Jev (the focus), a one-question Jev and a language model,
+ * with hand facts on. Built from crafted() by adding the second Jev and the pre-registration it reads.
+ */
+function withSibling(): { report: StudyReport; decisions: ScoredDecision[] } {
+  const { report, decisions } = crafted()
+  const hex = report.metrics.find((m) => m.playerId === 'hex')!
+  const cal = report.calibration.find((c) => c.playerId === 'hex')!
+  const r = {
+    ...report,
+    study: {
+      ...report.study,
+      preregistration: {
+        study: {
+          handFacts: true,
+          lineup: [
+            { id: 'hex', kind: 'jev', model: 'jev-1.13.0', mode: 'decomposed' },
+            { id: 'pill', kind: 'llm', model: 'anthropic/claude-fable-5.1' },
+            { id: 'sib', kind: 'jev', model: 'jev-1.13.0' },
+          ],
+        },
+        jevDecomposed: 'fold when the stated win chance is below the pot odds; otherwise check or call',
+        jevMove: 'the kind of move with the most total weight, then the most likely option of that kind',
+        prompts: { jevStrength: 'How strong is your hand?', jevStrengthLevels: ['Very weak', 'Weak', 'Marginal', 'Strong', 'Very strong'] },
+      },
+    },
+    players: [...report.players, { playerId: 'sib', kind: 'jev', model: 'jev-1.13.0', answeredModels: ['jev-1.13.0'] }],
+    // The one-question Jev: as fast and cheap as the focus, worse against the pot actually won.
+    metrics: [...report.metrics, { ...hex, playerId: 'sib', latencyP50Ms: 190 }],
+    calibration: [...report.calibration, { ...cal, playerId: 'sib', winA: { ...cal.winA, brier: 0.3 }, winC: { ...cal.winC, ece: 0.02 } }],
+    results: [...report.results, { playerId: 'sib', bb100: { mean: -20, low: -60, high: 20, halfWidth: 40 }, bb100Bootstrap: { mean: -20, low: -60, high: 20, halfWidth: 40 }, hands: 100 }],
+    contrasts: [...report.contrasts, { focusId: 'hex', otherId: 'sib', diff: { mean: 32, low: -8, high: 72, halfWidth: 40 }, pValue: 0.1, pHolm: 0.2, significant: false }],
+  } as unknown as StudyReport
+  return { report: r, decisions: [...decisions, decision({ playerId: 'sib', winProbability: 0.5, expectedShare: 0.4, optionId: 'call', actionType: 'call', jevChoice: 'call' })] }
+}
+
+describe('a study of two Jevs', () => {
+  it('names each Jev by how it was asked, and compares speed and cost with the language models only', () => {
+    const { report, decisions } = withSibling()
+    const f = paperFacts(report, decisions)
+    expect(f.focus.label).toBe('Jev (decomposed, jev-1.13.0)')
+    expect(f.sibling?.label).toBe('Jev (one question, jev-1.13.0)')
+    // The one-question Jev is faster than the focus here, but it isn't a general-purpose model.
+    expect(f.speed.fastestOther?.playerId).toBe('pill')
+    expect(f.cost.cheapestOther?.playerId).toBe('pill')
+  })
+
+  it('frames the paper as one question against two, and describes the questions, the rule and the hand facts', () => {
+    const { report, decisions } = withSibling()
+    const html = renderPaperHtml(report, decisions, { mock: false })
+    expect(html).toContain('One Question or Two')
+    const abstract = html.slice(html.indexOf('<section class="abstract">'), html.indexOf('</section>'))
+    expect(abstract).toContain('two ways of asking Jev')
+    expect(abstract).not.toMatch(/language models? \(Jev/)
+    expect(html).toContain('fold when the stated win chance is below the pot odds')
+    expect(html).toContain('hand facts')
+    expect(html).toContain('One question or two</h3>')
+    // Head to head: the pre-registered chip contrast and both calibration measures.
+    expect(html).toContain('Jev (decomposed) minus Jev (one question): +32.0 bb/100')
+    expect(html).toContain('Very strong') // the strength levels, printed in the appendix
+    expect(html).not.toMatch(/NaN|undefined|Infinity/)
+    // The one-question move rule is the one-question Jev's, and the conclusion has a subject.
+    expect(html).toContain('When Jev is asked this way')
+    const conclusion = html.slice(html.indexOf('7 Conclusion'), html.indexOf('References'))
+    expect(conclusion).toMatch(/<p>Jev \(decomposed\) was/)
+  })
+
+  it('never prints a range whose two ends read the same', async () => {
+    const { report, decisions } = await analysis()
+    expect(renderPaperHtml(report, decisions, { mock: true })).not.toMatch(/(\b[\d.]+%?)–\1(?![\d.])/)
+  })
+
+  it('reads a one-Jev study as before', () => {
+    const { report, decisions } = crafted()
+    const f = paperFacts(report, decisions)
+    expect(f.sibling).toBeNull()
+    expect(f.focus.label).toBe('Jev (jev-1.13.0)')
+    expect(renderPaperHtml(report, decisions, { mock: false })).not.toContain('One Question or Two')
+  })
+})
+
 describe('paper facts', () => {
   it('measures each model the same way, and compares the focus with the rest', () => {
     const { report, decisions } = crafted()
