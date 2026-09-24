@@ -39,6 +39,8 @@ export interface ModelFacts {
   foldRight: { n: number; rate: number | null }
   callRight: { n: number; rate: number | null }
   bb100: { mean: number | null; low: number | null; high: number | null }
+  /** Hosts that served the model's calls (OpenRouter's routing), largest share first; empty when none said. */
+  hosts: Array<{ name: string; share: number }>
   /** Focus minus this model, from the pre-registered paired contrast (null for the focus itself). */
   vsFocus: { mean: number | null; low: number | null; high: number | null; pHolm: number | null; significant: boolean } | null
 }
@@ -55,7 +57,14 @@ export interface PaperFacts {
   /** Models the focus won significantly more chips than, and ones that won significantly more than it. */
   significantChipWins: ModelFacts[]
   significantChipLosses: ModelFacts[]
+  /**
+   * The focus's own moves where the pre-registered move rule played something other than TypeSafe's
+   * pick, by the kind of move it played instead; null when the log doesn't record the pick.
+   */
+  moveRule: { moves: number; changed: number; toRaise: number; toCall: number; toFold: number } | null
 }
+
+const moveKind = (id: string) => (id === 'fold' ? 'fold' : id === 'check' || id === 'call' ? 'call' : 'raise')
 
 /** The model's name as a reader knows it: Jev by name, an API model by its id without the provider. */
 export function modelLabel(kind: string, model: string): string {
@@ -84,7 +93,12 @@ export function paperFacts(report: StudyReport, decisions: readonly ScoredDecisi
       const v = mean(stated.map(f))
       return v === null ? null : v * 100
     }
+    const served = decisions.filter((d) => d.playerId === p.playerId && d.provider)
+    const counts = new Map<string, number>()
+    for (const d of served) counts.set(d.provider!, (counts.get(d.provider!) ?? 0) + 1)
+    const hosts = [...counts].map(([name, n]) => ({ name, share: n / served.length })).sort((a, b) => b.share - a.share || a.name.localeCompare(b.name))
     return {
+      hosts,
       playerId: p.playerId,
       model: p.model,
       kind: p.kind,
@@ -136,7 +150,16 @@ export function paperFacts(report: StudyReport, decisions: readonly ScoredDecisi
     truth: { focusBest: focus.offTruthPts !== null && others.every((o) => o.offTruthPts === null || focus.offTruthPts! < o.offTruthPts), bestOther, worstOther },
     significantChipWins: others.filter((o) => o.vsFocus?.significant && (o.vsFocus.mean ?? 0) > 0),
     significantChipLosses: others.filter((o) => o.vsFocus?.significant && (o.vsFocus.mean ?? 0) < 0),
+    moveRule: moveRuleOf(decisions.filter((d) => d.playerId === focus.playerId && !d.fallback)),
   }
+}
+
+function moveRuleOf(own: readonly ScoredDecision[]): PaperFacts['moveRule'] {
+  const picked = own.filter((d) => d.jevChoice)
+  if (picked.length === 0) return null
+  const changed = picked.filter((d) => d.jevChoice !== d.optionId)
+  const to = (k: string) => changed.filter((d) => moveKind(d.optionId) === k).length
+  return { moves: picked.length, changed: changed.length, toRaise: to('raise'), toCall: to('call'), toFold: to('fold') }
 }
 
 /** A ratio as the paper writes it: 20×, 6.8×. */
@@ -381,7 +404,21 @@ export function renderPaperHtml(report: StudyReport, decisions: readonly ScoredD
   // ---- tables ----
   const row = (m: ModelFacts, cells: string[]) => `<tr${m.focus ? ' class="focus"' : ''}><td>${esc(m.label)}</td>${cells.map((c) => `<td>${c}</td>`).join('')}</tr>`
   const lineupTable = `<table><thead><tr><th>Model</th><th>Kind</th><th>Decisions</th><th>Fallbacks</th></tr></thead><tbody>${all.map((m) => row(m, [esc(m.kind === 'jev' ? 'typed readout' : m.kind === 'llm' ? 'language model' : m.kind), m.answered.toLocaleString('en-US'), pctOf(m.fallbackRate, 1)])).join('')}</tbody></table>`
-  const speedTable = `<table><thead><tr><th>Model</th><th>Median</th><th>95th pct.</th><th>$ / decision</th></tr></thead><tbody>${all.map((m) => row(m, [msOf(m.latencyP50Ms), msOf(m.latencyP95Ms), usdOf(m.costPerDecisionUsd)])).join('')}</tbody></table>`
+  const anyHosts = all.some((m) => m.hosts.length > 0)
+  const hostsOf = (m: ModelFacts) => (m.hosts.length ? m.hosts.map((h) => `${esc(h.name)} ${pctOf(h.share)}`).join(', ') : m.kind === 'jev' ? 'TypeSafe' : '–')
+  const speedTable = `<table><thead><tr><th>Model</th><th>Median</th><th>95th pct.</th><th>$ / decision</th>${anyHosts ? '<th>Served by</th>' : ''}</tr></thead><tbody>${all.map((m) => row(m, [msOf(m.latencyP50Ms), msOf(m.latencyP95Ms), usdOf(m.costPerDecisionUsd), ...(anyHosts ? [hostsOf(m)] : [])])).join('')}</tbody></table>`
+  const rule = f.moveRule
+  const ruleLine = rule
+    ? `<p>The pre-registered move rule (Section 2.1) changed ${rule.changed} of ${esc(focusName)}’s ${rule.moves} moves (${pctOf(rule.changed / rule.moves)}) from TypeSafe’s single most likely option: ${listOf(
+        [
+          [rule.toRaise, 'to a bet or raise'],
+          [rule.toCall, 'to a check or call'],
+          [rule.toFold, 'to a fold'],
+        ]
+          .filter(([n]) => (n as number) > 0)
+          .map(([n, what]) => `${n} ${what}`),
+      ) || 'none'}. Every probability ${esc(focusName)} gave is in the published data, so the moves under either rule can be compared.</p>`
+    : ''
   const truthTable = `<table><thead><tr><th>Model</th><th>Off truth (pts)</th><th>Lean (pts)</th><th>Brier</th><th>ECE</th></tr></thead><tbody>${all.map((m) => row(m, [n1(m.offTruthPts), signed(m.biasPts), n1(m.brierC, 3), n1(m.eceC, 3)])).join('')}</tbody></table>`
   const actionTable = `<table><thead><tr><th>Model</th><th>Folds</th><th>right</th><th>Calls</th><th>right</th></tr></thead><tbody>${all.map((m) => row(m, [String(m.foldRight.n), pctOf(m.foldRight.rate), String(m.callRight.n), pctOf(m.callRight.rate)])).join('')}</tbody></table>`
   const chipTable = `<table><thead><tr><th>Model</th><th>bb/100</th><th>95% CI</th><th>${esc(focusName)} − model</th><th>p (Holm)</th></tr></thead><tbody>${all
@@ -470,6 +507,7 @@ ${speedTable}
 ${figCalibration}
 <p class="tablecap"><b>Table 3.</b> Stated win chance against the true chance.</p>
 ${truthTable}
+${ruleLine}
 <h3>4.3 Move accuracy</h3>
 <p>Folds and calls are the two decisions with an exact right answer given the pot odds. Table 4 gives, for each model, how many of each it made and the share that were right.</p>
 <p class="tablecap"><b>Table 4.</b> Folds and calls against the pot odds.</p>
@@ -494,7 +532,7 @@ ${styleTable}
 <li>One line-up, one prompt per model family and one stack depth were tested. Other prompts, reasoning settings or stack depths may change the language models’ results.</li>
 <li>The true chance is the equity against the hands still live when the player acted; it ignores what later betting would have done, by design.</li>
 <li>Move accuracy covers folds and calls only. Checks and raises depend on later streets and are not scored with an exact rule.</li>
-<li>Speed and cost depend on the providers’ infrastructure and prices at the time of the run.</li>
+<li>Speed and cost depend on the providers’ infrastructure and prices at the time of the run.${anyHosts ? ' OpenRouter routes each call to one of several hosts; Table 2 lists which served each model.' : ''}</li>
 </ul>
 
 <h2>7 Conclusion</h2>
