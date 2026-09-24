@@ -293,7 +293,7 @@ function barFigure(rows: Array<{ label: string; value: number | null; whisker?: 
   return `<svg viewBox="0 0 ${w} ${h}" role="img">${bars}<line x1="${left}" x2="${left}" y1="8" y2="${h - 16}" stroke="${LIGHT}"/><text x="${left}" y="${h - 4}" font-size="9" fill="${MID}">${log ? 'log scale' : ''}</text></svg>`
 }
 
-function forest(rows: Array<{ label: string; mean: number | null; low: number | null; high: number | null; focus: boolean }>): string {
+function forest(rows: Array<{ label: string; mean: number | null; low: number | null; high: number | null; focus: boolean }>, unit = 'bb/100'): string {
   const w = 560
   const left = 196
   const right = 30
@@ -313,7 +313,7 @@ function forest(rows: Array<{ label: string; mean: number | null; low: number | 
       return `${label}<line x1="${lo.toFixed(1)}" x2="${hi.toFixed(1)}" y1="${y}" y2="${y}" stroke="${colour}" stroke-width="1.3"/><line x1="${lo.toFixed(1)}" x2="${lo.toFixed(1)}" y1="${y - 4}" y2="${y + 4}" stroke="${colour}"/><line x1="${hi.toFixed(1)}" x2="${hi.toFixed(1)}" y1="${y - 4}" y2="${y + 4}" stroke="${colour}"/><circle cx="${x(r.mean).toFixed(1)}" cy="${y}" r="3.5" fill="${colour}"/>`
     })
     .join('')
-  const axis = `<line x1="${x(0)}" x2="${x(0)}" y1="8" y2="${h - 22}" stroke="${LIGHT}" stroke-dasharray="3 3"/><text x="${x(-span)}" y="${h - 8}" font-size="9" fill="${MID}">${(-span).toFixed(0)}</text><text x="${x(0)}" y="${h - 8}" text-anchor="middle" font-size="9" fill="${MID}">0 bb/100</text><text x="${x(span)}" y="${h - 8}" text-anchor="end" font-size="9" fill="${MID}">${span.toFixed(0)}</text>`
+  const axis = `<line x1="${x(0)}" x2="${x(0)}" y1="8" y2="${h - 22}" stroke="${LIGHT}" stroke-dasharray="3 3"/><text x="${x(-span)}" y="${h - 8}" font-size="9" fill="${MID}">${(-span).toFixed(0)}</text><text x="${x(0)}" y="${h - 8}" text-anchor="middle" font-size="9" fill="${MID}">0 ${unit}</text><text x="${x(span)}" y="${h - 8}" text-anchor="end" font-size="9" fill="${MID}">${span.toFixed(0)}</text>`
   return `<svg viewBox="0 0 ${w} ${h}" role="img">${axis}${lines}</svg>`
 }
 
@@ -381,6 +381,10 @@ th:first-child,td:first-child{text-align:left}
 tr.focus td{font-weight:700}
 tr.hosted td{border-bottom:none;padding-bottom:0}
 tr.hosts td{font-size:7pt;color:${MID};text-align:left;white-space:normal;padding-top:.2mm;font-weight:400}
+.question{font-style:italic;margin:2mm 4mm}
+.contrib{margin:1mm 0 2mm;padding-left:5mm}
+.contrib li{margin-bottom:1mm}
+.ci{font-size:6.6pt;color:${MID}}
 .tablecap{font-size:8.2pt;margin:3mm 0 1mm;break-after:avoid}
 .wide{column-span:all}
 .refs li{font-size:8.2pt;margin-bottom:1.2mm;text-align:left}
@@ -398,6 +402,8 @@ export interface PaperOptions {
   author?: string
   /** Month and year for the title block (from the report's date otherwise). */
   date?: string
+  /** The pilot studies this protocol was developed from, with their reports (see StudyConfig.pilots). */
+  pilots?: Array<{ id: string; lesson: string; report: StudyReport | null }>
 }
 
 /** The paper, as one self-contained HTML document for a browser to print (no scripts, no external requests). */
@@ -405,7 +411,7 @@ export function renderPaperHtml(report: StudyReport, decisions: readonly ScoredD
   const f = paperFacts(report, decisions)
   const all = [f.focus, ...f.others]
   const prereg = report.study.preregistration as {
-    study?: { format?: { bigBlind?: number; smallBlind?: number; stackInBigBlinds?: number }; decisionTimeoutMs?: number; targetHalfWidthBb100?: number; minGroups?: number; maxGroups?: number; checkEvery?: number; masterSeed?: string }
+    study?: { format?: { bigBlind?: number; smallBlind?: number; stackInBigBlinds?: number }; decisionTimeoutMs?: number; bootstrapResamples?: number; targetHalfWidthBb100?: number; minGroups?: number; maxGroups?: number; checkEvery?: number; masterSeed?: string }
     seating?: { neighbourBlock?: number }
     menu?: { chipUnit?: number }
     prices?: { jevInputUsdPerMTok?: number }
@@ -427,7 +433,66 @@ export function renderPaperHtml(report: StudyReport, decisions: readonly ScoredD
   const blocks = report.study.blocks
   const title = twoWays
     ? 'One Question or Two: Asking a Typed-Readout Decision Model to Play No-Limit Texas Hold’em'
-    : 'Stated Confidence Against True Equity: A Typed-Readout Decision Model and General-Purpose Language Models at No-Limit Texas Hold’em'
+    : (prereg as { primaryOutcomes?: string }).primaryOutcomes
+      ? 'Knowing the Odds and Acting on Them: A Small Typed-Readout Model against Frontier Language Models at No-Limit Texas Hold’em'
+      : 'Stated Confidence Against True Equity: A Typed-Readout Decision Model and General-Purpose Language Models at No-Limit Texas Hold’em'
+
+  // ---- identical spots and calibration intervals (absent in reports made before they were computed) ----
+  const cs = report.calibrationStats
+  const statOf = (id: string) => cs?.players.find((p) => p.playerId === id)
+  const contrastOf = (measure: 'brierA' | 'matchedError' | 'matchedDecision', id: string) => cs?.contrasts.find((c) => c.measure === measure && c.otherId === id)
+  const primaryMatched = Boolean((prereg as { primaryOutcomes?: string }).primaryOutcomes)
+  const matchedTotal = cs ? cs.players.reduce((n, p) => n + p.matched.n, 0) : 0
+  /** Which rivals the focus was significantly better than, worse than, or level with on a measure. */
+  const verdict = (measure: 'matchedError' | 'matchedDecision', lowerIsBetter: boolean) => {
+    const better: string[] = []
+    const worse: string[] = []
+    const level: string[] = []
+    for (const m of f.others) {
+      const c = contrastOf(measure, m.playerId)
+      if (!c) continue
+      const name = f.sibling === m ? siblingName : esc(m.label)
+      const favours = lowerIsBetter ? c.diff.mean < 0 : c.diff.mean > 0
+      ;(c.significant ? (favours ? better : worse) : level).push(`${name} (${signed(c.diff.mean)}${measure === 'matchedDecision' ? ' points' : ''})`)
+    }
+    return { better, worse, level }
+  }
+  const verdictText = (v: ReturnType<typeof verdict>, betterWord: string, worseWord: string) =>
+    [
+      v.better.length ? `${betterWord} ${listOf(v.better)}` : '',
+      v.worse.length ? `${worseWord} ${listOf(v.worse)}` : '',
+      v.level.length ? `not distinguishable from ${listOf(v.level)}` : '',
+    ]
+      .filter(Boolean)
+      .join('; ')
+  const estV = cs ? verdict('matchedError', true) : null
+  const decV = cs ? verdict('matchedDecision', false) : null
+  const fStat = statOf(f.focus.playerId)
+  const matchedEstLine =
+    cs && estV && fStat?.matched.errorPts != null
+      ? `On the spots that duplicate seating made identical for more than one model, ${esc(focusName)}’s stated win chance was on average ${n1(fStat.matched.errorPts)} points from the true chance. Paired on the same spots, its estimates were ${verdictText(estV, 'closer to the truth than', 'further from it than')} (difference in points, ${esc(focusName)} minus model; Holm-corrected paired tests).`
+      : ''
+  const matchedDecLine =
+    cs && decV && fStat?.matchedDecision.accuracy != null
+      ? `Facing a bet on those spots, ${esc(focusName)} continued or folded correctly against the pot odds ${pctOf(fStat.matchedDecision.accuracy)} of the time. Paired on the same spots, it was ${verdictText(decV, 'more often right than', 'less often right than')}.`
+      : ''
+  const matchedSummary =
+    cs && estV && decV
+      ? `On the ${matchedTotal.toLocaleString('en-US')} decisions that duplicate seating made identical across models${primaryMatched ? ', the pre-registered primary comparison,' : ''} ${esc(focusName)}’s stated chances were ${verdictText(estV, 'closer to the true chance than', 'further from it than')}; its continue-or-fold decisions were ${verdictText(decV, 'more often right than', 'less often right than')}.`
+      : ''
+  // Knows the odds but acts on them less well: level or better on estimates, worse on decisions.
+  const estimateNotWorse = estV !== null && estV.worse.length === 0 && (estV.better.length > 0 || estV.level.length > 0)
+  const discussMatched = !cs
+    ? ''
+    : estimateNotWorse && decV && decV.worse.length > 0
+      ? `The identical spots separate knowing the odds from acting on them. There, ${esc(focusName)}’s stated chances were no worse than any other model’s, yet its decisions were less often right than ${listOf(decV.worse.map((w) => w.replace(/ \(.*$/, '')))}’s. Its weaker whole-game scores therefore come less from misjudging the odds than from how it acts on them, and from which hands it chooses to play, which the whole-game measures cannot separate.`
+      : `The identical spots compare the models on the same situations, so, unlike the whole-game measures, they do not depend on which hands each model chose to play.`
+
+  // ---- tables and figures, numbered in the order they appear ----
+  const TABLES = ['lineup', 'speed', ...(cs ? ['matched'] : []), 'truth', 'won', 'action', 'chips', 'style'] as const
+  const FIGURES = ['pipeline', 'speed', 'cost', ...(cs ? ['matched'] : []), 'calibration', 'chips'] as const
+  const tableNo = (name: (typeof TABLES)[number]) => TABLES.indexOf(name) + 1
+  const figNo = (name: (typeof FIGURES)[number]) => FIGURES.indexOf(name) + 1
 
   // ---- sentences built from facts ----
   const speedLine =
@@ -563,6 +628,7 @@ export function renderPaperHtml(report: StudyReport, decisions: readonly ScoredD
     f.cost.timesCheaperThanCheapest !== null && f.cost.timesCheaperThanCheapest >= CLAIM_RATIO ? `${times(f.cost.timesCheaperThanCheapest)} cheaper than the cheapest` : '',
   ].filter(Boolean)
   const conclusionHtml = [
+    matchedSummary,
     conclusion.length ? `${conclusion[0]!.startsWith(focusName) ? '' : `${focusName} was `}${conclusion.join(' and ')}.` : '',
     f.outcome.focusRank === null ? '' : f.outcome.focusRank === 1 ? `Against the pot actually won, the pre-registered headline, its stated chances scored best.` : `Against the pot actually won, the pre-registered headline, its stated chances ranked ${ord(f.outcome.focusRank)} of ${f.outcome.of}.`,
     f.calibration.focusBestEce ? `Against the true chance they were the best calibrated on average${narrowest ? ', but the least spread out' : ''}.` : '',
@@ -598,8 +664,23 @@ export function renderPaperHtml(report: StudyReport, decisions: readonly ScoredD
           .map(([n, what]) => `${n} ${what}`),
       ) || 'none'}. Every probability ${esc(focusName)} gave is in the published data, so the moves under either rule can be compared.</p>`
     : ''
-  const truthTable = `<table><thead><tr><th>Model</th><th>Off truth (pts)</th><th>Lean (pts)</th><th>Brier</th><th>ECE</th></tr></thead><tbody>${all.map((m) => row(m, [n1(m.offTruthPts), signed(m.biasPts), n1(m.brierC, 3), n1(m.eceC, 3)])).join('')}</tbody></table>`
-  const wonTable = `<table><thead><tr><th>Model</th><th>Brier</th><th>ECE</th><th>SD stated</th><th>SD true</th></tr></thead><tbody>${all.map((m) => row(m, [n1(m.brierA, 3), n1(m.eceA, 3), n1(m.spreadPts), n1(m.truthSpreadPts)])).join('')}</tbody></table>`
+  const withCi = (e: { value: number | null; low: number | null; high: number | null } | undefined, d = 3) =>
+    !e || e.value === null ? '–' : e.low === null || e.high === null ? n1(e.value, d) : `${n1(e.value, d)}<br><span class="ci">${n1(e.low, d)}–${n1(e.high, d)}</span>`
+  const truthTable = `<table><thead><tr><th>Model</th><th>Off truth (pts)</th><th>Lean (pts)</th><th>Brier</th><th>ECE</th></tr></thead><tbody>${all.map((m) => row(m, [n1(m.offTruthPts), signed(m.biasPts), n1(m.brierC, 3), cs ? withCi(statOf(m.playerId)?.eceC) : n1(m.eceC, 3)])).join('')}</tbody></table>`
+  const wonTable = cs
+    ? `<table><thead><tr><th>Model</th><th>Brier</th><th>Skill</th><th>SD stated</th><th>SD true</th></tr></thead><tbody>${all.map((m) => row(m, [withCi(statOf(m.playerId)?.brierA), withCi(statOf(m.playerId)?.skillA), n1(m.spreadPts), n1(m.truthSpreadPts)])).join('')}</tbody></table>`
+    : `<table><thead><tr><th>Model</th><th>Brier</th><th>ECE</th><th>SD stated</th><th>SD true</th></tr></thead><tbody>${all.map((m) => row(m, [n1(m.brierA, 3), n1(m.eceA, 3), n1(m.spreadPts), n1(m.truthSpreadPts)])).join('')}</tbody></table>`
+  const matchedTable = cs
+    ? `<table><thead><tr><th>Model</th><th>Spots</th><th>Error (pts)</th><th>${esc(focusName)} − model</th><th>Facing a bet</th><th>Right</th><th>${esc(focusName)} − model</th></tr></thead><tbody>${all
+        .map((m) => {
+          const st = statOf(m.playerId)
+          const ce = contrastOf('matchedError', m.playerId)
+          const cd = contrastOf('matchedDecision', m.playerId)
+          const cell = (c: typeof ce) => (m.focus ? '—' : c ? `${signed(c.diff.mean)}<br><span class="ci">${n1(c.diff.low)} to ${n1(c.diff.high)}; p ${pOf(c.pHolm)}</span>` : '–')
+          return row(m, [String(st?.matched.n ?? 0), n1(st?.matched.errorPts ?? null), cell(ce), String(st?.matchedDecision.n ?? 0), pctOf(st?.matchedDecision.accuracy ?? null), cell(cd)])
+        })
+        .join('')}</tbody></table>`
+    : ''
   const actionTable = `<table><thead><tr><th>Model</th><th>Folds</th><th>right</th><th>Calls</th><th>right</th></tr></thead><tbody>${all.map((m) => row(m, [String(m.foldRight.n), pctOf(m.foldRight.rate), String(m.callRight.n), pctOf(m.callRight.rate)])).join('')}</tbody></table>`
   const chipTable = `<table><thead><tr><th>Model</th><th>bb/100</th><th>95% CI</th><th>${esc(focusName)} − model</th><th>p (Holm)</th></tr></thead><tbody>${all
     .map((m) => row(m, [signed(m.bb100.mean), m.bb100.low === null || m.bb100.high === null ? '–' : `[${n1(m.bb100.low)}, ${n1(m.bb100.high)}]`, m.vsFocus ? signed(m.vsFocus.mean) : '—', m.vsFocus ? pOf(m.vsFocus.pHolm) : '—']))
@@ -628,6 +709,8 @@ export function renderPaperHtml(report: StudyReport, decisions: readonly ScoredD
     .map(([k, v]) => `<h3>${esc(promptNames[k] ?? k)}</h3>${Array.isArray(v) ? `<ol start="0" class="note">${v.map((x) => `<li>${esc(String(x))}</li>`).join('')}</ol>` : `<p class="note"><code>${esc(String(v))}</code></p>`}`)
     .join('')
   const recordRows: Array<[string, unknown]> = [
+    ['Primary outcomes', (prereg as { primaryOutcomes?: string }).primaryOutcomes],
+    ['Secondary outcomes', (prereg as { secondaryOutcomes?: string }).secondaryOutcomes],
     ['Stopping rule', (prereg as { stopping?: string }).stopping],
     ['Intervals', (prereg as { intervals?: string }).intervals],
     ['Comparisons', (prereg as { contrasts?: string }).contrasts],
@@ -644,21 +727,45 @@ export function renderPaperHtml(report: StudyReport, decisions: readonly ScoredD
 
   // ---- figures ----
   const fig = (n: number, body: string, caption: string, wide = false) => `<figure${wide ? ' class="wide"' : ''}>${body}<figcaption><b>Figure ${n}.</b> ${caption}</figcaption></figure>`
-  const figPipeline = fig(1, pipeline(all.length), `The study design. Each group deals one card order and plays it ${all.length} times, rotating the models through the seats so every model plays every hand from every seat; each model picks from the same priced menu of actions, the engine settles all chips, and every decision is re-scored afterwards from every player's hole cards.`, true)
-  const figCalibration = fig(2, `<div class="panels">${all.map((m) => reliability(m.calibrationC, m.label, m.focus)).join('')}</div>`, 'Reliability of the stated win chance against the true chance at the moment of the decision (exact enumeration of the remaining board given every hole card). Points on the diagonal are perfectly calibrated; dot area is the number of decisions in the bin.', true)
-  const figSpeed = fig(3, barFigure(all.map((m) => ({ label: m.label, value: m.latencyP50Ms, whisker: m.latencyP95Ms, focus: m.focus })), (v) => msOf(v), true), 'Time to a decision: median (bar) and 95th percentile (whisker), log scale.')
-  const figCost = fig(4, barFigure(all.map((m) => ({ label: m.label, value: m.costPerDecisionUsd, focus: m.focus })), (v) => usdOf(v), true), 'Cost per decision at the prices of the run, log scale.')
-  const figChips = fig(5, forest(all.map((m) => ({ label: m.label, mean: m.bb100.mean, low: m.bb100.low, high: m.bb100.high, focus: m.focus }))), `Chips won per 100 hands in big blinds, with 95% Student t intervals over ${blocks} neighbour blocks. Intervals are marginal, not simultaneous; claims about ${focusName} rest on the paired comparisons in Table 6.`)
+  const figPipeline = fig(figNo('pipeline'), pipeline(all.length), `The study design. Each group deals one card order and plays it ${all.length} times, rotating the models through the seats so every model plays every hand from every seat; each model picks from the same priced menu of actions, the engine settles all chips, and every decision is re-scored afterwards from every player's hole cards.`, true)
+  const figCalibration = fig(figNo('calibration'), `<div class="panels">${all.map((m) => reliability(m.calibrationC, m.label, m.focus)).join('')}</div>`, 'Reliability of the stated win chance against the true chance at the moment of the decision (exact enumeration of the remaining board given every hole card). Points on the diagonal are perfectly calibrated; dot area is the number of decisions in the bin.', true)
+  const figSpeed = fig(figNo('speed'), barFigure(all.map((m) => ({ label: m.label, value: m.latencyP50Ms, whisker: m.latencyP95Ms, focus: m.focus })), (v) => msOf(v), true), 'Time to a decision: median (bar) and 95th percentile (whisker), log scale.')
+  const figCost = fig(figNo('cost'), barFigure(all.map((m) => ({ label: m.label, value: m.costPerDecisionUsd, focus: m.focus })), (v) => usdOf(v), true), 'Cost per decision at the prices of the run, log scale.')
+  const figChips = fig(figNo('chips'), forest(all.map((m) => ({ label: m.label, mean: m.bb100.mean, low: m.bb100.low, high: m.bb100.high, focus: m.focus }))), `Chips won per 100 hands in big blinds, with 95% Student t intervals over ${blocks} neighbour blocks. Intervals are marginal, not simultaneous; claims about ${focusName} rest on the paired comparisons in Table ${tableNo('chips')}.`)
+  const figMatched = cs
+    ? fig(
+        figNo('matched'),
+        forest(
+          f.others.map((m) => {
+            const c = contrastOf('matchedError', m.playerId)
+            return { label: f.sibling === m ? siblingName : m.label, mean: c?.diff.mean ?? null, low: c?.diff.low ?? null, high: c?.diff.high ?? null, focus: false }
+          }),
+          'points',
+        ),
+        `${esc(focusName)} minus each model in the error of the stated win chance on identical spots, in points, with 95% t intervals over neighbour blocks. Left of zero, ${esc(focusName)}’s estimates were closer to the true chance on the same situations.`,
+      )
+    : ''
 
   const sectionsHtml = `
 <h2>1 Introduction</h2>
-<p>A decision model that will act on someone’s behalf should know how likely it is to be right. Stated confidence is easy to ask for and hard to check: most tasks settle slowly, if at all, and their outcomes mix judgement with luck. Poker settles both problems. Every decision is a choice under hidden information, priced in chips, and resolved within seconds; and once every hole card is known, the chance a player had of winning at the moment it acted can be computed exactly.</p>
-<p>${twoWays ? `We use this to ask whether Jev, TypeSafe’s typed-readout decision model, plays better when the decision is asked in two narrower parts, as TypeSafe recommends for broad judgments, with Jev still making every pick: ${esc(focusName)} and ${esc(siblingName)} sit at the same table with ${listOf(otherNames.map(esc))}.` : `We use this to measure ${esc(focusName)}, TypeSafe’s typed-readout decision model, against ${listOf(otherNames.map(esc))}.`} Each model plays the same deals from every seat. At each decision it states its chance of winning the hand, and we compare that claim with the true chance computed from all the cards. We also record how long each decision took, what it cost, how often a model failed to answer, whether its folds and calls were right against the pot odds, and how many chips it won.</p>
-<p>Our contributions are a pre-registered protocol for measuring stated confidence against true equity in multi-player games, an analysis of ${report.study.decisions.toLocaleString('en-US')} decisions over ${hands.toLocaleString('en-US')} hands, and the decision-level data behind every figure.</p>
+<p>A decision model that will act on someone’s behalf should know how likely it is to be right, and act on it. Stated confidence is easy to ask for and hard to check: most tasks settle slowly, if at all, and their outcomes mix judgement with luck. Poker settles both problems. Every decision is a choice under hidden information, priced in chips, and resolved within seconds; and once every hole card is known, the chance a player had of winning at the moment it acted can be computed exactly.</p>
+<p class="question">${twoWays ? `We ask whether Jev, TypeSafe’s small typed-readout decision model, decides better when the decision is asked in two narrower parts, and how it compares with general-purpose language models at a fraction of their time and cost.` : `We ask whether a small, fast typed-readout decision model, used as intended, judges its chances and makes its decisions as well as frontier general-purpose language models, at a fraction of their time and cost.`}</p>
+<p>${twoWays ? `${esc(focusName)} and ${esc(siblingName)} sit at the same table with ${listOf(otherNames.map(esc))}.` : `We measure ${esc(focusName)}, TypeSafe’s typed-readout decision model, against ${listOf(otherNames.map(esc))}.`} Each model plays the same deals from every seat. At each decision it states its chance of winning the hand, and we compare that claim with the true chance computed from all the cards; we compare its decisions with the pot odds; and we record how long each decision took, what it cost, how often a model failed to answer, and how many chips it won. Our contributions are:</p>
+<ol class="contrib">
+<li>A pre-registered evaluation protocol for decision models at multi-player No-Limit Hold’em: duplicate seating, win chances scored against exact equity with proper scoring rules, and comparisons on spots that duplicate seating makes identical for every model.</li>
+<li>A comparison of a typed-readout model with general-purpose language models on the accuracy of their stated chances, the quality of their decisions, and their speed and cost, over ${report.study.decisions.toLocaleString('en-US')} decisions in ${hands.toLocaleString('en-US')} hands.</li>
+<li>The decision-level data behind every figure: every stated chance, true chance, action, price, timing, cost and hand, and the complete event log.</li>
+</ol>
 
 <h2>2 Background</h2>
 <h3>2.1 Typed readout</h3>
-<p>${esc(twoWays ? 'Jev' : focusName)} does not write text. It is sent the table state and a fixed set of named options, and returns a probability for each option together with its answer to a second typed question: the probability that it wins the hand. Its answers can only come from the options offered, so every answer is legal by construction; numbers such as bet sizes stay in code.${moveRule}</p>
+<p>${esc(twoWays ? 'Jev' : focusName)} does not write text. It is sent the table state and a fixed set of named options, and returns a probability for each option together with its answer to a second typed question: the probability that it wins the hand. Its answers can only come from the options offered, so every answer is legal by construction; numbers such as bet sizes stay in code.${
+  f.focus.mode === 'two-step' && !twoWays
+    ? ` Here it is asked each decision in two parts, together in one request: what kind of action (fold; check or call; bet or raise), and, among the bet and raise sizes offered, what amount. The move is the kind it chose, at the amount it chose when betting or raising; code changes nothing. Splitting the question keeps the several raise sizes from dividing raising’s weight against the single call.`
+    : f.focus.mode === 'raw' && !twoWays
+      ? ' Its choice is played exactly as returned; code changes nothing.'
+      : moveRule
+}</p>
 ${
   twoWays
     ? `<p>${esc(focusName)} is asked the same decision in two parts, together in one request: what kind of action (fold; check or call; bet or raise), and, among the bet and raise sizes offered, what amount. The move is the kind it chose, at the amount it chose when betting or raising; code changes nothing. ${esc(siblingName)} is asked the single question above, and its choice is played as returned. Splitting the question keeps the several raise sizes from dividing raising’s weight against the single call.</p>`
@@ -667,7 +774,8 @@ ${
 <h3>2.2 General-purpose models</h3>
 <p>The language models receive the same state as JSON, with the same options, and reply with the option they choose, their stated chance of winning, a confidence in the move and one line of reasoning. An answer that cannot be parsed, names an option that was not offered, or arrives after ${Math.round((prereg.study?.decisionTimeoutMs ?? 20000) / 1000)} seconds is replaced by check-or-fold and counted as a fallback.</p>
 <h3>2.3 Related work</h3>
-<p>Poker has long served as a test of decision-making under hidden information, from heads-up solvers [5] to superhuman multi-player play [6]. Calibration is measured with the Brier score [1] and the expected calibration error [2]; language models have been shown to be partly calibrated about their own answers [3]. Paired comparisons across several models are corrected for multiplicity with Holm’s procedure [4].</p>
+<p>Games have long served as benchmarks for decision-making under hidden information. In No-Limit Texas Hold’em, search and self-play systems reached expert and superhuman level heads-up [1, 2] and in six-player games [3]. Because chip results are noisy, those evaluations rely on variance reduction such as AIVAT [4] and report win rates in milli-big-blinds per game with standard errors. Language models have since been evaluated at the same game: on solver-labelled decision points [5], in duplicate heads-up matches between models [6], by designing poker bots [7], and at multi-player tables where a model’s stated equity is compared with a Monte Carlo estimate [8]. Our study differs from these in four ways: it compares a small typed-readout model with frontier language models; it scores stated win chances against exact equity with proper scoring rules; it compares estimates and decisions on spots that duplicate seating makes identical for every model; and its protocol and analysis were fixed before the first hand.</p>
+<p>Probability forecasts are scored with the Brier score [9] and its decomposition [10], and learned models with the expected calibration error [11], whose binned estimate is biased [12]. Language models are partly calibrated about their own answers [13] and overconfident when forecasting real events [14]. We follow recent guidance for evaluating models with clustered data and paired comparisons [15], correct for multiple comparisons with Holm’s procedure [16], and pre-register the protocol [17].</p>
 
 <h2>3 Method</h2>
 <h3>3.1 Game</h3>
@@ -681,52 +789,84 @@ ${
 <p>Luck in the cards is removed by design. A group deals one seeded card order ${all.length} times, rotating the players through the seats, so every model receives every hand from every seat. Groups are analysed in neighbour blocks of ${block}, which also balances who sits next to whom. The study analysed ${groups} groups in ${blocks} blocks.</p>
 <h3>3.3 Measures</h3>
 <ul>
-<li><b>Off the truth</b>: the mean absolute difference between a model’s stated win chance and its true chance at the moment of the decision, in percentage points; <b>lean</b> is the same difference with its sign kept.</li>
-<li><b>Calibration</b>: the Brier score and expected calibration error (ECE, ten equal-width bins) of the stated chance against two outcomes. The pre-registered headline is the share of the main pot the player actually won (1, 1/k for a k-way split, 0 after any fold), which also counts what happened after the decision; the second is the true chance at the moment of the decision, which isolates the estimate. The standard deviation of the stated chances shows how far a model’s estimates move.</li>
-<li><b>Move accuracy</b>: a fold is right if the true equity was below the pot odds, a call if it was at or above them. Checks and raises have no such rule and are not scored here.</li>
-<li><b>Chips</b>: big blinds won per 100 hands, with 95% Student t intervals over neighbour blocks, and pre-registered paired comparisons of ${esc(focusName)} against each other model, corrected with Holm’s procedure.</li>
+<li><b>Identical spots</b>: duplicate seating deals the same cards to the same seat in every rotation of a group, and stacks reset every hand, so whenever the actions before a decision are the same, every model at that seat faces an identical state. On these spots we compare (i) the error of the stated win chance against the true chance, and (ii) facing a bet, whether the model continued (called or raised) with a true chance at or above the pot odds, or folded below them. These compare the models on the same situations, so they do not depend on which hands each model chose to play.</li>
+<li><b>Off the truth</b>: the mean absolute difference between a model’s stated win chance and its true chance at the moment of the decision, over all its decisions, in percentage points; <b>lean</b> is the same difference with its sign kept.</li>
+<li><b>Calibration</b>: the Brier score and expected calibration error (ECE, ten equal-width bins) of the stated chance against two outcomes. The pre-registered whole-game outcome is the share of the main pot the player actually won (1, 1/k for a k-way split, 0 after any fold), which also counts what happened after the decision; the second is the true chance at the moment of the decision, which isolates the estimate. The Brier skill score compares a model with a reference that states a fair share, one over the players still in, at every decision: above zero, the model beats it. The standard deviation of the stated chances shows how far a model’s estimates move.</li>
+<li><b>Move accuracy</b>: over all decisions, a fold is right if the true equity was below the pot odds, a call if it was at or above them.</li>
+<li><b>Chips</b>: big blinds won per 100 hands, with pre-registered paired comparisons of ${esc(focusName)} against each other model.</li>
 <li><b>Speed and cost</b>: wall-clock time and billed cost per decision the model answered itself.</li>
 </ul>
 <h3>3.4 Pre-registration and stopping</h3>
-<p>The protocol, prompts, prices and stopping rule were fixed before any hand was played, and the analysis answers to that record (configuration hash <code>${esc(report.study.configHash.slice(0, 16))}</code>). The study checks every ${prereg.study?.checkEvery ?? '–'} groups and stops when every player’s interval half-width reaches ${prereg.study?.targetHalfWidthBb100 ?? '–'} bb/100, at ${prereg.study?.maxGroups ?? '–'} groups, or at its budget; this run ended by <i>${esc(report.study.endReason ?? report.study.status)}</i> after spending ${usdOf(report.study.costUsd)}.</p>
+<p>${primaryMatched ? 'The primary outcomes, fixed in advance, are the comparisons on identical spots; every other measure is secondary and is reported, not used for the headline claim. ' : ''}The protocol, prompts, prices and stopping rule were fixed before any hand was played, and the analysis answers to that record (configuration hash <code>${esc(report.study.configHash.slice(0, 16))}</code>). ${
+  prereg.study?.minGroups !== undefined && prereg.study.minGroups === prereg.study.maxGroups
+    ? `Its size was fixed in advance at ${prereg.study.maxGroups} groups (${((prereg.study.maxGroups ?? 0) * all.length).toLocaleString('en-US')} hands), so no result decided when it stopped; the budget was a safety limit set above the expected cost;`
+    : `The study checks every ${prereg.study?.checkEvery ?? '–'} groups and stops when every player’s interval half-width reaches ${prereg.study?.targetHalfWidthBb100 ?? '–'} bb/100, at ${prereg.study?.maxGroups ?? '–'} groups, or at its budget;`
+} this run ended by <i>${esc(report.study.endReason ?? report.study.status)}</i> after spending ${usdOf(report.study.costUsd)}.</p>
+
+<h3>3.5 Statistical analysis</h3>
+<p>Decisions within a hand, and hands within a group, are not independent, so every interval treats the neighbour block as the unit [15]. Per-model calibration intervals are 95% percentile intervals from ${prereg.study?.bootstrapResamples ?? 2000} bootstrap resamples of whole blocks. Comparisons between ${esc(focusName)} and each other model are paired by block: the mean over blocks of the per-block difference, with a 95% Student t interval and a two-sided paired t test over blocks, Holm-corrected within each measure [16]. Chips are reported in big blinds per 100 hands (bb/100); 1 bb/100 is 10 milli-big-blinds per game, the unit of [3, 4].</p>
+${
+  opts.pilots?.length
+    ? `<h3>3.6 Protocol development</h3>
+<p>The protocol was developed over ${opts.pilots.length === 1 ? 'one earlier study' : `${opts.pilots.length} earlier studies`}, run and reported under their own pre-registrations; their data are not pooled with this study’s. ${opts.pilots
+        .map((p) => {
+          const r = p.report
+          const facts = r ? `${r.study.hands.toLocaleString('en-US')} hands, ${r.players.length} players` : 'report not available'
+          return `Study <code>${esc(p.id)}</code> (${facts}): ${esc(p.lesson)}`
+        })
+        .join(' ')}</p>`
+    : ''
+}
 
 <h2>4 Results</h2>
-<p class="tablecap"><b>Table 1.</b> The models and how many decisions each made itself.</p>
+<p class="tablecap"><b>Table ${tableNo('lineup')}.</b> The models and how many decisions each made itself.</p>
 ${lineupTable}
 <h3>4.1 Speed and cost</h3>
 <p>${speedLine} ${costLine}</p>
 ${figSpeed}
 ${figCost}
-<p class="tablecap"><b>Table 2.</b> Time and cost per decision.</p>
+<p class="tablecap"><b>Table ${tableNo('speed')}.</b> Time and cost per decision.</p>
 ${speedTable}
-<h3>4.2 Stated confidence against the truth</h3>
+${
+  cs
+    ? `<h3>4.2 Identical spots (${primaryMatched ? 'pre-registered primary outcome' : 'exploratory'})</h3>
+<p>${matchedEstLine} ${matchedDecLine}</p>
+${figMatched}
+<div class="wide">
+<p class="tablecap"><b>Table ${tableNo('matched')}.</b> Identical spots: each model’s spots and the error of its stated chance, and its spots facing a bet and the share it continued or folded correctly; ${esc(focusName)} minus each model on the spots both faced, with 95% t intervals over blocks and Holm-adjusted p.</p>
+${matchedTable}
+</div>`
+    : ''
+}
+<h3>${cs ? '4.3' : '4.2'} Stated confidence over the whole game</h3>
 <p>${outcomeLine} ${eceLine} ${truthLine} ${leanLine}</p>
 ${figCalibration}
-<p class="tablecap"><b>Table 3.</b> Stated win chance against the true chance.</p>
+<p class="tablecap"><b>Table ${tableNo('truth')}.</b> Stated win chance against the true chance${cs ? ', ECE with its 95% bootstrap interval over blocks' : ''}.</p>
 ${truthTable}
 <p>${spreadLine}</p>
-<p class="tablecap"><b>Table 4.</b> Stated win chance against the share of the main pot actually won (the pre-registered headline outcome), and how far the stated and true chances moved (standard deviations, in points).</p>
+<p class="tablecap"><b>Table ${tableNo('won')}.</b> Stated win chance against the share of the main pot actually won${cs ? ': Brier score and Brier skill against the fair-share reference, with 95% bootstrap intervals over blocks' : ''}, and how far the stated and true chances moved (standard deviations, in points).</p>
 ${wonTable}
 ${ruleLine}
-<h3>4.3 Move accuracy</h3>
-<p>Folds and calls are the two decisions with an exact right answer given the pot odds. Table 5 gives, for each model, how many of each it made and the share that were right. ${accuracyLine}</p>
-<p class="tablecap"><b>Table 5.</b> Folds and calls against the pot odds.</p>
+<h3>${cs ? '4.4' : '4.3'} Move accuracy</h3>
+<p>Folds and calls are the two decisions with an exact right answer given the pot odds. Table ${tableNo('action')} gives, for each model, how many of each it made and the share that were right. ${accuracyLine}</p>
+<p class="tablecap"><b>Table ${tableNo('action')}.</b> Folds and calls against the pot odds.</p>
 ${actionTable}
-<h3>4.4 Chips</h3>
+<h3>${cs ? '4.5' : '4.4'} Chips</h3>
 <p>${chipLine}</p>
 ${figChips}
-<p class="tablecap"><b>Table 6.</b> Chips per 100 hands, and the pre-registered paired comparisons.</p>
+<p class="tablecap"><b>Table ${tableNo('chips')}.</b> Chips per 100 hands, and the pre-registered paired comparisons.</p>
 ${chipTable}
 
-<h3>4.5 Play style</h3>
+<h3>${cs ? '4.6' : '4.5'} Play style</h3>
 <p>How each model played, from the same hands: the share of hands it chose to play before the flop (VPIP), the share it raised first in (PFR), its post-flop aggression (bets and raises per call, AF) and the share of flops it took to showdown (WTSD). ${styleLine}</p>
-<p class="tablecap"><b>Table 7.</b> Play style.</p>
+<p class="tablecap"><b>Table ${tableNo('style')}.</b> Play style.</p>
 ${styleTable}
 
-${siblingLine ? `<h3>4.6 One question or two</h3>
+${siblingLine ? `<h3>${cs ? '4.7' : '4.6'} One question or two</h3>
 <p>${siblingLine}</p>
 ` : ''}
 <h2>5 Discussion</h2>
+${discussMatched ? `<p>${discussMatched}</p>` : ''}
 <p>${discussCalibration}</p>
 ${discussChips ? `<p>${discussChips}</p>` : ''}
 ${discussStyle ? `<p>${discussStyle}</p>` : ''}
@@ -734,25 +874,40 @@ ${discussStyle ? `<p>${discussStyle}</p>` : ''}
 
 <h2>6 Limitations</h2>
 <ul>
-<li>The sample is ${hands.toLocaleString('en-US')} hands in ${blocks} blocks. Calibration, speed and cost rest on ${report.study.decisions.toLocaleString('en-US')} decisions and are reasonably precise; the chip intervals are ${f.focus.bb100.low !== null && f.focus.bb100.high !== null ? `±${n1((f.focus.bb100.high - f.focus.bb100.low) / 2)} bb/100 for ${esc(focusName)}` : 'wide'}, and most chip differences cannot be distinguished from zero.</li>
+<li>The sample is ${hands.toLocaleString('en-US')} hands in ${blocks} blocks. Estimates, decisions, speed and cost rest on ${report.study.decisions.toLocaleString('en-US')} decisions; the chip intervals are ${f.focus.bb100.low !== null && f.focus.bb100.high !== null ? `±${n1((f.focus.bb100.high - f.focus.bb100.low) / 2)} bb/100 for ${esc(focusName)}` : 'wide'}, and most chip differences cannot be distinguished from zero.</li>
 <li>One line-up, one prompt per model family and one stack depth were tested. Other prompts, reasoning settings or stack depths may change the language models’ results.</li>
 <li>The true chance is the equity against the hands still live when the player acted; it ignores what later betting would have done, by design.</li>
-<li>Brier scores and ECE are reported without intervals; small differences between them should not be read as a ranking.</li>
-<li>Move accuracy covers folds and calls only. Checks and raises depend on later streets and are not scored with an exact rule.</li>
+<li>Decisions facing a bet are scored against the pot odds, which ignores fold equity: a raise with less than the odds can be a profitable bluff but counts as wrong, so the measure favours players who rarely bluff.</li>
+${cs ? `<li>Identical spots cover the decisions some other model also faced, ${matchedTotal.toLocaleString('en-US')} of ${report.study.decisions.toLocaleString('en-US')}; they come mostly early in a hand, before players’ actions diverge.</li>` : ''}
+<li>ECE from equal-width bins is a biased estimate [12]${cs ? '; its intervals come from the bootstrap over blocks' : ', and it is reported here without intervals'}.</li>
 <li>Speed and cost depend on the providers’ infrastructure and prices at the time of the run.${anyHosts ? ' OpenRouter routes each call to one of several hosts; Table 2 lists which served each model.' : ''}</li>
 </ul>
 
 <h2>7 Conclusion</h2>
 <p>${conclusionHtml}</p>
 
+<h2>Data availability</h2>
+<p>Every decision (stated chance, true chance, action, pot odds, timing, cost and serving host), every hand (cards, seat, schedule and result), every number in this paper and the complete event log are published with it as CSV, JSON and JSONL. The pre-registration record is reproduced in Appendix B; its hash identifies the configuration the analysis answers to.</p>
+
 <h2>References</h2>
 <ol class="refs">
-<li>G. W. Brier. Verification of forecasts expressed in terms of probability. <i>Monthly Weather Review</i>, 78(1):1–3, 1950.</li>
-<li>C. Guo, G. Pleiss, Y. Sun and K. Q. Weinberger. On calibration of modern neural networks. In <i>ICML</i>, 2017.</li>
-<li>S. Kadavath et al. Language models (mostly) know what they know. <i>arXiv:2207.05221</i>, 2022.</li>
-<li>S. Holm. A simple sequentially rejective multiple test procedure. <i>Scandinavian Journal of Statistics</i>, 6(2):65–70, 1979.</li>
-<li>M. Moravčík et al. DeepStack: Expert-level artificial intelligence in heads-up no-limit poker. <i>Science</i>, 356(6337):508–513, 2017.</li>
+<li>M. Moravčík, M. Schmid, N. Burch et al. DeepStack: Expert-level artificial intelligence in heads-up no-limit poker. <i>Science</i>, 356(6337):508–513, 2017.</li>
+<li>N. Brown and T. Sandholm. Superhuman AI for heads-up no-limit poker: Libratus beats top professionals. <i>Science</i>, 359(6374):418–424, 2018.</li>
 <li>N. Brown and T. Sandholm. Superhuman AI for multiplayer poker. <i>Science</i>, 365(6456):885–890, 2019.</li>
+<li>N. Burch, M. Schmid, M. Moravčík, D. Morrill and M. Bowling. AIVAT: A new variance reduction technique for agent evaluation in imperfect information games. In <i>AAAI</i>, 2018.</li>
+<li>R. Zhuang, A. Gupta, R. Yang, A. Rahane, Z. Li and G. Anumanchipalli. PokerBench: Training large language models to become professional poker players. In <i>AAAI</i>, 2025.</li>
+<li>Kaggle. Game Arena: heads-up no-limit Texas hold’em. <i>kaggle.com/benchmarks/kaggle/poker-heads-up</i>, 2026.</li>
+<li>B. Kumar et al. Husky Hold’em Bench: Can LLMs design competitive poker bots? <i>NeurIPS Workshop on Evaluating the Evolving LLM Lifecycle</i>, 2025.</li>
+<li>P. Singla, S. Garg and V. Singh. Poker Arena: Multi-axis profiling of strategic reasoning and memory in LLMs. <i>arXiv:2606.13815</i>, 2026.</li>
+<li>G. W. Brier. Verification of forecasts expressed in terms of probability. <i>Monthly Weather Review</i>, 78(1):1–3, 1950.</li>
+<li>A. H. Murphy. A new vector partition of the probability score. <i>Journal of Applied Meteorology</i>, 12(4):595–600, 1973.</li>
+<li>C. Guo, G. Pleiss, Y. Sun and K. Q. Weinberger. On calibration of modern neural networks. In <i>ICML</i>, 2017.</li>
+<li>J. Nixon, M. Dusenberry, G. Jerfel, T. Nguyen, J. Liu, L. Zhang and D. Tran. Measuring calibration in deep learning. <i>arXiv:1904.01685</i>, 2019.</li>
+<li>S. Kadavath et al. Language models (mostly) know what they know. <i>arXiv:2207.05221</i>, 2022.</li>
+<li>L. Nel. Do large language models know what they don’t know? KalshiBench: A new benchmark for evaluating epistemic calibration via prediction markets. <i>arXiv:2512.16030</i>, 2025.</li>
+<li>E. Miller. Adding error bars to evals: A statistical approach to language model evaluations. <i>arXiv:2411.00640</i>, 2024.</li>
+<li>S. Holm. A simple sequentially rejective multiple test procedure. <i>Scandinavian Journal of Statistics</i>, 6(2):65–70, 1979.</li>
+<li>B. A. Nosek, C. R. Ebersole, A. C. DeHaven and D. T. Mellor. The preregistration revolution. <i>PNAS</i>, 115(11):2600–2606, 2018.</li>
 </ol>
 
 <h2>A Prompts</h2>
@@ -772,7 +927,7 @@ ${recordHtml}`
 <p class="meta">Technical report · ${esc(date)} · study <code>${esc(report.study.id)}</code> · pre-registration <code>${esc(report.study.configHash.slice(0, 12))}</code></p>
 </header>
 <section class="abstract"><h2>Abstract</h2>
-<p>${twoWays ? `We compare two ways of asking Jev, TypeSafe’s typed-readout decision model, to play ${all.length}-handed No-Limit Texas Hold’em: one question that picks among the offered options (${esc(siblingName)}), and the same decision asked in two parts, what kind of action and what amount (${esc(focusName)}). In both, the move played is exactly what Jev picked. Both play ${listOf(otherNames.map(esc))}${handFacts ? ', and every player is given hand facts computed from its own cards' : ''}, over ${hands.toLocaleString('en-US')} hands and ${report.study.decisions.toLocaleString('en-US')} decisions in a duplicate format that deals every card order to every seat. ` : `We compare ${esc(focusName)}, a typed-readout decision model, with ${otherNames.length} general-purpose language models (${listOf(otherNames.map(esc))}) at ${all.length}-handed No-Limit Texas Hold’em, over ${hands.toLocaleString('en-US')} hands and ${report.study.decisions.toLocaleString('en-US')} decisions in a duplicate format that deals every card order to every seat. `}At each decision the model states its chance of winning, which we score against the true chance computed from every hole card. ${speedLine} ${costLine} ${outcomeLine} ${eceLine} ${chipLine}${siblingLine ? ` ${siblingLine}` : ''} The study was pre-registered, and the decision-level data are published with this report.</p>
+<p>${twoWays ? `We compare two ways of asking Jev, TypeSafe’s typed-readout decision model, to play ${all.length}-handed No-Limit Texas Hold’em: one question that picks among the offered options (${esc(siblingName)}), and the same decision asked in two parts, what kind of action and what amount (${esc(focusName)}). In both, the move played is exactly what Jev picked. Both play ${listOf(otherNames.map(esc))}${handFacts ? ', and every player is given hand facts computed from its own cards' : ''}, over ${hands.toLocaleString('en-US')} hands and ${report.study.decisions.toLocaleString('en-US')} decisions in a duplicate format that deals every card order to every seat. ` : `We compare ${esc(focusName)}, a typed-readout decision model, with ${otherNames.length} general-purpose language models (${listOf(otherNames.map(esc))}) at ${all.length}-handed No-Limit Texas Hold’em, over ${hands.toLocaleString('en-US')} hands and ${report.study.decisions.toLocaleString('en-US')} decisions in a duplicate format that deals every card order to every seat. `}At each decision the model states its chance of winning, which we score against the true chance computed from every hole card. ${matchedSummary ? `${matchedSummary} ` : ''}${speedLine} ${costLine} ${outcomeLine} ${eceLine} ${chipLine}${siblingLine ? ` ${siblingLine}` : ''} The study was pre-registered, and the decision-level data are published with this report.</p>
 </section>
 ${figPipeline}
 <div class="cols">${sectionsHtml}</div>

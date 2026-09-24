@@ -4,7 +4,7 @@ import { calibrationStats } from '../src/calibration-stats'
 
 /** One scored decision; only the fields the statistics read matter. */
 const d = (handId: string, playerId: string, over: Partial<ScoredDecision>): ScoredDecision =>
-  ({ handId, index: 1, playerId, street: 'flop', live: ['a', 'b'], winProbability: 0.5, mainPotShare: 0, expectedShare: 0.5, fallback: false, ...over }) as ScoredDecision
+  ({ handId, index: 1, playerId, position: 'UTG', optionId: 'call', street: 'flop', live: ['a', 'b'], winProbability: 0.5, mainPotShare: 0, expectedShare: 0.5, fallback: false, ...over }) as ScoredDecision
 
 /**
  * `blocks` blocks of one group each, one hand per player per group. In every hand, player a states
@@ -57,13 +57,43 @@ describe('calibrationStats', () => {
     // On the matched spots (identical first decisions) a is 30 points closer to the truth.
     const matched = r.contrasts.find((c) => c.measure === 'matchedError' && c.otherId === 'b')!
     expect(matched.diff.mean).toBeCloseTo(-30, 6)
-    expect(r.players.find((p) => p.playerId === 'b')!.matched).toMatchObject({ n: 40 })
+    // Both of each hand's decisions are matched: same group, seat and actions before them.
+    expect(r.players.find((p) => p.playerId === 'b')!.matched).toMatchObject({ n: 80 })
     expect(r.players.find((p) => p.playerId === 'b')!.matched.errorPts).toBeCloseTo(30, 6)
   })
 
   it('claims nothing when the two are alike', () => {
     const r = run(study(40, 0))
     for (const c of r.contrasts) expect(c.significant).toBe(false)
+  })
+
+  it('scores decisions at identical spots facing a bet: continuing is right at or above the pot odds, folding below', () => {
+    const s = study(20)
+    for (const x of s.decisions) {
+      // Every spot faces 100 to call into 300: pot odds 25%.
+      x.toCall = 100
+      x.winnablePot = 300
+      // a folds exactly when the true chance is below the odds; b always calls.
+      x.actionType = x.playerId === 'a' && x.expectedShare < 0.25 ? 'fold' : 'call'
+      x.optionId = x.actionType === 'fold' ? 'fold' : 'call'
+    }
+    // The spots must stay matched, so both players' first actions are the same: checks, which face no bet
+    // and so aren't scored.
+    for (const x of s.decisions) if (x.index === 0) Object.assign(x, { actionType: 'check', optionId: 'check', toCall: 0 })
+    const r = run(s)
+    const a = r.players.find((p) => p.playerId === 'a')!
+    expect(a.matchedDecision.accuracy).toBe(1)
+    const c = r.contrasts.find((x) => x.measure === 'matchedDecision' && x.otherId === 'b')!
+    // b's calls below the odds are wrong, so a is ahead by the share of such spots, in points.
+    expect(c.diff.mean).toBeGreaterThan(0)
+  })
+
+  it('matches only spots that were really the same: a different action before it is a different spot', () => {
+    const s = study(10)
+    // In every group, b's second decision now follows a raise instead of a call.
+    for (const x of s.decisions) if (x.playerId === 'b' && x.index === 0) x.optionId = 'open_3bb'
+    const r = run(s)
+    expect(r.players.find((p) => p.playerId === 'b')!.matched.n).toBe(10) // only the first decisions still match
   })
 
   it('leaves out fallbacks and unstated chances, and gives the same intervals for the same seed', () => {

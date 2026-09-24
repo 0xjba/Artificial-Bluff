@@ -31,6 +31,15 @@ describe('parseStudyConfig', () => {
     expect(() => jev({ mode: 'decomposed' })).toThrow(/mode must be "raw" or "two-step"/)
   })
 
+  it('takes the primary outcome and the pilot studies as explicit choices, and adds nothing when left out', () => {
+    const pilots = [{ id: 'main-2026-09', lesson: 'Jev lost; our raising rule changed its moves.' }]
+    expect(parseStudyConfig({ ...base, primary: 'matched-spots', pilots })).toMatchObject({ primary: 'matched-spots', pilots })
+    expect(parseStudyConfig(base)).not.toHaveProperty('primary')
+    expect(parseStudyConfig(base)).not.toHaveProperty('pilots')
+    expect(() => parseStudyConfig({ ...base, primary: 'chips' })).toThrow(/"primary" must be "matched-spots"/)
+    expect(() => parseStudyConfig({ ...base, pilots: [{ id: 'x' }] })).toThrow(/pilots\[0\] needs an id and a lesson/)
+  })
+
   it('rejects unknown keys, so typos cannot silently fall back to defaults', () => {
     expect(() => parseStudyConfig({ ...base, checkevery: 4 })).toThrow(/unknown key\(s\): checkevery/)
     expect(() => parseStudyConfig({ ...base, format: { smallBlind: 50, bigBlind: 100, stackInBigBlinds: 100, ante: 10 } })).toThrow(/unknown format key/)

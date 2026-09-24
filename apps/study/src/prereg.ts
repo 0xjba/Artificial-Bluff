@@ -51,6 +51,20 @@ export function preregistration(config: StudyConfig, adaptedLineup: PlayerSpec[]
       'per-player 95% t CIs over neighbour blocks are marginal, not simultaneous; pairwise claims use paired ' +
       'contrasts with a Holm correction; percentile bootstrap CIs are reported as a sensitivity check',
   }
+  // Named primary outcomes: stated in the record before the first hand, so the paper can't choose later.
+  if (config.primary === 'matched-spots') {
+    Object.assign(record, {
+      primaryOutcomes:
+        'on matched spots (decisions identical across the duplicate rotations of a group: the same cards in the same seat and the same actions so far), ' +
+        'the first jev seat minus each other seat on (1) |stated win chance − true chance| in points and (2) at spots facing a bet, continue-or-fold ' +
+        'accuracy against the pot odds (continue = call or raise, right at or above the odds; fold right below them); per-block mean of the ' +
+        'differences over the spots both faced, two-sided paired t test over neighbour blocks, Holm correction within each measure',
+      secondaryOutcomes:
+        'Brier score and skill (against a fair-share forecast, 1 / players still in) versus the main-pot share won, and ECE versus the true chance, ' +
+        'each with a 95% bootstrap interval over neighbour blocks, and the paired Brier comparison; fold and call accuracy; time and cost per ' +
+        'decision; chips (bb/100) with the paired contrasts above; play style. Secondary results are reported, not used for the headline claim',
+    })
+  }
   const clash = Object.keys(extra).filter((k) => k in record)
   if (clash.length) throw new Error(`pre-registration: extra key(s) would overwrite the record: ${clash.join(', ')}`)
   return { ...record, ...extra }

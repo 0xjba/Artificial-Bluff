@@ -267,6 +267,76 @@ describe('paper facts', () => {
   })
 })
 
+describe('the paper as a research paper', () => {
+  it('states its question, its contributions, its statistics, and where the data are', async () => {
+    const { report, decisions } = await analysis()
+    const html = renderPaperHtml(report, decisions, { mock: true })
+    expect(html).toContain('<p class="question">')
+    expect(html).toMatch(/<ol class="contrib">(\s*<li>.*?<\/li>){3}/s)
+    expect(html).toContain('3.5 Statistical analysis')
+    expect(html).toContain('milli-big-blinds per game')
+    expect(html).toContain('Data availability')
+    for (const ref of ['AIVAT', 'PokerBench', 'Poker Arena', 'Game Arena', 'Adding error bars', 'preregistration revolution', 'vector partition']) expect(html).toContain(ref)
+    // Every citation points at a reference that exists.
+    const refs = html.slice(html.indexOf('<ol class="refs">'), html.indexOf('</ol>', html.indexOf('<ol class="refs">'))).match(/<li>/g)!.length
+    const cited = [...html.matchAll(/\[(\d+(?:[,–] ?\d+)*)\]/g)].flatMap((m) => m[1]!.split(/[,–] ?/).map(Number))
+    expect(Math.max(...cited)).toBeLessThanOrEqual(refs)
+  })
+
+  it('reports decisions and estimates on identical spots, as exploratory unless pre-registered as primary', async () => {
+    const { report, decisions } = await analysis()
+    const html = renderPaperHtml(report, decisions, { mock: true })
+    expect(html).toContain('4.2 Identical spots (exploratory)')
+    const primary = { ...report, study: { ...report.study, preregistration: { ...(report.study.preregistration as object), primaryOutcomes: 'matched spots', study: { primary: 'matched-spots' } } } } as StudyReport
+    expect(renderPaperHtml(primary, decisions, { mock: true })).toContain('4.2 Identical spots (pre-registered primary outcome)')
+  })
+
+  it('titles, describes and states a primary, fixed-size, two-step study as what it is', async () => {
+    const { report, decisions } = await analysis()
+    const pre = report.study.preregistration as { study: Record<string, unknown> }
+    const final = {
+      ...report,
+      study: {
+        ...report.study,
+        preregistration: {
+          ...pre,
+          study: { ...pre.study, primary: 'matched-spots', minGroups: 4, maxGroups: 4, lineup: [{ id: 'hex', kind: 'jev', model: 'jev-1.13.0', mode: 'two-step' }] },
+          primaryOutcomes: 'on matched spots, the first jev seat minus each other seat',
+          secondaryOutcomes: 'chips and the rest',
+          jevModes: { 'two-step': 'two Choices asked together; code changes nothing' },
+        },
+      },
+      players: report.players.map((p) => (p.playerId === 'hex' ? { ...p, kind: 'jev', model: 'jev-1.13.0' } : p)),
+    } as StudyReport
+    const html = renderPaperHtml(final, decisions, { mock: true })
+    expect(html).toContain('Knowing the Odds and Acting on Them')
+    // The one Jev at the table is asked in two steps, and the paper says so.
+    expect(html).toContain('asked each decision in two parts')
+    expect(html).not.toContain('The move played is its single most likely option.')
+    expect(html).toContain('fixed in advance at 4 groups')
+    expect(html).toContain('<b>Primary outcomes.</b>')
+    // The identical-spots table spans the page, so its intervals aren't cut off.
+    expect(html).toMatch(/<div class="wide">\s*<p class="tablecap"><b>Table 3\./)
+  })
+
+  it('tells how the protocol was developed from the pilot studies', async () => {
+    const { report, decisions } = await analysis()
+    const html = renderPaperHtml(report, decisions, { mock: true, pilots: [{ id: 'pilot-a', lesson: 'Our raising rule changed a third of Jev’s moves.', report }] })
+    expect(html).toContain('3.6 Protocol development')
+    expect(html).toContain('pilot-a')
+    expect(html).toContain('Our raising rule changed a third of Jev’s moves.')
+  })
+
+  it('numbers tables and figures in order and points at the right ones', async () => {
+    const { report, decisions } = await analysis()
+    const html = renderPaperHtml(report, decisions, { mock: true })
+    expect([...html.matchAll(/<b>Table (\d)\.<\/b>/g)].map((m) => Number(m[1]))).toEqual([1, 2, 3, 4, 5, 6, 7, 8])
+    expect([...html.matchAll(/<b>Figure (\d)\.<\/b>/g)].map((m) => Number(m[1]))).toEqual([1, 2, 3, 4, 5, 6])
+    expect(html).toContain('Table 6 gives')
+    expect(html).toMatch(/paired comparisons in Table 7/)
+  })
+})
+
 describe('renderPaperHtml', () => {
   it('reports the move rule\'s effect and the hosts when the log has them', () => {
     const { report, decisions } = crafted()
@@ -298,6 +368,7 @@ describe('renderPaperHtml', () => {
     expect(conclusion).toContain('ranked 2nd of 2')
     // Tables are numbered in order and the text points at the right ones.
     const caps = [...html.matchAll(/<b>Table (\d)\.<\/b>/g)].map((m) => Number(m[1]))
+    // Crafted reports carry no identical-spot statistics, so that table is left out.
     expect(caps).toEqual([1, 2, 3, 4, 5, 6, 7])
     expect(html).toContain('Table 5 gives')
     expect(html).toMatch(/claims about Jev rest on the paired comparisons in Table 6/)
