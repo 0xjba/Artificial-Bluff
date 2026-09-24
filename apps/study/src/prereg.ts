@@ -1,6 +1,6 @@
 import { canonicalJson } from '@ab/core'
 import { DEFAULT_MENU_CONFIG, neighbourBlockSize } from '@ab/engine'
-import { ACTION_INSTRUCTIONS, DECOMPOSED_RULE, JEV_INPUT_PRICE_PER_MTOK, STRENGTH_INSTRUCTIONS, STRENGTH_LEVELS, systemPrompt, WIN_INSTRUCTIONS, type PlayerSpec } from '@ab/players'
+import { ACTION_INSTRUCTIONS, JEV_INPUT_PRICE_PER_MTOK, JEV_MODE_RULES, KIND_INSTRUCTIONS, SIZE_INSTRUCTIONS, systemPrompt, WIN_INSTRUCTIONS, type PlayerSpec } from '@ab/players'
 import type { StudyConfig } from './config'
 
 /**
@@ -9,8 +9,12 @@ import type { StudyConfig } from './config'
  * run gets, so topping up the budget and resuming doesn't change the study.
  */
 export function preregistration(config: StudyConfig, adaptedLineup: PlayerSpec[], extra: Record<string, unknown> = {}): Record<string, unknown> {
-  // Only studies with a decomposed Jev seat carry its questions and rule, so earlier records are unchanged.
-  const decomposed = adaptedLineup.some((s) => s.kind === 'jev' && s.mode === 'decomposed')
+  // Jev seats with a mode carry its questions and rule; earlier records (no modes) are unchanged, and
+  // the main study's rule (jevMove) is recorded unless every Jev seat declares a mode of its own.
+  const jevs = adaptedLineup.filter((s): s is Extract<PlayerSpec, { kind: 'jev' }> => s.kind === 'jev')
+  const modes = [...new Set(jevs.flatMap((s) => (s.mode ? [s.mode] : [])))].sort()
+  const twoStep = modes.includes('two-step')
+  const ruleInUse = jevs.length === 0 || jevs.some((s) => !s.mode)
   const record = {
     kind: 'artificialBluff study',
     version: 1,
@@ -21,12 +25,12 @@ export function preregistration(config: StudyConfig, adaptedLineup: PlayerSpec[]
       llmSystem: systemPrompt(config.handFacts ?? false),
       jevAction: ACTION_INSTRUCTIONS,
       jevWin: WIN_INSTRUCTIONS,
-      ...(decomposed ? { jevStrength: STRENGTH_INSTRUCTIONS, jevStrengthLevels: [...STRENGTH_LEVELS] } : {}),
+      ...(twoStep ? { jevKind: KIND_INSTRUCTIONS, jevSize: SIZE_INSTRUCTIONS } : {}),
     },
-    ...(decomposed ? { jevDecomposed: DECOMPOSED_RULE } : {}),
-    jevMove:
+    ...(modes.length ? { jevModes: Object.fromEntries(modes.map((m) => [m, JEV_MODE_RULES[m]])) } : {}),
+    ...(ruleInUse ? { jevMove:
       'the kind of move with the most total weight in the action probabilities (fold; check or call; bet or raise, all sizes), ' +
-      "then the most likely option of that kind; ties keep TypeSafe's own choice",
+      "then the most likely option of that kind; ties keep TypeSafe's own choice" } : {}),
     prices: { jevInputUsdPerMTok: JEV_INPUT_PRICE_PER_MTOK, llm: 'as reported per call by OpenRouter (usage.cost)' },
     outcomes: {
       calibrationHeadline: 'main-pot share: 1 if won alone, 1/k if split k ways, 0 if lost or folded at any point',

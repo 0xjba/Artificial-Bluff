@@ -1,9 +1,9 @@
 {
-  "_note": "Follow-up to main-2026-09: does Jev do better asked the way TypeSafe recommends? hex = Jev decomposed (a win Noul and a hand-strength Score, the move chosen in code), pill = Jev as in the main study (one Choice), against Gemini 3.8 Flash and Llama 4 Maverick. Every player sees hand facts (made hand, draws and outs, starting-hand rank). About $0.002-0.003 a hand, so $6 covers the 2,000-hand cap. Rehearse free with --mock; --live spends real money and needs the user's go-ahead.",
+  "_note": "Follow-up to main-2026-09: does Jev play better when the decision is asked in two parts? hex = Jev two-step (what kind of action, and what amount, both Jev's picks, played as picked), pill = Jev one question, played exactly as TypeSafe returns it (no rule of ours). Code never decides when to fold, call or raise, for any player. Against Gemini 3.8 Flash and Llama 4 Maverick, reasoning as in the main study. Every player sees hand facts (made hand, draws and outs, starting-hand rank). About $0.002-0.003 a hand, so $6 covers the 2,000-hand cap. Rehearse free with --mock; --live spends real money and needs the user's go-ahead.",
   "id": "jev-ablation-2026-09",
   "lineup": [
-    { "id": "hex", "kind": "jev", "model": "jev-1.13.0", "mode": "decomposed" },
-    { "id": "pill", "kind": "jev", "model": "jev-1.13.0" },
+    { "id": "hex", "kind": "jev", "model": "jev-1.13.0", "mode": "two-step" },
+    { "id": "pill", "kind": "jev", "model": "jev-1.13.0", "mode": "raw" },
     { "id": "drip", "kind": "llm", "model": "google/gemini-3.8-flash", "reasoning": "minimal" },
     { "id": "nimbus", "kind": "llm", "model": "meta-llama/llama-4-maverick" }
   ],

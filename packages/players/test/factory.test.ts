@@ -51,27 +51,28 @@ describe('Jev seats', () => {
   const obs = buildObservation(createHand({ seats: [{ id: 'a', stack: 1000 }, { id: 'b', stack: 1000 }], buttonIndex: 0, smallBlind: 50, bigBlind: 100, seed: 2 }))
   const signal = new AbortController().signal
 
-  it('builds the decomposed mode when the spec asks for it', async () => {
+  it('builds the mode the spec asks for', async () => {
     const bodies: Array<{ questions: Record<string, unknown> }> = []
     const offline = offlineTypeSafeFetch()
     const spy = (url: string, init?: RequestInit) => {
       bodies.push(JSON.parse(String(init!.body)))
       return offline(url, init)
     }
-    const [jev] = createPlayers([{ id: 'hex', kind: 'jev', model: 'jev-1.13.0', mode: 'decomposed' }], { TYPESAFE_API_KEY: 'k' }, spy)
+    const [jev] = createPlayers([{ id: 'hex', kind: 'jev', model: 'jev-1.13.0', mode: 'two-step' }], { TYPESAFE_API_KEY: 'k' }, spy)
     expect(await jev!.decide(obs, signal)).toMatchObject({ ok: true })
-    expect(Object.keys(bodies[0]!.questions).sort()).toEqual(['strength', 'win'])
+    expect(Object.keys(bodies[0]!.questions).sort()).toEqual(['kind', 'size', 'win'])
   })
 
   it('plays an offline Jev with no key and no network, for free rehearsals', async () => {
-    const [choiceJev, decomposed] = createPlayers(
+    const [choiceJev, twoStep, raw] = createPlayers(
       [
         { id: 'hex', kind: 'jev', model: 'mock/jev-1.13.0', offline: true },
-        { id: 'pill', kind: 'jev', model: 'mock/jev-1.13.0', mode: 'decomposed', offline: true },
+        { id: 'pill', kind: 'jev', model: 'mock/jev-1.13.0', mode: 'two-step', offline: true },
+        { id: 'drip', kind: 'jev', model: 'mock/jev-1.13.0', mode: 'raw', offline: true },
       ],
       {},
     )
-    for (const p of [choiceJev!, decomposed!]) {
+    for (const p of [choiceJev!, twoStep!, raw!]) {
       const res = await p.decide(obs, signal)
       expect(res).toMatchObject({ ok: true })
       expect(obs.options.map((o) => o.id)).toContain(res.ok && res.decision.optionId)

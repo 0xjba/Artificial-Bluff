@@ -74,7 +74,7 @@ function parseSeat(raw: unknown, index: number): PlayerSpec {
   }
   switch (s.kind) {
     case 'jev': {
-      if (s.mode !== undefined && s.mode !== 'choice' && s.mode !== 'decomposed') throw new Error(`study config: ${where}.mode must be "choice" or "decomposed"`)
+      if (s.mode !== undefined && s.mode !== 'raw' && s.mode !== 'two-step') throw new Error(`study config: ${where}.mode must be "raw" or "two-step"`)
       return { id: s.id, kind: 'jev', model: model(), ...(s.mode !== undefined ? { mode: s.mode } : {}) }
     }
     case 'llm': {
