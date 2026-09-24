@@ -23,5 +23,5 @@ plus a live spectator game.
 - `pnpm live --mock` (free live server on :8787; admin API with `ADMIN_TOKEN`) and `pnpm web` (site on :3000). Real live games (`pnpm live` without `--mock`) spend money once an admin starts one: never without the user's go-ahead.
 - `pnpm study report <study.json> [--mock]` writes `reports/<id>/report.html` plus JSON/CSV exports from the event log (free).
 - `pnpm study run <study.json> --mock` is a free rehearsal; `--live` spends real money (up to the study's budget): never run `--live` without the user's explicit go-ahead.
-- Deploy: `docker compose up -d --build` (server + web + Caddy HTTPS; `DOMAIN` and keys in `.env`); guide in `docs/deploy.md`. Live games start only via the admin API from the VPS itself.
+- Deploy: `docker compose up -d --build` (server + web + Caddy HTTPS; `DOMAIN` and keys in `.env`); guide in `docs/deploy.md`. Home server: `docker compose -f docker-compose.home.yml up -d --build` behind a Cloudflare Tunnel (`CLOUDFLARE_TUNNEL_TOKEN` in `.env`); guide in `docs/deploy-home.md`. Live games start only via the admin API from the VPS itself.
 - `/play` runs a table in the visitor's browser with their own keys (Plan 5). Jev calls go through the `/api/typesafe` relay until TypeSafe allows browser calls.

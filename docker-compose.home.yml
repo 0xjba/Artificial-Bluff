@@ -1,0 +1,80 @@
+# Home server: live server + web app + Caddy, exposed through a Cloudflare Tunnel instead of open ports.
+# No router port forwarding, the home IP stays private, and Cloudflare provides HTTPS. See docs/deploy-home.md.
+#
+#   docker compose -f docker-compose.home.yml up -d --build
+#
+# Secrets and settings come from .env next to this file (never baked into the image).
+
+services:
+  server:
+    build: .
+    image: artificialbluff:latest
+    # One server per database: a lock left by a killed container would name a pid that may be reused
+    # in the new container, so it is cleared here (compose runs exactly one server on this volume).
+    command: sh -c 'rm -f /app/data/live.db.server.lock && exec node --import tsx apps/server/src/main.ts'
+    env_file: .env
+    environment:
+      HOST: 0.0.0.0
+      PORT: "8787"
+      DB_PATH: /app/data/live.db
+      LINEUP: /app/lineups/live.json
+    volumes:
+      - ./data:/app/data
+      - ./lineups:/app/lineups:ro
+    # The admin API lives on this port: reachable from the home server itself only.
+    ports:
+      - "127.0.0.1:8787:8787"
+    init: true
+    # SIGTERM stops after the hand in progress (real players can take a while).
+    stop_grace_period: 3m
+    restart: unless-stopped
+
+  web:
+    build: .
+    image: artificialbluff:latest
+    working_dir: /app/apps/web
+    command: node_modules/.bin/next start --port 3000 --hostname 0.0.0.0
+    environment:
+      REPORTS_DIR: /app/reports
+    volumes:
+      - ./reports:/app/reports:ro
+    depends_on:
+      - server
+    init: true
+    restart: unless-stopped
+
+  # Plain HTTP inside the compose network; nothing is published to the home network.
+  caddy:
+    image: caddy:2
+    volumes:
+      - ./deploy/Caddyfile.tunnel:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - web
+    restart: unless-stopped
+
+  # Outbound-only connection to Cloudflare, which serves the site at your hostname over HTTPS.
+  # In the Cloudflare dashboard, point the tunnel's public hostname at http://caddy:80.
+  tunnel:
+    image: cloudflare/cloudflared:latest
+    command: tunnel --no-autoupdate run
+    environment:
+      # From the Cloudflare dashboard (docs/deploy-home.md, step 3).
+      TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN:-}
+    depends_on:
+      - caddy
+    restart: unless-stopped
+
+  # A try-out without a domain or account: a temporary https://<random>.trycloudflare.com address.
+  # Start it instead of `tunnel` (docs/deploy-home.md, "Try it first").
+  quick-tunnel:
+    image: cloudflare/cloudflared:latest
+    command: tunnel --no-autoupdate --url http://caddy:80
+    profiles: [quick]
+    depends_on:
+      - caddy
+
+volumes:
+  caddy_data:
+  caddy_config:
