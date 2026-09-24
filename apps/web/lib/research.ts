@@ -9,6 +9,8 @@ export interface Tile {
 const CLAIM_RATIO = 1.5
 
 const pct = (x: number | null, d = 0) => (x === null ? '–' : `${(x * 100).toFixed(d)}%`)
+const dp3 = (x: number | null) => (x === null ? '–' : x.toFixed(3))
+const ord = (n: number) => `${n}${n % 10 === 1 && n % 100 !== 11 ? 'st' : n % 10 === 2 && n % 100 !== 12 ? 'nd' : n % 10 === 3 && n % 100 !== 13 ? 'rd' : 'th'}`
 const pts = (x: number | null) => (x === null ? '–' : `${x.toFixed(1)} pts`)
 const range = (xs: Array<number | null>, fmt: (x: number) => string) => {
   const v = xs.filter((x): x is number => x !== null)
@@ -48,18 +50,21 @@ export function researchTiles(f: PaperFacts): Tile[] {
       : { value: usdOf(jev.costPerDecisionUsd), what: `per decision, against ${range(others.map((o) => o.costPerDecisionUsd), (x) => usdOf(x))} for the others` },
   )
 
-  tiles.push({ value: pts(jev.offTruthPts), what: `from the true odds, on average, when ${name} stated its chance of winning; ${range(others.map((o) => o.offTruthPts), (x) => x.toFixed(1))} pts for the others` })
-
-  const leaner = [jev, ...others].filter((m) => m.biasPts !== null).sort((a, b) => Math.abs(b.biasPts!) - Math.abs(a.biasPts!))[0]
-  if (leaner)
+  // The pre-registered headline outcome, whichever way it went: the stated chance against the pot actually won.
+  if (f.outcome.focusRank !== null)
     tiles.push({
-      value: `${leaner.biasPts! > 0 ? '+' : '−'}${Math.abs(leaner.biasPts!).toFixed(0)} pts`,
-      what: `${leaner.focus ? name : leaner.label} ${leaner.biasPts! > 0 ? 'overstated' : 'understated'} its chances on average, the most of any model`,
+      value: `${ord(f.outcome.focusRank)} of ${f.outcome.of}`,
+      what: `by Brier score against the pot actually won, the pre-registered headline: ${name} ${dp3(jev.brierA)}; ${range(others.map((o) => o.brierA), dp3)} for the others`,
     })
 
-  tiles.push({ value: pct(moveAccuracy(jev)), what: `of ${name}’s folds and calls were right against the pot odds; ${range(others.map(moveAccuracy), (x) => pct(x))} for the others` })
+  tiles.push({
+    value: dp3(jev.eceC),
+    what: `calibration error against the true odds (ECE, lower is better)${f.calibration.focusBestEce ? ', the lowest of any model' : ''}; ${range(others.map((o) => o.eceC), dp3)} for the others`,
+  })
 
-  tiles.push({ value: pct(jev.fallbackRate, 1), what: `of ${name}’s decisions fell back to check-or-fold (no answer, an invalid one, or a timeout); ${range(others.map((o) => o.fallbackRate), (x) => pct(x, 1))} for the others` })
+  tiles.push({ value: pts(jev.offTruthPts), what: `from the true odds, on average, when ${name} stated its chance of winning; ${range(others.map((o) => o.offTruthPts), (x) => x.toFixed(1))} pts for the others` })
+
+  tiles.push({ value: pct(moveAccuracy(jev)), what: `of ${name}’s folds and calls were right against the pot odds; ${range(others.map(moveAccuracy), (x) => pct(x))} for the others` })
 
   const win = f.significantChipWins[0]
   const loss = f.significantChipLosses[0]

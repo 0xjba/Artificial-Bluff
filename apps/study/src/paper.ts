@@ -14,6 +14,11 @@ import type { StudyReport } from './report'
 /** A number, or null when there isn't one (report.json stores NaN and infinities as null). */
 const fin = (x: number | null | undefined): number | null => (typeof x === 'number' && Number.isFinite(x) ? x : null)
 const mean = (xs: readonly number[]): number | null => (xs.length ? xs.reduce((s, x) => s + x, 0) / xs.length : null)
+/** Population standard deviation. */
+const sd = (xs: readonly number[]): number | null => {
+  const m = mean(xs)
+  return m === null ? null : Math.sqrt(xs.reduce((s, x) => s + (x - m) ** 2, 0) / xs.length)
+}
 
 export interface ModelFacts {
   playerId: string
@@ -34,6 +39,12 @@ export interface ModelFacts {
   biasPts: number | null
   brierC: number | null
   eceC: number | null
+  /** Against the share of the main pot actually won: the pre-registered headline outcome (A). */
+  brierA: number | null
+  eceA: number | null
+  /** Standard deviation of the stated win chances, and of the true chances in the same spots (points). */
+  spreadPts: number | null
+  truthSpreadPts: number | null
   calibrationC: Calibration | null
   /** Folds and calls are scored against pot odds with the true equity (the pre-registered rule). */
   foldRight: { n: number; rate: number | null }
@@ -62,6 +73,10 @@ export interface PaperFacts {
    * pick, by the kind of move it played instead; null when the log doesn't record the pick.
    */
   moveRule: { moves: number; changed: number; toRaise: number; toCall: number; toFold: number } | null
+  /** The pre-registered headline outcome (A): who had the lowest Brier score, and where the focus ranked. */
+  outcome: { best: ModelFacts | null; focusRank: number | null; of: number }
+  /** Against the true chance (C): whether the focus had the lowest ECE, and the best other model on it. */
+  calibration: { focusBestEce: boolean; bestOtherEce: ModelFacts | null }
 }
 
 const moveKind = (id: string) => (id === 'fold' ? 'fold' : id === 'check' || id === 'call' ? 'call' : 'raise')
@@ -113,6 +128,10 @@ export function paperFacts(report: StudyReport, decisions: readonly ScoredDecisi
       biasPts: pts((d) => d.winProbability! - d.expectedShare),
       brierC: fin(cal?.winC.brier),
       eceC: fin(cal?.winC.ece),
+      brierA: fin(cal?.winA.brier),
+      eceA: fin(cal?.winA.ece),
+      spreadPts: stated.length ? sd(stated.map((d) => d.winProbability! * 100)) : null,
+      truthSpreadPts: stated.length ? sd(stated.map((d) => d.expectedShare * 100)) : null,
       calibrationC: cal?.winC ?? null,
       foldRight: scored('fold'),
       callRight: scored('call'),
@@ -151,6 +170,15 @@ export function paperFacts(report: StudyReport, decisions: readonly ScoredDecisi
     significantChipWins: others.filter((o) => o.vsFocus?.significant && (o.vsFocus.mean ?? 0) > 0),
     significantChipLosses: others.filter((o) => o.vsFocus?.significant && (o.vsFocus.mean ?? 0) < 0),
     moveRule: moveRuleOf(decisions.filter((d) => d.playerId === focus.playerId && !d.fallback)),
+    outcome: (() => {
+      const ranked = facts.filter((x) => x.brierA !== null).sort((a, b) => a.brierA! - b.brierA!)
+      const at = ranked.indexOf(focus)
+      return { best: ranked[0] ?? null, focusRank: at < 0 ? null : at + 1, of: ranked.length }
+    })(),
+    calibration: (() => {
+      const bestOtherEce = by(others, (x) => x.eceC, 1)
+      return { focusBestEce: focus.eceC !== null && others.every((o) => o.eceC === null || focus.eceC! < o.eceC), bestOtherEce }
+    })(),
   }
 }
 
@@ -204,6 +232,9 @@ const range = (xs: Array<number | null>, fmt: (x: number | null) => string) => {
   const hi = Math.max(...v)
   return lo === hi ? fmt(lo) : `${fmt(lo)}–${fmt(hi)}`
 }
+
+/** 1st, 2nd, 3rd, 4th… */
+const ord = (n: number) => `${n}${n % 10 === 1 && n % 100 !== 11 ? 'st' : n % 10 === 2 && n % 100 !== 12 ? 'nd' : n % 10 === 3 && n % 100 !== 13 ? 'rd' : 'th'}`
 
 // ---- figures (inline SVG, print-safe greys with one accent) ----
 const INK = '#1a1a1a'
@@ -325,6 +356,8 @@ tbody td:first-child{white-space:normal}
 tbody tr:last-child td{border-bottom:1.2px solid ${INK}}
 th:first-child,td:first-child{text-align:left}
 tr.focus td{font-weight:700}
+tr.hosted td{border-bottom:none;padding-bottom:0}
+tr.hosts td{font-size:7pt;color:${MID};text-align:left;white-space:normal;padding-top:.2mm;font-weight:400}
 .tablecap{font-size:8.2pt;margin:3mm 0 1mm;break-after:avoid}
 .wide{column-span:all}
 .refs li{font-size:8.2pt;margin-bottom:1.2mm;text-align:left}
@@ -401,15 +434,96 @@ export function renderPaperHtml(report: StudyReport, decisions: readonly ScoredD
     return `${[up.length ? say(up, 'overstated') : '', down.length ? say(down, 'understated') : ''].filter(Boolean).join('; ')}.`
   })()
 
+  const others = f.others
+  /** How the text names a model: the focus by its short name. */
+  const nameOf = (m: ModelFacts) => (m.focus ? focusName : esc(m.label))
+  // Level with the best as printed (three decimals): named together, the focus first.
+  const levelBest = f.outcome.best ? all.filter((m) => m.brierA !== null && n1(m.brierA, 3) === n1(f.outcome.best!.brierA, 3)) : []
+  const outcomeLine =
+    levelBest.length > 1
+      ? `Against the pre-registered headline outcome, the share of the main pot each model actually won, ${listOf(levelBest.map(nameOf))} scored best (Brier ${n1(f.outcome.best!.brierA, 3)})${levelBest.some((m) => m.focus) ? '' : `; ${focusName} ranked ${ord(f.outcome.focusRank!)} of ${f.outcome.of} (Brier ${n1(f.focus.brierA, 3)})`}.`
+      : f.outcome.best && f.outcome.focusRank !== null
+      ? f.outcome.focusRank === 1
+        ? `Against the pre-registered headline outcome, the share of the main pot each model actually won, ${focusName} scored best (Brier ${n1(f.focus.brierA, 3)}; the language models ${range(others.map((o) => o.brierA), (x) => n1(x, 3))}).`
+        : `Against the pre-registered headline outcome, the share of the main pot each model actually won, ${esc(f.outcome.best.label)} scored best (Brier ${n1(f.outcome.best.brierA, 3)}); ${focusName} ranked ${ord(f.outcome.focusRank)} of ${f.outcome.of} (Brier ${n1(f.focus.brierA, 3)}).`
+      : ''
+  const eceLine =
+    f.focus.eceC === null
+      ? ''
+      : f.calibration.focusBestEce
+        ? `Against the true chance, ${focusName}’s stated chances were the best calibrated on average (ECE ${n1(f.focus.eceC, 3)}; the language models ${range(others.map((o) => o.eceC), (x) => n1(x, 3))}): in each band, what it stated came true about as often as it said.`
+        : `Against the true chance, the best-calibrated stated chances came from ${esc(f.calibration.bestOtherEce?.label ?? 'another model')} (ECE ${n1(f.calibration.bestOtherEce?.eceC ?? null, 3)}); ${focusName}’s ECE was ${n1(f.focus.eceC, 3)}.`
+  // Right on average but seldom far from the middle: calibrated, with little resolution.
+  const narrowest = f.focus.spreadPts !== null && others.every((o) => o.spreadPts === null || f.focus.spreadPts! < o.spreadPts)
+  const spreadLine =
+    f.focus.spreadPts === null
+      ? ''
+      : `The stated chances’ standard deviation was ${n1(f.focus.spreadPts)} points for ${focusName} and ${range(others.map((o) => o.spreadPts), (x) => n1(x))} for the language models, while the true chances in ${focusName}’s spots varied by ${n1(f.focus.truthSpreadPts)}.${
+          narrowest && f.calibration.focusBestEce && !f.truth.focusBest
+            ? ` ${focusName}’s estimates were right on average but stayed near the middle, so one at a time they sat further from the truth than ${esc(f.truth.bestOther?.label ?? 'the closest model')}’s.`
+            : ''
+        }`
+  const byRate = (key: 'foldRight' | 'callRight', dir: 1 | -1) => by(all, (m) => (m[key].n ? m[key].rate : null), dir)
+  const accuracyLine = (() => {
+    const [bf, wf, bc, wc] = [byRate('foldRight', -1), byRate('foldRight', 1), byRate('callRight', -1), byRate('callRight', 1)]
+    if (!bf || !wf || !bc || !wc) return ''
+    return `Folds were most often right for ${nameOf(bf)} (${pctOf(bf.foldRight.rate)}) and least for ${nameOf(wf)} (${pctOf(wf.foldRight.rate)}); calls, for ${nameOf(bc)} (${pctOf(bc.callRight.rate)}) and ${nameOf(wc)} (${pctOf(wc.callRight.rate)}). ${focusName}’s folds were right ${pctOf(f.focus.foldRight.rate)} of ${f.focus.foldRight.n} times and its calls ${pctOf(f.focus.callRight.rate)} of ${f.focus.callRight.n}.`
+  })()
+  const styleOf = (id: string) => report.metrics.find((x) => x.playerId === id)?.style
+  const vpipOf = (m: ModelFacts) => fin(styleOf(m.playerId)?.vpip)
+  const pfrOf = (m: ModelFacts) => fin(styleOf(m.playerId)?.pfr)
+  const styleLine =
+    vpipOf(f.focus) === null
+      ? ''
+      : `${focusName} played ${pctOf(vpipOf(f.focus))} of hands before the flop and raised first in ${pctOf(pfrOf(f.focus))}; the language models played ${range(others.map(vpipOf), (x) => pctOf(x))} and raised first in ${range(others.map(pfrOf), (x) => pctOf(x))}.`
+
+  const discussCalibration = (() => {
+    const rank = f.outcome.focusRank
+    if (rank === null) return f.truth.focusBest ? `${focusName}’s stated chances sat closer to the truth than every language model’s.` : ''
+    const bestA = rank === 1
+    const bestC = f.calibration.focusBestEce
+    if (bestA && bestC) return `${focusName}’s stated chances scored best on both measures: against the pot actually won, the pre-registered headline, and, on average, against the true chance.`
+    if (bestA) return `${focusName} scored best against the pot actually won, the pre-registered headline, though ${esc(f.calibration.bestOtherEce?.label ?? 'another model')}’s stated chances were better calibrated against the true chance.`
+    if (bestC)
+      return `The two calibration measures disagree about ${focusName}. Against the true chance at the moment of the decision its stated chances were the best calibrated on average, yet against the pot actually won, the pre-registered headline, it ranked ${ord(rank)} of ${f.outcome.of}. A Brier score against a won-or-lost outcome rewards confident estimates that turn out right${narrowest ? `, and ${focusName}’s stayed nearer the middle than any language model’s` : ''}; the headline outcome also counts what happened after the decision, including the player’s own later folds.`
+    return `Calibration did not favour ${focusName}: ${esc(f.outcome.best?.label ?? 'another model')} scored best against the pot actually won, and ${esc(f.calibration.bestOtherEce?.label ?? 'another model')} against the true chance.`
+  })()
+  const moves = f.moveRule
+  const discussStyle =
+    moves && f.focus.kind === 'jev' && moves.moves > 0
+      ? `${focusName}’s play was only partly its own: the pre-registered move rule changed ${pctOf(moves.changed / moves.moves)} of its moves${moves.changed > 0 && moves.toRaise === moves.changed ? ', every one of them towards betting or raising' : ''}${vpipOf(f.focus) !== null ? `, and it played ${pctOf(vpipOf(f.focus))} of hands before the flop against ${range(others.map(vpipOf), (x) => pctOf(x))} for the language models` : ''}. Its calls were right against the pot odds ${pctOf(f.focus.callRight.rate)} of the time. How much of this is the rule and how much Jev can be read from the published probabilities.`
+      : ''
+  const conclusion = [
+    f.speed.timesFasterThanFastest !== null && f.speed.timesFasterThanFastest >= CLAIM_RATIO ? `${focusName} was ${times(f.speed.timesFasterThanFastest)} faster than the fastest language model` : '',
+    f.cost.timesCheaperThanCheapest !== null && f.cost.timesCheaperThanCheapest >= CLAIM_RATIO ? `${times(f.cost.timesCheaperThanCheapest)} cheaper than the cheapest` : '',
+  ].filter(Boolean)
+  const conclusionHtml = [
+    conclusion.length ? `${conclusion.join(' and ')}.` : '',
+    f.outcome.focusRank === null ? '' : f.outcome.focusRank === 1 ? `Against the pot actually won, the pre-registered headline, its stated chances scored best.` : `Against the pot actually won, the pre-registered headline, its stated chances ranked ${ord(f.outcome.focusRank)} of ${f.outcome.of}.`,
+    f.calibration.focusBestEce ? `Against the true chance they were the best calibrated on average${narrowest ? ', but the least spread out' : ''}.` : '',
+    f.significantChipWins.length || f.significantChipLosses.length ? chipLine : `No chip difference was significant at ${hands.toLocaleString('en-US')} hands.`,
+    'The protocol, the analysis and the decision-level data are released with this report.',
+  ]
+    .filter(Boolean)
+    .join(' ')
+
   // ---- tables ----
-  const row = (m: ModelFacts, cells: string[]) => `<tr${m.focus ? ' class="focus"' : ''}><td>${esc(m.label)}</td>${cells.map((c) => `<td>${c}</td>`).join('')}</tr>`
+  const row = (m: ModelFacts, cells: string[], cls: string[] = []) => {
+    const classes = [...cls, ...(m.focus ? ['focus'] : [])]
+    return `<tr${classes.length ? ` class="${classes.join(' ')}"` : ''}><td>${esc(m.label)}</td>${cells.map((c) => `<td>${c}</td>`).join('')}</tr>`
+  }
   const lineupTable = `<table><thead><tr><th>Model</th><th>Kind</th><th>Decisions</th><th>Fallbacks</th></tr></thead><tbody>${all.map((m) => row(m, [esc(m.kind === 'jev' ? 'typed readout' : m.kind === 'llm' ? 'language model' : m.kind), m.answered.toLocaleString('en-US'), pctOf(m.fallbackRate, 1)])).join('')}</tbody></table>`
   const anyHosts = all.some((m) => m.hosts.length > 0)
-  const hostsOf = (m: ModelFacts) => (m.hosts.length ? m.hosts.map((h) => `${esc(h.name)} ${pctOf(h.share)}`).join(', ') : m.kind === 'jev' ? 'TypeSafe' : '–')
-  const speedTable = `<table><thead><tr><th>Model</th><th>Median</th><th>95th pct.</th><th>$ / decision</th>${anyHosts ? '<th>Served by</th>' : ''}</tr></thead><tbody>${all.map((m) => row(m, [msOf(m.latencyP50Ms), msOf(m.latencyP95Ms), usdOf(m.costPerDecisionUsd), ...(anyHosts ? [hostsOf(m)] : [])])).join('')}</tbody></table>`
+  const hostsOf = (m: ModelFacts) => (m.hosts.length ? m.hosts.map((h) => `${esc(h.name)} ${h.share < 0.005 ? '&lt;1%' : pctOf(h.share)}`).join(', ') : m.kind === 'jev' ? 'TypeSafe' : '–')
+  const speedTable = `<table><thead><tr><th>Model</th><th>Median</th><th>95th pct.</th><th>$ / decision</th></tr></thead><tbody>${all
+    .map((m) => {
+      const cells = [msOf(m.latencyP50Ms), msOf(m.latencyP95Ms), usdOf(m.costPerDecisionUsd)]
+      return anyHosts ? `${row(m, cells, ['hosted'])}<tr class="hosts"><td colspan="4">served by ${hostsOf(m)}</td></tr>` : row(m, cells)
+    })
+    .join('')}</tbody></table>`
   const rule = f.moveRule
   const ruleLine = rule
-    ? `<p>The pre-registered move rule (Section 2.1) changed ${rule.changed} of ${esc(focusName)}’s ${rule.moves} moves (${pctOf(rule.changed / rule.moves)}) from TypeSafe’s single most likely option: ${listOf(
+    ? `<p>The pre-registered move rule (Section 2.1) changed ${rule.changed.toLocaleString('en-US')} of ${esc(focusName)}’s ${rule.moves.toLocaleString('en-US')} moves (${pctOf(rule.changed / rule.moves)}) from TypeSafe’s single most likely option: ${listOf(
         [
           [rule.toRaise, 'to a bet or raise'],
           [rule.toCall, 'to a check or call'],
@@ -420,12 +534,12 @@ export function renderPaperHtml(report: StudyReport, decisions: readonly ScoredD
       ) || 'none'}. Every probability ${esc(focusName)} gave is in the published data, so the moves under either rule can be compared.</p>`
     : ''
   const truthTable = `<table><thead><tr><th>Model</th><th>Off truth (pts)</th><th>Lean (pts)</th><th>Brier</th><th>ECE</th></tr></thead><tbody>${all.map((m) => row(m, [n1(m.offTruthPts), signed(m.biasPts), n1(m.brierC, 3), n1(m.eceC, 3)])).join('')}</tbody></table>`
+  const wonTable = `<table><thead><tr><th>Model</th><th>Brier</th><th>ECE</th><th>SD stated</th><th>SD true</th></tr></thead><tbody>${all.map((m) => row(m, [n1(m.brierA, 3), n1(m.eceA, 3), n1(m.spreadPts), n1(m.truthSpreadPts)])).join('')}</tbody></table>`
   const actionTable = `<table><thead><tr><th>Model</th><th>Folds</th><th>right</th><th>Calls</th><th>right</th></tr></thead><tbody>${all.map((m) => row(m, [String(m.foldRight.n), pctOf(m.foldRight.rate), String(m.callRight.n), pctOf(m.callRight.rate)])).join('')}</tbody></table>`
   const chipTable = `<table><thead><tr><th>Model</th><th>bb/100</th><th>95% CI</th><th>${esc(focusName)} − model</th><th>p (Holm)</th></tr></thead><tbody>${all
     .map((m) => row(m, [signed(m.bb100.mean), m.bb100.low === null || m.bb100.high === null ? '–' : `[${n1(m.bb100.low)}, ${n1(m.bb100.high)}]`, m.vsFocus ? signed(m.vsFocus.mean) : '—', m.vsFocus ? pOf(m.vsFocus.pHolm) : '—']))
     .join('')}</tbody></table>`
 
-  const styleOf = (id: string) => report.metrics.find((x) => x.playerId === id)?.style
   const styleTable = `<table><thead><tr><th>Model</th><th>VPIP</th><th>PFR</th><th>AF</th><th>WTSD</th></tr></thead><tbody>${all
     .map((m) => {
       const st = styleOf(m.playerId)
@@ -461,7 +575,7 @@ export function renderPaperHtml(report: StudyReport, decisions: readonly ScoredD
   const figCalibration = fig(2, `<div class="panels">${all.map((m) => reliability(m.calibrationC, m.label, m.focus)).join('')}</div>`, 'Reliability of the stated win chance against the true chance at the moment of the decision (exact enumeration of the remaining board given every hole card). Points on the diagonal are perfectly calibrated; dot area is the number of decisions in the bin.', true)
   const figSpeed = fig(3, barFigure(all.map((m) => ({ label: m.label, value: m.latencyP50Ms, whisker: m.latencyP95Ms, focus: m.focus })), (v) => msOf(v), true), 'Time to a decision: median (bar) and 95th percentile (whisker), log scale.')
   const figCost = fig(4, barFigure(all.map((m) => ({ label: m.label, value: m.costPerDecisionUsd, focus: m.focus })), (v) => usdOf(v), true), 'Cost per decision at the prices of the run, log scale.')
-  const figChips = fig(5, forest(all.map((m) => ({ label: m.label, mean: m.bb100.mean, low: m.bb100.low, high: m.bb100.high, focus: m.focus }))), `Chips won per 100 hands in big blinds, with 95% Student t intervals over ${blocks} neighbour blocks. Intervals are marginal, not simultaneous; claims about ${focusName} rest on the paired comparisons in Table 5.`)
+  const figChips = fig(5, forest(all.map((m) => ({ label: m.label, mean: m.bb100.mean, low: m.bb100.low, high: m.bb100.high, focus: m.focus }))), `Chips won per 100 hands in big blinds, with 95% Student t intervals over ${blocks} neighbour blocks. Intervals are marginal, not simultaneous; claims about ${focusName} rest on the paired comparisons in Table 6.`)
 
   const sectionsHtml = `
 <h2>1 Introduction</h2>
@@ -485,7 +599,7 @@ export function renderPaperHtml(report: StudyReport, decisions: readonly ScoredD
 <h3>3.3 Measures</h3>
 <ul>
 <li><b>Off the truth</b>: the mean absolute difference between a model’s stated win chance and its true chance at the moment of the decision, in percentage points; <b>lean</b> is the same difference with its sign kept.</li>
-<li><b>Brier score and ECE</b> of the stated chance against the true chance (ten equal-width bins).</li>
+<li><b>Calibration</b>: the Brier score and expected calibration error (ECE, ten equal-width bins) of the stated chance against two outcomes. The pre-registered headline is the share of the main pot the player actually won (1, 1/k for a k-way split, 0 after any fold), which also counts what happened after the decision; the second is the true chance at the moment of the decision, which isolates the estimate. The standard deviation of the stated chances shows how far a model’s estimates move.</li>
 <li><b>Move accuracy</b>: a fold is right if the true equity was below the pot odds, a call if it was at or above them. Checks and raises have no such rule and are not scored here.</li>
 <li><b>Chips</b>: big blinds won per 100 hands, with 95% Student t intervals over neighbour blocks, and pre-registered paired comparisons of ${esc(focusName)} against each other model, corrected with Holm’s procedure.</li>
 <li><b>Speed and cost</b>: wall-clock time and billed cost per decision the model answered itself.</li>
@@ -503,40 +617,46 @@ ${figCost}
 <p class="tablecap"><b>Table 2.</b> Time and cost per decision.</p>
 ${speedTable}
 <h3>4.2 Stated confidence against the truth</h3>
-<p>${truthLine} ${leanLine}</p>
+<p>${outcomeLine} ${eceLine} ${truthLine} ${leanLine}</p>
 ${figCalibration}
 <p class="tablecap"><b>Table 3.</b> Stated win chance against the true chance.</p>
 ${truthTable}
+<p>${spreadLine}</p>
+<p class="tablecap"><b>Table 4.</b> Stated win chance against the share of the main pot actually won (the pre-registered headline outcome), and how far the stated and true chances moved (standard deviations, in points).</p>
+${wonTable}
 ${ruleLine}
 <h3>4.3 Move accuracy</h3>
-<p>Folds and calls are the two decisions with an exact right answer given the pot odds. Table 4 gives, for each model, how many of each it made and the share that were right.</p>
-<p class="tablecap"><b>Table 4.</b> Folds and calls against the pot odds.</p>
+<p>Folds and calls are the two decisions with an exact right answer given the pot odds. Table 5 gives, for each model, how many of each it made and the share that were right. ${accuracyLine}</p>
+<p class="tablecap"><b>Table 5.</b> Folds and calls against the pot odds.</p>
 ${actionTable}
 <h3>4.4 Chips</h3>
 <p>${chipLine}</p>
 ${figChips}
-<p class="tablecap"><b>Table 5.</b> Chips per 100 hands, and the pre-registered paired comparisons.</p>
+<p class="tablecap"><b>Table 6.</b> Chips per 100 hands, and the pre-registered paired comparisons.</p>
 ${chipTable}
 
 <h3>4.5 Play style</h3>
-<p>How each model played, from the same hands: the share of hands it chose to play before the flop (VPIP), the share it raised first in (PFR), its post-flop aggression (bets and raises per call, AF) and the share of flops it took to showdown (WTSD).</p>
-<p class="tablecap"><b>Table 6.</b> Play style.</p>
+<p>How each model played, from the same hands: the share of hands it chose to play before the flop (VPIP), the share it raised first in (PFR), its post-flop aggression (bets and raises per call, AF) and the share of flops it took to showdown (WTSD). ${styleLine}</p>
+<p class="tablecap"><b>Table 7.</b> Play style.</p>
 ${styleTable}
 
 <h2>5 Discussion</h2>
-<p>${f.truth.focusBest ? `The typed readout’s advantage in calibration is the central result: asked the same question as the language models about the same cards, ${esc(focusName)}’s stated chances sat closer to the truth.` : `Calibration did not separate ${esc(focusName)} from every language model: the closest stated chances came from ${esc(f.truth.bestOther?.label ?? 'another model')}.`} ${f.cost.timesCheaperThanCheapest !== null && f.cost.timesCheaperThanCheapest >= CLAIM_RATIO ? `The differences in speed and cost are large enough to matter in deployment regardless of the chip result.` : ''} Chip results need far more hands than calibration: a single decision contributes a full calibration point, while a chip difference only emerges over many hands, which is why the study was built around duplicate seating and a stopping rule on interval width.</p>
+<p>${discussCalibration}</p>
+${discussStyle ? `<p>${discussStyle}</p>` : ''}
+<p>${f.cost.timesCheaperThanCheapest !== null && f.cost.timesCheaperThanCheapest >= CLAIM_RATIO ? `The differences in speed and cost are large enough to matter in deployment regardless of the chip result. ` : ''}Chip results need far more hands than calibration: a single decision contributes a full calibration point, while a chip difference only emerges over many hands, which is why the study was built around duplicate seating and a stopping rule on interval width.</p>
 
 <h2>6 Limitations</h2>
 <ul>
 <li>The sample is ${hands.toLocaleString('en-US')} hands in ${blocks} blocks. Calibration, speed and cost rest on ${report.study.decisions.toLocaleString('en-US')} decisions and are reasonably precise; the chip intervals are ${f.focus.bb100.low !== null && f.focus.bb100.high !== null ? `±${n1((f.focus.bb100.high - f.focus.bb100.low) / 2)} bb/100 for ${esc(focusName)}` : 'wide'}, and most chip differences cannot be distinguished from zero.</li>
 <li>One line-up, one prompt per model family and one stack depth were tested. Other prompts, reasoning settings or stack depths may change the language models’ results.</li>
 <li>The true chance is the equity against the hands still live when the player acted; it ignores what later betting would have done, by design.</li>
+<li>Brier scores and ECE are reported without intervals; small differences between them should not be read as a ranking.</li>
 <li>Move accuracy covers folds and calls only. Checks and raises depend on later streets and are not scored with an exact rule.</li>
 <li>Speed and cost depend on the providers’ infrastructure and prices at the time of the run.${anyHosts ? ' OpenRouter routes each call to one of several hosts; Table 2 lists which served each model.' : ''}</li>
 </ul>
 
 <h2>7 Conclusion</h2>
-<p>${esc(headline(f))} Measured on the same deals from every seat, and scored against the true chances computed from every card, the study gives a direct answer to whether a model knows what it knows. The protocol, the analysis and the decision-level data are released with this report.</p>
+<p>${conclusionHtml}</p>
 
 <h2>References</h2>
 <ol class="refs">
@@ -565,7 +685,7 @@ ${recordHtml}`
 <p class="meta">Technical report · ${esc(date)} · study <code>${esc(report.study.id)}</code> · pre-registration <code>${esc(report.study.configHash.slice(0, 12))}</code></p>
 </header>
 <section class="abstract"><h2>Abstract</h2>
-<p>We compare ${esc(focusName)}, a typed-readout decision model, with ${otherNames.length} general-purpose language models (${listOf(otherNames.map(esc))}) at ${all.length}-handed No-Limit Texas Hold’em, over ${hands.toLocaleString('en-US')} hands and ${report.study.decisions.toLocaleString('en-US')} decisions in a duplicate format that deals every card order to every seat. At each decision the model states its chance of winning, which we score against the true chance computed from every hole card. ${speedLine} ${costLine} ${truthLine} ${chipLine} The study was pre-registered, and the decision-level data are published with this report.</p>
+<p>We compare ${esc(focusName)}, a typed-readout decision model, with ${otherNames.length} general-purpose language models (${listOf(otherNames.map(esc))}) at ${all.length}-handed No-Limit Texas Hold’em, over ${hands.toLocaleString('en-US')} hands and ${report.study.decisions.toLocaleString('en-US')} decisions in a duplicate format that deals every card order to every seat. At each decision the model states its chance of winning, which we score against the true chance computed from every hole card. ${speedLine} ${costLine} ${outcomeLine} ${eceLine} ${chipLine} The study was pre-registered, and the decision-level data are published with this report.</p>
 </section>
 ${figPipeline}
 <div class="cols">${sectionsHtml}</div>
