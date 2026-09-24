@@ -75,7 +75,13 @@ function crafted(): { report: StudyReport; decisions: ScoredDecision[] } {
   const interval = (mean: number) => ({ mean, low: mean - 5, high: mean + 5, halfWidth: 5 })
   const metric = (playerId: string, p50: number, cost: number) =>
     ({ playerId, hands: 100, decisions: 4, costUsd: cost * 4, costPerDecisionUsd: cost, latencyP50Ms: p50, latencyP95Ms: p50 * 2, latencyMeanMs: p50, fallbacks: { model: 0, infra: 0, timeout: 0, auto: 0 }, fallbackRate: 0, modelFallbackRate: 0, retryRate: 0, style: { vpip: 0.2, pfr: 0.1, af: 1, wtsd: 0.3 } }) as unknown as StudyReport['metrics'][number]
-  const cal = { n: 4, brier: 0.1, ece: 0.05, bins: [] }
+  const cal = (brier: number, ece: number) => ({ n: 4, brier, ece, bins: [] })
+  // Against the pot actually won (A, the pre-registered headline) the model does better; against the
+  // true chance (C) Jev is the better calibrated.
+  const calOf: Record<string, { winA: ReturnType<typeof cal>; winC: ReturnType<typeof cal> }> = {
+    hex: { winA: cal(0.25, 0.17), winC: cal(0.056, 0.011) },
+    pill: { winA: cal(0.13, 0.136), winC: cal(0.047, 0.039) },
+  }
   const report = {
     kind: 'artificialBluff study report',
     version: 1,
@@ -92,7 +98,7 @@ function crafted(): { report: StudyReport; decisions: ScoredDecision[] } {
     ],
     contrasts: [{ focusId: 'hex', otherId: 'pill', diff: interval(24), pValue: 0.2, pHolm: 0.2, significant: false }],
     metrics: [metric('hex', 200, 0.00005), metric('pill', 4000, 0.01)],
-    calibration: ['hex', 'pill'].map((playerId) => ({ playerId, confidenceSource: '', winA: cal, winC: cal, actionByType: { fold: cal, check: cal, call: cal, raise: cal } })),
+    calibration: ['hex', 'pill'].map((playerId) => ({ playerId, confidenceSource: '', ...calOf[playerId]!, actionByType: { fold: cal(0.1, 0.05), check: cal(0.1, 0.05), call: cal(0.1, 0.05), raise: cal(0.1, 0.05) } })),
     notes: [],
   } as unknown as StudyReport
   const decisions = [
@@ -128,6 +134,18 @@ describe('paper facts', () => {
     expect(f.significantChipWins).toEqual([])
   })
 
+  it('ranks every model on the pre-registered headline outcome as well as on the true chance', () => {
+    const f = paperFacts(...Object.values(crafted()) as [StudyReport, ScoredDecision[]])
+    expect(f.focus).toMatchObject({ brierA: 0.25, eceA: 0.17, eceC: 0.011 })
+    // Against what actually happened the model beat Jev; against the true chance Jev is the better calibrated.
+    expect(f.outcome).toMatchObject({ focusRank: 2, of: 2 })
+    expect(f.outcome.best?.playerId).toBe('pill')
+    expect(f.calibration).toMatchObject({ focusBestEce: true })
+    // How far the stated chances moved: Jev said 55 and 45 (5 points either side), the model 80 twice.
+    expect(f.focus.spreadPts).toBeCloseTo(5, 9)
+    expect(f.others[0]!.spreadPts).toBeCloseTo(0, 9)
+  })
+
   it('counts how often the move rule overrode Jev\'s own pick, and which hosts served each model', () => {
     const { report, decisions } = crafted()
     const f = paperFacts(report, decisions)
@@ -155,8 +173,35 @@ describe('renderPaperHtml', () => {
     const { report, decisions } = crafted()
     const html = renderPaperHtml(report, decisions, { mock: false })
     expect(html).toContain('changed 1 of Jev’s 3 moves (33%)')
-    expect(html).toContain('<th>Served by</th>')
-    expect(html).toContain('Anthropic 67%, Google 33%')
+    // Hosts sit on a line of their own under each model, so a long list can't squeeze the table.
+    expect(html).toContain('served by Anthropic 67%, Google 33%')
+    expect(html).not.toContain('<th>Served by</th>')
+  })
+
+  it('names every model level with the best on the headline outcome, as printed', () => {
+    const { report, decisions } = crafted()
+    const tied = { ...report, calibration: report.calibration.map((c) => ({ ...c, winA: { ...c.winA, brier: c.playerId === 'hex' ? 0.1304 : 0.1298 } })) }
+    const html = renderPaperHtml(tied, decisions, { mock: false })
+    expect(html).toContain('Jev and claude-fable-5.1 scored best (Brier 0.130)')
+  })
+
+  it('states the pre-registered headline outcome, and says so when the focus did worse on it', () => {
+    const { report, decisions } = crafted()
+    const html = renderPaperHtml(report, decisions, { mock: false })
+    expect(html).toContain('share of the main pot each model actually won')
+    expect(html).toContain('claude-fable-5.1 scored best (Brier 0.130); Jev ranked 2nd of 2 (Brier 0.250)')
+    expect(html).toContain('best calibrated on average (ECE 0.011')
+    // The abstract carries both, and the conclusion doesn't claim what didn't hold.
+    const abstract = html.slice(html.indexOf('<section class="abstract">'), html.indexOf('</section>'))
+    expect(abstract).toContain('Brier 0.250')
+    const conclusion = html.slice(html.indexOf('7 Conclusion'), html.indexOf('References'))
+    expect(conclusion).not.toContain('knows what it knows')
+    expect(conclusion).toContain('ranked 2nd of 2')
+    // Tables are numbered in order and the text points at the right ones.
+    const caps = [...html.matchAll(/<b>Table (\d)\.<\/b>/g)].map((m) => Number(m[1]))
+    expect(caps).toEqual([1, 2, 3, 4, 5, 6, 7])
+    expect(html).toContain('Table 5 gives')
+    expect(html).toMatch(/claims about Jev rest on the paired comparisons in Table 6/)
   })
 
   it('lays out a paper: title, abstract, every section, the figures and tables, and no broken numbers', async () => {
