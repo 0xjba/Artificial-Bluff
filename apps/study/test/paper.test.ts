@@ -61,6 +61,12 @@ const decision = (over: Partial<ScoredDecision>): ScoredDecision =>
     stackChange: 0,
     expectedShare: 0.5,
     actionGood: 1,
+    fallbackReason: null,
+    reasoning: null,
+    jevChoice: null,
+    provider: null,
+    rawReply: null,
+    at: '',
     ...over,
   }) as ScoredDecision
 
@@ -91,13 +97,16 @@ function crafted(): { report: StudyReport; decisions: ScoredDecision[] } {
   } as unknown as StudyReport
   const decisions = [
     // Jev: 5 points off the truth either way, so 5 off on average and no lean.
-    decision({ playerId: 'hex', winProbability: 0.55, expectedShare: 0.5, actionType: 'fold', actionGood: 1 }),
-    decision({ playerId: 'hex', winProbability: 0.45, expectedShare: 0.5, actionType: 'fold', actionGood: 1 }),
+    decision({ playerId: 'hex', winProbability: 0.55, expectedShare: 0.5, actionType: 'fold', actionGood: 1, optionId: 'fold', jevChoice: 'fold' }),
+    decision({ playerId: 'hex', winProbability: 0.45, expectedShare: 0.5, actionType: 'fold', actionGood: 1, optionId: 'fold', jevChoice: 'fold' }),
+    // Jev's own pick was a call; the pre-registered rule played a raise.
+    decision({ playerId: 'hex', winProbability: 0.5, expectedShare: 0.5, actionType: 'raise', optionId: 'min_raise', jevChoice: 'call', fallback: true, fallbackKind: 'infra' }),
+    decision({ playerId: 'hex', winProbability: null, expectedShare: 0.5, actionType: 'raise', optionId: 'open_3bb', jevChoice: 'call' }),
     // The model: 30 points high every time, and one of two folds wrong.
-    decision({ playerId: 'pill', winProbability: 0.8, expectedShare: 0.5, actionType: 'fold', actionGood: 1 }),
-    decision({ playerId: 'pill', winProbability: 0.8, expectedShare: 0.5, actionType: 'fold', actionGood: 0 }),
+    decision({ playerId: 'pill', winProbability: 0.8, expectedShare: 0.5, actionType: 'fold', actionGood: 1, provider: 'Anthropic' }),
+    decision({ playerId: 'pill', winProbability: 0.8, expectedShare: 0.5, actionType: 'fold', actionGood: 0, provider: 'Google' }),
     // A fallback says nothing about the model's judgement, so it is left out.
-    decision({ playerId: 'pill', winProbability: 0.0, expectedShare: 0.9, actionType: 'fold', actionGood: 0, fallback: true, fallbackKind: 'timeout' }),
+    decision({ playerId: 'pill', winProbability: 0.0, expectedShare: 0.9, actionType: 'fold', actionGood: 0, fallback: true, fallbackKind: 'timeout', provider: 'Anthropic' }),
   ]
   return { report, decisions }
 }
@@ -119,6 +128,18 @@ describe('paper facts', () => {
     expect(f.significantChipWins).toEqual([])
   })
 
+  it('counts how often the move rule overrode Jev\'s own pick, and which hosts served each model', () => {
+    const { report, decisions } = crafted()
+    const f = paperFacts(report, decisions)
+    // Three moves Jev made itself (the fallback isn't its move); one was changed, from a call to a raise.
+    expect(f.moveRule).toEqual({ moves: 3, changed: 1, toRaise: 1, toCall: 0, toFold: 0 })
+    // Hosts over every call made, failed ones too: they are where the time was spent.
+    expect(f.others[0]!.hosts).toEqual([{ name: 'Anthropic', share: 2 / 3 }, { name: 'Google', share: 1 / 3 }])
+    expect(f.focus.hosts).toEqual([])
+    // A study logged before Jev's pick was recorded says nothing about the rule.
+    expect(paperFacts(report, decisions.map((d) => ({ ...d, jevChoice: null }))).moveRule).toBeNull()
+  })
+
   it('writes a headline from what held, and nothing that did not', () => {
     const { report, decisions } = crafted()
     const f = paperFacts(report, decisions)
@@ -130,6 +151,14 @@ describe('paper facts', () => {
 })
 
 describe('renderPaperHtml', () => {
+  it('reports the move rule\'s effect and the hosts when the log has them', () => {
+    const { report, decisions } = crafted()
+    const html = renderPaperHtml(report, decisions, { mock: false })
+    expect(html).toContain('changed 1 of Jev’s 3 moves (33%)')
+    expect(html).toContain('<th>Served by</th>')
+    expect(html).toContain('Anthropic 67%, Google 33%')
+  })
+
   it('lays out a paper: title, abstract, every section, the figures and tables, and no broken numbers', async () => {
     const { report, decisions } = await analysis()
     const html = renderPaperHtml(report, decisions, { mock: true })
