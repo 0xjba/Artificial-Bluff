@@ -49,6 +49,7 @@ describe('research figures', () => {
     callRight: { n: 20, rate: 0.5 },
     bb100: { mean: -5, low: -40, high: 30 },
     vsFocus: { mean: 10, low: -20, high: 40, pHolm: 0.4, significant: false },
+    hosts: [],
     ...over,
   })
   const jev = model({ playerId: 'hex', model: 'jev-1.13.0', kind: 'jev', label: 'Jev (jev-1.13.0)', focus: true, latencyP50Ms: 200, costPerDecisionUsd: 0.00005, fallbackRate: 0, offTruthPts: 6, biasPts: -1, foldRight: { n: 30, rate: 0.9 }, callRight: { n: 10, rate: 0.8 }, bb100: { mean: 5, low: -25, high: 35 }, vsFocus: null })
@@ -65,6 +66,7 @@ describe('research figures', () => {
     truth: { focusBest: true, bestOther: fable, worstOther: llama },
     significantChipWins: [],
     significantChipLosses: [],
+    moveRule: null,
     ...over,
   })
 

@@ -1,7 +1,8 @@
 'use client'
 import type { TableView } from '@ab/core/view'
 import { chips } from '../lib/format'
-import { PlayingCard } from './PlayingCard'
+import { boardDelay } from '../lib/deal'
+import { DealtCard } from './PlayingCard'
 import { Seat } from './Seat'
 
 /** Seat places on the portrait felt (percent), first seat at the bottom, by number of seats. */
@@ -97,7 +98,9 @@ export function Stage({ view }: { view: TableView }) {
             <b>{chips(hand?.pot ?? 0)}</b>
           </div>
           <div className="board">
-            {[0, 1, 2, 3, 4].map((i) => (board[i] ? <PlayingCard key={board[i]} code={board[i]!} /> : <span key={i} className="card slot" />))}
+            {[0, 1, 2, 3, 4].map((i) =>
+              board[i] ? <DealtCard key={`${hand?.handId}-${board[i]}`} code={board[i]!} delay={boardDelay(i)} /> : <span key={i} className="card slot" />,
+            )}
           </div>
           <span className="centre-line">{centreLine(view)}</span>
         </div>

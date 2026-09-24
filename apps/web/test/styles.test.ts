@@ -27,7 +27,7 @@ const SHARED = new Set([
   'log', 'hand-head', 'hand-group', 'at', 'what', 'all-hands', 'more-hands', 'expanded', 'log-body', 'idle', 'end', 'win', 'split', 'fold', 'raise', 'allin', 'flop', 'turn', 'river',
   'seek', 'seek-row', 'track', 'fill', 'tick', 'title', 'play',
   // playing cards
-  'card', 'slot', 'gone',
+  'card', 'slot', 'gone', 'deal', 'small', 'won', 'muck',
 ])
 
 describe('stylesheets', () => {

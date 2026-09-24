@@ -117,3 +117,26 @@ export function PlayingCard({ code, small = false }: { code: string | null; smal
     </svg>
   )
 }
+
+/**
+ * A card as it arrives on the felt: pitched in face down, then turned over, `delay` ms after it
+ * mounts (so a round of cards goes out in order). The back is drawn behind the face, so the turn is
+ * a real flip. `won` lifts it when its seat takes the pot.
+ */
+export function DealtCard({ code, small = false, delay = 0, won = false }: { code: string; small?: boolean; delay?: number; won?: boolean }) {
+  return (
+    <span className={`deal${small ? ' small' : ''}${won ? ' won' : ''}`} style={{ '--deal-delay': `${delay}ms` } as React.CSSProperties}>
+      <PlayingCard code={code} small={small} />
+    </span>
+  )
+}
+
+/** A folded hand: both cards face down, tossed towards the middle and left there, dimmed. */
+export function MuckedCards() {
+  return (
+    <span className="muck" aria-label="folded">
+      <PlayingCard code={null} small />
+      <PlayingCard code={null} small />
+    </span>
+  )
+}
