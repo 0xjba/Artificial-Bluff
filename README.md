@@ -3,6 +3,13 @@
 **AI models play No-Limit Texas Hold’em against each other: a live spectator site, and a pre-registered
 research benchmark of a small, fast decision model against frontier language models.**
 
+<p align="center">
+  <img src="docs/screenshots/highlight-river.png" alt="A replay: Llama 4 Maverick wins a 20,250-chip all-in on the river ace, queens full of aces over Jev's queens full of kings" width="100%">
+</p>
+
+<p align="center"><i>A real hand from the main study, replayed on the site: Jev and Llama 4 Maverick all-in for 100 big
+blinds each; Llama, 11% to win on the turn, hits one of its four outs on the river.</i></p>
+
 Five AI players sit at one table. Nobody human is in the hand. Spectators see every card and each model’s
 stated chance of winning, set against the true chance computed from all the cards. Behind the site is a
 research pipeline that runs controlled studies, analyses them statistically and writes up the results as a
@@ -11,6 +18,25 @@ technical paper.
 The question the research asks: *can a small, fast typed-readout model (TypeSafe’s Jev), used as intended,
 judge its chances and make its decisions as well as frontier language models (Claude, GPT, Gemini, Llama),
 at a fraction of their time and cost?*
+
+## A hand from the study
+
+Hand 84 of the main study, between real models (each seat is a house character; the model behind it is shown
+beside it):
+
+<table>
+  <tr>
+    <td width="50%"><img src="docs/screenshots/highlight-turn.png" alt="The turn: Jev holds queens full of kings and is 89% to win"></td>
+    <td width="50%"><img src="docs/screenshots/highlight-river.png" alt="The river: the ace of clubs gives Llama queens full of aces"></td>
+  </tr>
+  <tr>
+    <td><b>The turn.</b> Jev (HEX) moved all-in before the flop with K♥ J♣; Llama 4 Maverick (NIMBUS) called with
+    A♠ T♥, stating a 62% chance of winning, exactly the true figure at that moment. On K♠ Q♥ Q♠ Q♣, Jev has
+    queens full of kings: 89% to win.</td>
+    <td><b>The river.</b> The A♣, one of Llama’s four outs, makes queens full of aces. Llama takes the 20,250-chip
+    pot; every decision, with each model’s stated chance, timing and cost, is in the hand log and the data.</td>
+  </tr>
+</table>
 
 ## Highlights
 
@@ -48,6 +74,14 @@ All studies are pre-registered and their data published; numbers below are from 
 The two finished studies point to the same finding: **Jev knows the odds about as well as the language models,
 but acts on them less well**, and it does so at a small fraction of the time and cost.
 
+## The research page
+
+Each study’s figures sit next to its paper, rendered in the page, with the data behind them one click away.
+
+<p align="center">
+  <img src="docs/screenshots/research.png" alt="The Research page: the follow-up study's measured figures" width="100%">
+</p>
+
 ## Architecture
 
 ```
@@ -84,11 +118,17 @@ pnpm test && pnpm typecheck
 Free, no API keys needed:
 
 ```bash
-pnpm live --mock          # live table with mock players on :8787
-pnpm web                  # the site on :3000
-pnpm demo                 # a mock tournament into data/demo.db
-pnpm study run studies/final.example.json --mock      # rehearse a study
-pnpm study report studies/final.example.json --mock   # its report and paper
+ADMIN_TOKEN=local-demo-token-0123456789 pnpm live --mock   # live server with mock players on :8787
+pnpm web                                                   # the site on http://localhost:3000
+curl -X POST -H "Authorization: Bearer local-demo-token-0123456789" http://127.0.0.1:8787/api/admin/games   # deal a game
+```
+
+Between games the table replays earlier ones. Other free commands:
+
+```bash
+pnpm demo                                               # a mock tournament into data/demo.db
+pnpm study run studies/final.example.json --mock        # rehearse a study
+pnpm study report studies/final.example.json --mock     # its report and paper
 ```
 
 Real models need `OPENROUTER_API_KEY` and `TYPESAFE_API_KEY` in `.env` (see `.env.example`) and spend real
