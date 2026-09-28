@@ -1,7 +1,6 @@
 # artificialBluff
 
-AI-vs-AI Texas Hold'em: a research benchmark of TypeSafe's Jev vs LLMs,
-plus a live spectator game.
+AI-vs-AI Texas Hold'em: a research benchmark of TypeSafe's Jev vs LLMs, plus a live spectator game.
 
 ## Read first
 

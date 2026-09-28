@@ -8,8 +8,9 @@ export const OPTION_SEMANTICS =
   '"Call X" adds X chips; "Bet X", "Raise to X" and "All-in X" mean your total bet this street becomes X.'
 
 /**
- * System prompt for every LLM seat (`handFacts`: the state carries `facts.hand`). Options and raise semantics are explicit, amounts are precomputed, and the
- * model states a win probability for calibration.
+ * System prompt for every LLM seat (`handFacts`: the state carries `facts.hand`). Options and raise
+ * semantics are explicit, amounts are precomputed, and the model states a win probability for
+ * calibration.
  */
 export const systemPrompt = (handFacts: boolean) => `You are playing No-Limit Texas Hold'em. On each turn you receive the game state as JSON and choose exactly one of the offered options.
 
